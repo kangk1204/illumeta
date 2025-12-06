@@ -1,0 +1,6 @@
+# Large data outputs
+cache/
+GSE*/
+# Python bytecode
+__pycache__/
+*.pyc

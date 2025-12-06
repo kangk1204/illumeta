@@ -462,15 +462,16 @@ run_pipeline <- function(betas, prefix, annotation_df) {
   colnames(design) <- make.unique(make.names(colnames(design)))
   group_cols <- make.names(levels(targets$primary_group))
   
-  sv_cols <- character(0)
+sv_cols <- character(0)
+
+# --- Surrogate Variable Analysis (SVA) ---
+if (!disable_sva) {
+  message("  Running SVA to detect hidden batch effects...")
+  svobj <- NULL  # reset per pipeline to avoid stale state across runs
   
-  # --- Surrogate Variable Analysis (SVA) ---
-  if (!disable_sva) {
-    message("  Running SVA to detect hidden batch effects...")
-    
-    f_str <- "~ primary_group"
-    if (length(covariates) > 0) f_str <- paste(f_str, "+", paste(covariates, collapse = " + "))
-    mod_sva <- model.matrix(as.formula(f_str), data = targets)
+  f_str <- "~ primary_group"
+  if (length(covariates) > 0) f_str <- paste(f_str, "+", paste(covariates, collapse = " + "))
+  mod_sva <- model.matrix(as.formula(f_str), data = targets)
     
     f0_str <- "~ 1"
     if (length(covariates) > 0) f0_str <- paste(f0_str, "+", paste(covariates, collapse = " + "))
@@ -498,13 +499,13 @@ run_pipeline <- function(betas, prefix, annotation_df) {
         mod_sva2 <- model.matrix(~ primary_group, data = targets)
         mod0_sva2 <- model.matrix(~ 1, data = targets)
         tryCatch({
-          svobj <<- run_sva(mod_sva2, mod0_sva2, "group-only")
+          svobj <- run_sva(mod_sva2, mod0_sva2, "group-only")
         }, error = function(e2) {
           message("    - SVA fallback failed: ", e2$message)
         })
     })
     
-    if (exists("svobj") && !is.null(svobj)) {
+    if (!is.null(svobj)) {
         n_sv <- svobj$n.sv
         if (n_sv > 0) {
             max_sv <- min(n_sv, 5, floor(nrow(targets) * 0.2))
@@ -519,10 +520,14 @@ run_pipeline <- function(betas, prefix, annotation_df) {
                 sv_mat <- svobj$sv
                 colnames(sv_mat) <- paste0("SV", 1:n_sv)
             }
-            
-            design <- cbind(design, sv_mat)
-            targets <- cbind(targets, as.data.frame(sv_mat))
-            sv_cols <- colnames(sv_mat)
+            if (nrow(sv_mat) != nrow(design)) {
+                message(paste("    - Skipping SVA integration: sv rows (", nrow(sv_mat),
+                              ") != design rows (", nrow(design), ")", sep = ""))
+            } else {
+                design <- cbind(design, sv_mat)
+                targets <- cbind(targets, as.data.frame(sv_mat))
+                sv_cols <- colnames(sv_mat)
+            }
         } else {
             message("    - No significant surrogate variables found.")
         }

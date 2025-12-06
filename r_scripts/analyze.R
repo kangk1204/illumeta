@@ -1046,6 +1046,7 @@ run_pipeline <- function(betas, prefix, annotation_df) {
       m_perm <- logit_offset(betas[top_perm, , drop=FALSE])
       perm_results <- data.frame(run = integer(0), sig_count = integer(0), min_p = numeric(0))
       perm_group_cols <- make.names(levels(targets$primary_group))
+      perm_start <- Sys.time()
       
       for (i in seq_len(perm_n)) {
           perm_labels <- sample(targets$primary_group)
@@ -1076,6 +1077,13 @@ run_pipeline <- function(betas, prefix, annotation_df) {
           sig <- sum(resp$adj.P.Val < pval_thresh & abs(resp$logFC) > lfc_thresh, na.rm=TRUE)
           minp <- suppressWarnings(min(resp$P.Value, na.rm=TRUE))
           perm_results <- rbind(perm_results, data.frame(run = i, sig_count = sig, min_p = minp))
+          
+          # Progress every 10 permutations (and at the end)
+          if (i %% 10 == 0 || i == perm_n) {
+              elapsed <- as.numeric(difftime(Sys.time(), perm_start, units = "mins"))
+              eta <- (elapsed / i) * (perm_n - i)
+              message(sprintf("    [perm %d/%d] elapsed: %.1f min, ETA: %.1f min", i, perm_n, elapsed, eta))
+          }
       }
       perm_summary <- data.frame(
         stat = c("mean_sig", "median_sig", "max_sig", "min_p_median"),
@@ -1174,16 +1182,7 @@ sesame_counts <- get_sig_counts(res_sesame)
 intersect_counts <- get_sig_counts(res_intersect)
 
 summary_json <- sprintf(
-'{
-  "n_con": %d,
-  "n_test": %d,
-  "minfi_up": %d,
-  "minfi_down": %d,
-  "sesame_up": %d,
-  "sesame_down": %d,
-  "intersect_up": %d,
-  "intersect_down": %d
-}', 
+  '{"n_con": %d, "n_test": %d, "minfi_up": %d, "minfi_down": %d, "sesame_up": %d, "sesame_down": %d, "intersect_up": %d, "intersect_down": %d}', 
   n_con, n_test,
   minfi_counts$up, minfi_counts$down,
   sesame_counts$up, sesame_counts$down,

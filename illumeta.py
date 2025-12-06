@@ -16,16 +16,24 @@ SETUP_MARKER = os.path.join(BASE_DIR, ".r_setup_done")
 SETUP_SCRIPT = os.path.join(R_SCRIPTS_DIR, "setup_env.R")
 DEFAULT_R_LIB = os.path.join(BASE_DIR, ".r-lib")
 
+def log(msg: str):
+    """Prints a timestamped info message."""
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
+
+def log_err(msg: str):
+    """Prints a timestamped error message to stderr."""
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", file=sys.stderr)
+
 def check_r_installation():
     """Checks if R is available in the path."""
     try:
         subprocess.run(["R", "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except (subprocess.CalledProcessError, FileNotFoundError):
-        print("Error: R is not installed or not in the PATH.")
-        print("  - Ubuntu/Debian: sudo apt-get update && sudo apt-get install r-base")
-        print("  - macOS (Homebrew): brew install --cask r")
-        print("  - Conda: conda install -c conda-forge r-base")
-        print("After installation, ensure 'R' and 'Rscript' are in your PATH and re-run illumeta.py.")
+        log_err("Error: R is not installed or not in the PATH.")
+        log_err("  - Ubuntu/Debian: sudo apt-get update && sudo apt-get install r-base")
+        log_err("  - macOS (Homebrew): brew install --cask r")
+        log_err("  - Conda: conda install -c conda-forge r-base")
+        log_err("After installation, ensure 'R' and 'Rscript' are in your PATH and re-run illumeta.py.")
         sys.exit(1)
 
 def check_pandoc_installation():
@@ -33,11 +41,11 @@ def check_pandoc_installation():
     try:
         subprocess.run(["pandoc", "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except (subprocess.CalledProcessError, FileNotFoundError):
-        print("Error: 'pandoc' is not installed or not in the PATH.")
-        print("Pandoc is required for generating interactive HTML reports.")
-        print("  - macOS: brew install pandoc")
-        print("  - Linux: sudo apt-get install pandoc (Debian/Ubuntu) or yum install pandoc (CentOS/RHEL)")
-        print("  - Windows: choco install pandoc")
+        log_err("Error: 'pandoc' is not installed or not in the PATH.")
+        log_err("Pandoc is required for generating interactive HTML reports.")
+        log_err("  - macOS: brew install pandoc")
+        log_err("  - Linux: sudo apt-get install pandoc (Debian/Ubuntu) or yum install pandoc (CentOS/RHEL)")
+        log_err("  - Windows: choco install pandoc")
         sys.exit(1)
 
 def missing_r_packages(pkgs):
@@ -77,7 +85,7 @@ def ensure_r_lib_env(env):
     env["R_LIBS_USER"] = DEFAULT_R_LIB
     if not os.path.exists(DEFAULT_R_LIB):
         os.makedirs(DEFAULT_R_LIB, exist_ok=True)
-        print(f"[*] Created default R library at {DEFAULT_R_LIB}")
+        log(f"[*] Created default R library at {DEFAULT_R_LIB}")
     return env
 
 def ensure_r_dependencies():
@@ -95,22 +103,22 @@ def ensure_r_dependencies():
     core_pkgs = ["optparse", "GEOquery", "sesame", "minfi"]
     missing_core = missing_r_packages(core_pkgs) if marker_ok else []
     if marker_ok and not force_setup and not missing_core:
-        print("[*] R dependencies already set up (skipping). Set ILLUMETA_FORCE_SETUP=1 to force reinstall.")
+        log("[*] R dependencies already set up (skipping). Set ILLUMETA_FORCE_SETUP=1 to force reinstall.")
         return
     if missing_core and not force_setup:
-        print(f"[*] R setup marker found but missing packages: {', '.join(missing_core)}. Re-running setup_env.R ...")
+        log(f"[*] R setup marker found but missing packages: {', '.join(missing_core)}. Re-running setup_env.R ...")
 
-    print("[*] Ensuring R dependencies (this may take a few minutes on first run)...")
+    log("[*] Ensuring R dependencies (this may take a few minutes on first run)...")
     try:
         subprocess.run(["Rscript", SETUP_SCRIPT], check=True, env=env)
         with open(SETUP_MARKER, "w") as f:
             f.write(f"setup completed at {datetime.now().isoformat()}\n")
             f.write("epicv2_required=1\n")
     except subprocess.CalledProcessError as e:
-        print(f"[!] Error while installing R dependencies: {e}")
-        print("    Hint: If you see 'library path not writable', set a user library first:")
-        print("      export R_LIBS_USER=\"$HOME/R/library\" && mkdir -p \"$R_LIBS_USER\"")
-        print("    Then rerun: Rscript r_scripts/setup_env.R")
+        log_err(f"[!] Error while installing R dependencies: {e}")
+        log_err("    Hint: If you see 'library path not writable', set a user library first:")
+        log_err("      export R_LIBS_USER=\"$HOME/R/library\" && mkdir -p \"$R_LIBS_USER\"")
+        log_err("    Then rerun: Rscript r_scripts/setup_env.R")
         if os.path.exists(SETUP_MARKER):
             try:
                 os.remove(SETUP_MARKER)
@@ -121,21 +129,21 @@ def ensure_r_dependencies():
 def run_download(args):
     """Executes the download step."""
     out_dir = args.out_dir if args.out_dir else os.path.abspath(args.gse_id)
-    print(f"[*] Starting download pipeline for {args.gse_id}...")
-    print(f"[*] Output directory: {out_dir}")
+    log(f"[*] Starting download pipeline for {args.gse_id}...")
+    log(f"[*] Output directory: {out_dir}")
     
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
-        
+    
     cmd = ["Rscript", DOWNLOAD_SCRIPT, "--gse", args.gse_id, "--out", out_dir]
     
     env = ensure_r_lib_env(os.environ.copy())
 
     try:
         subprocess.run(cmd, check=True, env=env)
-        print(f"[*] Download complete. Please edit the 'primary_group' column in: {os.path.join(out_dir, 'configure.tsv')}")
+        log(f"[*] Download complete. Please edit the 'primary_group' column in: {os.path.join(out_dir, 'configure.tsv')}")
     except subprocess.CalledProcessError as e:
-        print(f"[!] Error during download step: {e}")
+        log_err(f"[!] Error during download step: {e}")
         sys.exit(1)
 
 def run_analysis(args):
@@ -148,13 +156,13 @@ def run_analysis(args):
         config_path = os.path.join(args.input_dir, "configure.tsv")
     
     if not config_path:
-        print("Error: You must provide either --input-dir or --config.")
+        log_err("Error: You must provide either --input-dir or --config.")
         sys.exit(1)
 
-    print(f"[*] Starting analysis pipeline using configuration: {config_path}...")
+    log(f"[*] Starting analysis pipeline using configuration: {config_path}...")
     
     if not os.path.exists(config_path):
-        print(f"Error: Configuration file {config_path} not found.")
+        log_err(f"Error: Configuration file {config_path} not found.")
         sys.exit(1)
         
     # Determine output directory
@@ -197,17 +205,17 @@ def run_analysis(args):
         if not os.path.exists(args.tmp_dir):
             os.makedirs(args.tmp_dir)
         env["TMPDIR"] = os.path.abspath(args.tmp_dir)
-        print(f"[*] Using custom temporary directory: {env['TMPDIR']}")
+        log(f"[*] Using custom temporary directory: {env['TMPDIR']}")
 
     try:
         subprocess.run(cmd, check=True, env=env)
-        print(f"[*] Analysis complete. Results are in: {output_dir}")
+        log(f"[*] Analysis complete. Results are in: {output_dir}")
         
         # Generate Dashboard
         generate_dashboard(output_dir, args.group_test, args.group_con)
         
     except subprocess.CalledProcessError as e:
-        print(f"[!] Error during analysis step: {e}")
+        log_err(f"[!] Error during analysis step: {e}")
         sys.exit(1)
 
 def safe_int(val):
@@ -233,7 +241,7 @@ def generate_dashboard(output_dir, group_test, group_con):
         with open(summary_path, "r") as f:
             stats = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
-        print("[!] Warning: summary.json not found or invalid. Dashboard will lack stats.")
+        log_err("[!] Warning: summary.json not found or invalid. Dashboard will lack stats.")
         # Default empty stats
         keys = ["n_con", "n_test", "minfi_up", "minfi_down", "sesame_up", "sesame_down", "intersect_up", "intersect_down"]
         stats = {k: 0 for k in keys}
@@ -472,7 +480,7 @@ def generate_dashboard(output_dir, group_test, group_con):
     with open(dashboard_path, "w") as f:
         f.write(full_html)
     
-    print(f"[*] Dashboard generated: {dashboard_path}")
+    log(f"[*] Dashboard generated: {dashboard_path}")
 
 def main():
     parser = argparse.ArgumentParser(description="IlluMeta: Automated Illumina DNA Methylation Analysis Pipeline")
@@ -508,7 +516,7 @@ def main():
         return
     if args.command == "download" and not args.gse_id:
         parser_download.print_help()
-        print("\nExample: python illumeta.py download GSE12345 -o /path/to/project\n")
+        log("Example: python illumeta.py download GSE12345 -o /path/to/project")
         return
     
     check_r_installation()

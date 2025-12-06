@@ -1,6 +1,7 @@
 # IlluMeta
+*IlluMeta: Illuminating Methylation Analytics*
 
-End‑to‑end pipeline for Illumina methylation arrays (450k/850k/950k, incl. EPIC v2): download GEO IDATs, clean metadata, run minfi + sesame, and build an HTML dashboard of results.
+A small, batteries-included toolkit to go from GEO accession to interpretable methylation results in one command set. IlluMeta (Illuminating Methylation Analytics) automates IDAT retrieval, metadata cleanup, minfi + sesame processing, and generates an HTML dashboard ready to share. Works the same on Ubuntu, macOS (Intel/Apple Silicon), and Windows 11 via WSL2.
 
 ## What you get
 - GEO download helper that pulls raw IDATs (or uses existing `idat/` if present) and writes `configure.tsv` + `configure_original.tsv`.

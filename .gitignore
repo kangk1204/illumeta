@@ -1,6 +1,7 @@
 # Large data outputs
 cache/
 GSE*/
+geo_idat_methylation.tsv
 # Python bytecode
 __pycache__/
 *.pyc

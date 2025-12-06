@@ -39,6 +39,34 @@ def check_pandoc_installation():
         print("  - Windows: choco install pandoc")
         sys.exit(1)
 
+def missing_r_packages(pkgs):
+    """Returns a list of missing R packages using requireNamespace checks."""
+    if not pkgs:
+        return []
+    pkg_str = '", "'.join(pkgs)
+    expr = (
+        f'pkgs <- c("{pkg_str}"); '
+        'missing <- pkgs[!sapply(pkgs, function(p) requireNamespace(p, quietly=TRUE))]; '
+        'if (length(missing) > 0) { cat(paste(missing, collapse=",")); quit(status=1) }'
+    )
+    try:
+        res = subprocess.run(
+            ["Rscript", "-e", expr],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except FileNotFoundError:
+        # R not found; handled separately in check_r_installation
+        return []
+    if res.returncode == 0:
+        return []
+    output = (res.stdout + res.stderr).strip()
+    if not output:
+        return pkgs
+    return [p.strip() for p in output.replace("\n", " ").split(",") if p.strip()]
+
 def ensure_r_dependencies():
     """Runs the setup_env.R script to install required R packages and cache data."""
     force_setup = os.environ.get("ILLUMETA_FORCE_SETUP") == "1"
@@ -50,9 +78,13 @@ def ensure_r_dependencies():
             marker_ok = "epicv2_required=1" in content
         except Exception:
             marker_ok = False
-    if marker_ok and not force_setup:
+    core_pkgs = ["optparse", "GEOquery", "sesame", "minfi"]
+    missing_core = missing_r_packages(core_pkgs) if marker_ok else []
+    if marker_ok and not force_setup and not missing_core:
         print("[*] R dependencies already set up (skipping). Set ILLUMETA_FORCE_SETUP=1 to force reinstall.")
         return
+    if missing_core and not force_setup:
+        print(f"[*] R setup marker found but missing packages: {', '.join(missing_core)}. Re-running setup_env.R ...")
 
     print("[*] Ensuring R dependencies (this may take a few minutes on first run)...")
     try:

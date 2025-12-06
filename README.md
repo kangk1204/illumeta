@@ -92,6 +92,13 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
 - **`R: command not found`**: install R (see prerequisites) and open a new shell.
 - **`pandoc: command not found`**: install pandoc (`sudo apt-get install pandoc` or `brew install pandoc`).
 - **`error: externally-managed-environment` from pip**: activate the repo venv (`source .venv/bin/activate`), then `python -m pip install --upgrade pip requests`. Homebrew’s system Python blocks global installs without a venv.
+- **Missing R packages (e.g., `library(optparse)` failing)**: rerun setup with a user library:
+  ```bash
+  export R_LIBS_USER="$HOME/R/library"
+  mkdir -p "$R_LIBS_USER"
+  ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
+  ```
+  Then retry the download/analysis command.
 - **R package install errors about libxml2/ssl/curl/icu**: on Ubuntu/WSL, install `libxml2-dev libcurl4-openssl-dev libssl-dev libicu-dev`; on macOS, `brew install libxml2 openssl@3` and retry with `R_LIBS_USER` set.
 - **`library path not writable`**: set `R_LIBS_USER` as shown above, then rerun `Rscript r_scripts/setup_env.R`.
 - **No samples matched your groups**: check spelling/case of `primary_group` values in `configure.tsv` and that IDAT basenames include the GSM/accession strings used in the file.

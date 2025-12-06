@@ -812,7 +812,7 @@ run_pipeline <- function(betas, prefix, annotation_df) {
         
         # Save Table
         dmr_filename <- paste0(prefix, "_DMRs_Table.html")
-        save_datatable(dmr_res, dmr_filename, out_dir)
+        save_datatable(head(dmr_res, 3000), dmr_filename, out_dir)
         write.csv(dmr_res, file.path(out_dir, paste0(prefix, "_DMRs.csv")))
         
         # 1. DMR Volcano Plot

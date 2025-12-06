@@ -5,6 +5,9 @@ suppressPackageStartupMessages(library(GEOquery))
 suppressPackageStartupMessages(library(dplyr))
 suppressPackageStartupMessages(library(stringr))
 
+options(timeout = max(600, getOption("timeout", 60)))
+options(download.file.method = "libcurl")
+
 option_list <- list(
   make_option(c("-g", "--gse"), type="character", default=NULL, 
               help="GEO Series ID (e.g., GSE86831)", metavar="character"),
@@ -14,6 +17,13 @@ option_list <- list(
 
 opt_parser <- OptionParser(option_list=option_list)
 opt <- parse_args(opt_parser)
+
+# Timestamped messages for easier runtime tracking
+ts_message <- function(..., domain = NULL, appendLF = TRUE) {
+  base::message(sprintf("[%s] %s", format(Sys.time(), "%H:%M:%S"), paste(..., collapse = " ")),
+                domain = domain, appendLF = appendLF)
+}
+message <- ts_message
 
 if (is.null(opt$gse)){
   print_help(opt_parser)
@@ -30,8 +40,21 @@ if (!dir.exists(idat_dir)) {
 
 message(paste("Fetching metadata for:", gse_id))
 
+retry_run <- function(fn, label = "request", attempts = 3, wait = 3) {
+  last_err <- NULL
+  for (i in seq_len(attempts)) {
+    res <- tryCatch(fn(), error = function(e) { last_err <<- e; NULL })
+    if (!is.null(res)) {
+      return(res)
+    }
+    message(sprintf("[%s] attempt %d/%d failed: %s", label, i, attempts, last_err$message))
+    if (i < attempts) Sys.sleep(wait)
+  }
+  stop(sprintf("%s failed after %d attempts: %s", label, attempts, last_err$message))
+}
+
 # Fetch GEO series
-gse <- getGEO(gse_id, GSEMatrix = TRUE)
+gse <- retry_run(function() getGEO(gse_id, GSEMatrix = TRUE), label = "getGEO")
 if (length(gse) > 1) {
   message("Warning: Multiple platforms found. Using the first one.")
 }
@@ -67,7 +90,10 @@ if (length(existing_idats) > 0) {
     
     tryCatch({
         # Strategy 1: Try to download individual IDAT files
-        files_info <- getGEOSuppFiles(gse_id, baseDir = out_dir, makeDirectory = TRUE, filter_regex = "idat.gz")
+        files_info <- retry_run(
+            function() getGEOSuppFiles(gse_id, baseDir = out_dir, makeDirectory = TRUE, filter_regex = "idat.gz"),
+            label = "getGEOSuppFiles(idat.gz)"
+        )
         
         downloaded_dir <- file.path(out_dir, gse_id)
         
@@ -79,7 +105,10 @@ if (length(existing_idats) > 0) {
             
             # Strategy 2: Download RAW.tar
             # Note: filter_regex might need to be broad or specific. usually "RAW.tar" matches "GSEXXXX_RAW.tar"
-            files_info_tar <- getGEOSuppFiles(gse_id, baseDir = out_dir, makeDirectory = TRUE, filter_regex = "RAW.tar")
+            files_info_tar <- retry_run(
+                function() getGEOSuppFiles(gse_id, baseDir = out_dir, makeDirectory = TRUE, filter_regex = "RAW.tar"),
+                label = "getGEOSuppFiles(RAW.tar)"
+            )
             
             tar_files <- list.files(downloaded_dir, pattern = "RAW.tar", full.names = TRUE)
             

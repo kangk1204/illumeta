@@ -17,14 +17,14 @@ GSE145664	Epigenetic therapy strengthens immune synapses to potentiate susceptib
 GSE145588	DNA methylome analysis of DNA methyltransferase inhibitor reagent-treated lung cancer cells	GPL21145	850k	12	33846331	yes
 GSE126043	Genome-wide identification of differentially methylated promoters and enhancers associated with response to anti-PD-1 therapy in non-small cell lung cancer	GPL21145	850k	18	32879421	yes
 GSE153246	Epigenome-wide DNA methylation of the BEAS-2B cells post-chronic exposure to SWCNTs for 60 days	GPL21145	850k	6		yes
-GSE145156	Epigenome-Wide DNA Methylation Analysis of Small Cell Lung Cancer Cell Lines Suggests Potential Chemotherapy Targets	GPL21145	850k	70	32586373;33086069;36325065	yes
+GSE145156	Epigenome-Wide DNA Methylation Analysis of Small Cell Lung Cancer Cell Lines Suggests Potential Chemotherapy Targets	GPL21145	850k	70	32586373;33086069;36325065	error
 GSE144213	The DNA Methylation Landscape of the Human Cancer Organoids Available at the American Type Culture Collection	GPL21145	850k	25	32396494	yes
 GSE126045	Genome-wide identification of differentially methylated promoters and enhancers associated with response to anti-PD-1 therapy in non-small cell lung cancer	GPL21145;GPL16791	850k	34	32879421	yes
 GSE118133	Human Lung Carcinoids	GPL11154;GPL13534	450k	48	31300474	yes
 GSE118132	Methylation Heterogeneity within Human Lung Carcinoids (LCs) Tumors	GPL13534	450k	18	31300474	yes
 GSE114989	Global DNA methylation reflects spatial heterogeneity and molecular evolution of lung adenocarcinomas	GPL21145	850k	40	30350867	yes
 GSE116699	DNA methylation signature reliably distinguishes pulmonary enteric adenocarcinoma from metastatic colorectal cancer	GPL21145	850k	18	30723296	yes
-GSE108124	Deciphering the genomic, epigenomic and transcriptomic landscapes of pre-invasive lung cancer lesions to determine prognosis	GPL13534;GPL23126;GPL18281	450k	138	30664780;32690541	yes
+GSE108124	Deciphering the genomic, epigenomic and transcriptomic landscapes of pre-invasive lung cancer lesions to determine prognosis	GPL13534;GPL23126;GPL18281	450k	138	30664780;32690541	error
 GSE108123	Deciphering the genomic, epigenomic and transcriptomic landscapes of pre-invasive lung cancer lesions to determine prognosis III	GPL13534	450k	87	30664780;32690541	yes
 GSE122126	Comprehensive human cell-type methylation atlas reveals origins of circulating cell-free DNA in health and disease	GPL13534;GPL21145	450k;850k	101	30498206	yes
 GSE108576	Epigenetic profiling for the molecular classification of metastatic brain tumors	GPL13534	450k	89	30401823	yes
@@ -33,7 +33,7 @@ GSE92843	Genome-wide DNA-methylation profiles of human lung cancer cell lines an
 GSE86402	DNA methylation in human DIP2C knockout cancer cells	GPL13534	450k	6	28716088	yes
 GSE94785	Asbestos-associated genome-wide DNA methylation changes in lung cancer	GPL13534	450k	62	28722770	yes
 GSE85845	DNA methylation analysis of lung adenocarcinoma and adjacent non-tumor tissues	GPL13534	450k	16		yes
-GSE68379	The landscape of pharmacogenomic interactions in human cancer	GPL13534	450k	1028	27397505	yes
-GSE66836	Genome-wide DNA methylation signature in lung adenocarcinomas has prognostic impact	GPL13534	450k	183	26601720	yes
-GSE66298	A DNA Hypomethylation Signature Predicts Novel Anti-Tumor Activity of LSD1 Inhibitors in SCLC	GPL11154;GPL13534;GPL570	450k	136	26175415	yes
+GSE68379	The landscape of pharmacogenomic interactions in human cancer	GPL13534	450k	1028	27397505	error
+GSE66836	Genome-wide DNA methylation signature in lung adenocarcinomas has prognostic impact	GPL13534	450k	183	26601720	error
+GSE66298	A DNA Hypomethylation Signature Predicts Novel Anti-Tumor Activity of LSD1 Inhibitors in SCLC	GPL11154;GPL13534;GPL570	450k	136	26175415	error
 GSE66295	A DNA Hypomethylation Signature Predicts Novel Anti-Tumor Activity of LSD1 Inhibitors in SCLC (BeadChip)	GPL13534	450k	42	26175415	yes

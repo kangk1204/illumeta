@@ -30,6 +30,8 @@ PLATFORM_LABELS = {"GPL13534": "450k", "GPL21145": "850k", "GPL34372": "950k"}
 SUPPL_RETRY = 3
 SUPPL_RETRY_DELAY = 0.5
 ORGANISM_FILTER = '"Homo sapiens"[Organism]'
+EUTILS_RETRY = 3
+EUTILS_RETRY_DELAY = 1.0
 
 
 def build_search_term(keywords: str) -> str:
@@ -46,10 +48,20 @@ def eutils_request(path: str, params: Dict[str, str], email: Optional[str], slee
         params["email"] = email
     params["tool"] = TOOL_NAME
     url = f"{GEO_EUTILS}/{path}"
-    resp = requests.get(url, params=params, timeout=20)
-    time.sleep(sleep_s)  # be polite to NCBI
-    resp.raise_for_status()
-    return resp
+    last_exc: Optional[Exception] = None
+    for attempt in range(1, EUTILS_RETRY + 1):
+        try:
+            resp = requests.get(url, params=params, timeout=20)
+            resp.raise_for_status()
+            time.sleep(sleep_s)  # be polite to NCBI
+            return resp
+        except requests.RequestException as exc:
+            last_exc = exc
+            if attempt < EUTILS_RETRY:
+                time.sleep(EUTILS_RETRY_DELAY)
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("Unexpected error contacting NCBI E-utilities.")
 
 
 def search_gse_ids(term: str, email: Optional[str], sleep_s: float, retmax: int) -> List[str]:
@@ -131,11 +143,24 @@ def geo_suppl_url(gse_id: str) -> str:
     return f"https://ftp.ncbi.nlm.nih.gov/geo/series/{prefix}/{gse_id}/suppl/"
 
 
-def fetch_with_retry(url: str, method: str = "get") -> Optional[requests.Response]:
+def fetch_with_retry(
+    url: str,
+    method: str = "get",
+    *,
+    headers: Optional[Dict[str, str]] = None,
+    stream: bool = False,
+) -> Optional[requests.Response]:
     last_resp: Optional[requests.Response] = None
     for attempt in range(1, SUPPL_RETRY + 1):
         try:
-            resp = requests.request(method=method, url=url, timeout=15, allow_redirects=True)
+            resp = requests.request(
+                method=method,
+                url=url,
+                timeout=15,
+                allow_redirects=True,
+                headers=headers,
+                stream=stream,
+            )
             last_resp = resp
             if resp.status_code == 200:
                 return resp
@@ -146,20 +171,83 @@ def fetch_with_retry(url: str, method: str = "get") -> Optional[requests.Respons
     return last_resp
 
 
+def raw_tar_exists(raw_url: str, gse_id: str) -> Optional[bool]:
+    """
+    Probe the *_RAW.tar bundle using both HEAD and a tiny range GET.
+    GEO's FTP frontends sometimes return transient 404s, so we only return False
+    when every probe agrees on 404; otherwise None signals an indeterminate/error state.
+    """
+    ftp_statuses: List[Optional[int]] = []
+    alt_statuses: List[Optional[int]] = []
+
+    def probe(url: str, method: str, headers: Optional[Dict[str, str]] = None, stream: bool = False) -> Optional[int]:
+        try:
+            resp = requests.request(method=method, url=url, timeout=15, allow_redirects=True, headers=headers, stream=stream)
+            status = resp.status_code
+            resp.close()
+            return status
+        except requests.RequestException:
+            return None
+
+    for attempt in range(1, SUPPL_RETRY + 1):
+        status = probe(raw_url, "head")
+        ftp_statuses.append(status)
+        if status == 200:
+            return True
+        if attempt < SUPPL_RETRY:
+            time.sleep(SUPPL_RETRY_DELAY)
+
+    range_headers = {"Range": "bytes=0-0"}
+    for attempt in range(1, SUPPL_RETRY + 1):
+        status = probe(raw_url, "get", headers=range_headers, stream=True)
+        ftp_statuses.append(status)
+        if status in (200, 206):
+            return True
+        if attempt < SUPPL_RETRY:
+            time.sleep(SUPPL_RETRY_DELAY)
+
+    # Fallback to the NCBI download endpoint (more stable than the FTP frontends).
+    alt_url = f"https://www.ncbi.nlm.nih.gov/geo/download/?acc={gse_id}&format=file"
+    for attempt in range(1, 3):  # two tries is usually enough for the stable endpoint
+        status = probe(alt_url, "head")
+        alt_statuses.append(status)
+        if status == 200:
+            return True
+        if attempt < 2:
+            time.sleep(SUPPL_RETRY_DELAY)
+
+    non_none_alt = [s for s in alt_statuses if s is not None]
+    if non_none_alt and all(code == 404 for code in non_none_alt):
+        return False
+
+    # If alt was unreachable, avoid false negatives from flaky FTP 404s.
+    non_none_ftp = [s for s in ftp_statuses if s is not None]
+    if non_none_ftp and all(code == 404 for code in non_none_ftp) and not non_none_alt:
+        return None
+    return None
+
+
 def has_idat_in_suppl(gse_id: str) -> str:
     url = geo_suppl_url(gse_id)
     resp = fetch_with_retry(url, method="get")
-    if resp is None or resp.status_code != 200:
+    if resp is None:
         return "error"
-    if IDAT_REGEX.search(resp.text):
+    resp_text = resp.text
+    status = resp.status_code
+    resp.close()
+    if status != 200:
+        return "error"
+    if IDAT_REGEX.search(resp_text):
         return "yes"
 
-    # Fallback: check for bundled RAW tar directly (HEAD to reduce bandwidth)
+    # Fallback: check for bundled RAW tar directly.
     raw_url = f"{url}{gse_id}_RAW.tar"
-    raw_resp = fetch_with_retry(raw_url, method="head")
-    if raw_resp is not None and raw_resp.status_code == 200:
+    raw_status = raw_tar_exists(raw_url, gse_id)
+    if raw_status is True:
         return "yes"
-    return "no"
+    if raw_status is False:
+        return "no"
+    return "error"
 
 
 def enrich_with_suppl_check(rows: List[Dict[str, str]], check_suppl: bool, sleep_s: float) -> None:

@@ -55,7 +55,7 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
    ```bash
    python3 illusearch.py --keywords "breast cancer" --email you@example.com -o geo_idat_methylation.tsv
    ```
-   검색은 인간(Homo sapiens) 데이터에 한정됩니다(illumeta 분석 파이프라인과 일치).
+   Search is limited to human (Homo sapiens) datasets to match the IlluMeta pipeline.
 3. **Download a dataset** (creates `idat/` + configs under the chosen folder):  
    ```bash
    python3 illumeta.py download GSE12345 -o projects/GSE12345

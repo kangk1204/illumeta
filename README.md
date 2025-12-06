@@ -24,9 +24,15 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
   brew install python r pandoc libxml2 openssl@3
   ```
   Make sure `R` and `Rscript` are on your PATH (restart the terminal after installing).
-- **Python packages**  
-  Only `requests` is non-stdlib (needed for the search helper):  
-  `python3 -m pip install --upgrade pip requests`
+- **Python packages (use a venv to avoid PEP 668 errors)**  
+  Homebrew’s Python on macOS is marked as “externally managed”, so install packages in a virtual environment:
+  ```bash
+  python3 -m venv .venv
+  source .venv/bin/activate
+  python -m pip install --upgrade pip
+  python -m pip install requests
+  ```
+  If you insist on the system interpreter, use `python3 -m pip install --user requests` (or `--break-system-packages` at your own risk).
 - **R packages**  
   First run of `illumeta.py` calls `r_scripts/setup_env.R` to install Bioconductor/CRAN deps (minfi, sesame, dmrff, etc.) and cache sesameData under `cache/`.  
   If the R library path is not writable, set a user library:
@@ -41,6 +47,8 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
    ```bash
    git clone https://github.com/kangk1204/illumeta.git
    cd illumeta
+   # Recommended for macOS/Homebrew Python to dodge PEP 668
+   python3 -m venv .venv && source .venv/bin/activate
    ```
 2. **Find a GSE with IDATs (optional)**  
    ```bash
@@ -83,6 +91,7 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
 ## Troubleshooting (common fixes)
 - **`R: command not found`**: install R (see prerequisites) and open a new shell.
 - **`pandoc: command not found`**: install pandoc (`sudo apt-get install pandoc` or `brew install pandoc`).
+- **`error: externally-managed-environment` from pip**: activate the repo venv (`source .venv/bin/activate`), then `python -m pip install --upgrade pip requests`. Homebrew’s system Python blocks global installs without a venv.
 - **R package install errors about libxml2/ssl/curl/icu**: on Ubuntu/WSL, install `libxml2-dev libcurl4-openssl-dev libssl-dev libicu-dev`; on macOS, `brew install libxml2 openssl@3` and retry with `R_LIBS_USER` set.
 - **`library path not writable`**: set `R_LIBS_USER` as shown above, then rerun `Rscript r_scripts/setup_env.R`.
 - **No samples matched your groups**: check spelling/case of `primary_group` values in `configure.tsv` and that IDAT basenames include the GSM/accession strings used in the file.

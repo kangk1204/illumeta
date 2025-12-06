@@ -14,6 +14,7 @@ DOWNLOAD_SCRIPT = os.path.join(R_SCRIPTS_DIR, "download.R")
 ANALYZE_SCRIPT = os.path.join(R_SCRIPTS_DIR, "analyze.R")
 SETUP_MARKER = os.path.join(BASE_DIR, ".r_setup_done")
 SETUP_SCRIPT = os.path.join(R_SCRIPTS_DIR, "setup_env.R")
+DEFAULT_R_LIB = os.path.join(BASE_DIR, ".r-lib")
 
 def check_r_installation():
     """Checks if R is available in the path."""
@@ -49,6 +50,7 @@ def missing_r_packages(pkgs):
         'missing <- pkgs[!sapply(pkgs, function(p) requireNamespace(p, quietly=TRUE))]; '
         'if (length(missing) > 0) { cat(paste(missing, collapse=",")); quit(status=1) }'
     )
+    env = ensure_r_lib_env(os.environ.copy())
     try:
         res = subprocess.run(
             ["Rscript", "-e", expr],
@@ -56,6 +58,7 @@ def missing_r_packages(pkgs):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            env=env,
         )
     except FileNotFoundError:
         # R not found; handled separately in check_r_installation
@@ -67,8 +70,19 @@ def missing_r_packages(pkgs):
         return pkgs
     return [p.strip() for p in output.replace("\n", " ").split(",") if p.strip()]
 
+def ensure_r_lib_env(env):
+    """Ensure R_LIBS_USER points to a repo-local, writable library."""
+    if env.get("R_LIBS_USER"):
+        return env
+    env["R_LIBS_USER"] = DEFAULT_R_LIB
+    if not os.path.exists(DEFAULT_R_LIB):
+        os.makedirs(DEFAULT_R_LIB, exist_ok=True)
+        print(f"[*] Created default R library at {DEFAULT_R_LIB}")
+    return env
+
 def ensure_r_dependencies():
     """Runs the setup_env.R script to install required R packages and cache data."""
+    env = ensure_r_lib_env(os.environ.copy())
     force_setup = os.environ.get("ILLUMETA_FORCE_SETUP") == "1"
     marker_ok = False
     if os.path.exists(SETUP_MARKER):
@@ -88,7 +102,7 @@ def ensure_r_dependencies():
 
     print("[*] Ensuring R dependencies (this may take a few minutes on first run)...")
     try:
-        subprocess.run(["Rscript", SETUP_SCRIPT], check=True)
+        subprocess.run(["Rscript", SETUP_SCRIPT], check=True, env=env)
         with open(SETUP_MARKER, "w") as f:
             f.write(f"setup completed at {datetime.now().isoformat()}\n")
             f.write("epicv2_required=1\n")
@@ -115,8 +129,10 @@ def run_download(args):
         
     cmd = ["Rscript", DOWNLOAD_SCRIPT, "--gse", args.gse_id, "--out", out_dir]
     
+    env = ensure_r_lib_env(os.environ.copy())
+
     try:
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True, env=env)
         print(f"[*] Download complete. Please edit the 'primary_group' column in: {os.path.join(out_dir, 'configure.tsv')}")
     except subprocess.CalledProcessError as e:
         print(f"[!] Error during download step: {e}")
@@ -176,7 +192,7 @@ def run_analysis(args):
         cmd.extend(["--vp_top", str(args.vp_top)])
     
     # Handle custom temp directory
-    env = os.environ.copy()
+    env = ensure_r_lib_env(os.environ.copy())
     if args.tmp_dir:
         if not os.path.exists(args.tmp_dir):
             os.makedirs(args.tmp_dir)

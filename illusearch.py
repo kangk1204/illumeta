@@ -29,6 +29,7 @@ ESUMMARY_BATCH_SIZE = 150
 PLATFORM_LABELS = {"GPL13534": "450k", "GPL21145": "850k", "GPL34372": "950k"}
 SUPPL_RETRY = 3
 SUPPL_RETRY_DELAY = 0.5
+ORGANISM_FILTER = '"Homo sapiens"[Organism]'
 
 
 def build_search_term(keywords: str) -> str:
@@ -36,7 +37,7 @@ def build_search_term(keywords: str) -> str:
         raise ValueError("keywords must be a non-empty string")
     platform_query = " OR ".join([f"{p}[Accession]" for p in PLATFORM_ACCESSIONS])
     keyword_clause = f"({keywords})"
-    term = f"{keyword_clause} AND (idat[All Fields]) AND ({platform_query}) AND gse[Entry Type]"
+    term = f"{keyword_clause} AND (idat[All Fields]) AND ({platform_query}) AND gse[Entry Type] AND {ORGANISM_FILTER}"
     return term
 
 

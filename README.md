@@ -1,7 +1,7 @@
 # IlluMeta
 *IlluMeta: Illuminating Methylation Analytics*
 
-A compact, ready-to-run toolkit to go from GEO accession to interpretable methylation results in one command set. IlluMeta (Illuminating Methylation Analytics) automates IDAT retrieval, metadata cleanup, minfi + sesame processing, and generates an HTML dashboard ready to share. Works the same on Ubuntu, macOS (Intel/Apple Silicon), and Windows 11 via WSL2.
+A compact, ready-to-run toolkit to go from GEO accession to interpretable methylation results in one command set. IlluMeta (Illuminating Methylation Analytics) automates IDAT retrieval, metadata cleanup, minfi + sesame processing, and generates an HTML dashboard ready to share. Works the same on Ubuntu, macOS (Intel/Apple Silicon), and Windows 11 via WSL2. Currently scoped to human (Homo sapiens) methylation arrays.
 
 ## What you get
 - GEO download helper that pulls raw IDATs (or uses existing `idat/` if present) and writes `configure.tsv` + `configure_original.tsv`.
@@ -46,6 +46,7 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
    ```bash
    python3 illusearch.py --keywords "breast cancer" --email you@example.com -o geo_idat_methylation.tsv
    ```
+   검색은 인간(Homo sapiens) 데이터에 한정됩니다(illumeta 분석 파이프라인과 일치).
 3. **Download a dataset** (creates `idat/` + configs under the chosen folder):  
    ```bash
    python3 illumeta.py download GSE12345 -o projects/GSE12345

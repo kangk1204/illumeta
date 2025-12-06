@@ -35,6 +35,7 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
   If you insist on the system interpreter, use `python3 -m pip install --user requests` (or `--break-system-packages` at your own risk).
 - **R packages**  
   First run of `illumeta.py` calls `r_scripts/setup_env.R` to install Bioconductor/CRAN deps (minfi, sesame, dmrff, etc.) and cache sesameData under `cache/`.  
+  IlluMeta defaults to a repo-local R library at `.r-lib` (unless you set `R_LIBS_USER`) to avoid permission conflicts; delete it to reset the R env.  
   If the R library path is not writable, set a user library:
   ```bash
   export R_LIBS_USER="$HOME/R/library"
@@ -101,6 +102,12 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
   ```
   If a download/analysis command fails mid-run, rerun the same command with `ILLUMETA_FORCE_SETUP=1` set.
   Then retry the download/analysis command.
+- **Bioconductor install failed or partial install**: remove the repo-local library and rerun setup:
+  ```bash
+  rm -rf .r-lib
+  ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
+  ```
+  IlluMeta defaults to `.r-lib`, so it will be recreated automatically on the next run.
 - **Segfault while installing `h5mread`/`Rhdf5lib` on macOS**: start with a clean user library and rerun setup to avoid stale compiled binaries:
   ```bash
   export R_LIBS_USER="$PWD/.r-lib"

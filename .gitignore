@@ -5,3 +5,5 @@ geo_idat_methylation.tsv
 # Python bytecode
 __pycache__/
 *.pyc
+# Local R library (auto-created)
+.r-lib/

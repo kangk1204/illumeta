@@ -66,6 +66,7 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
    ```bash
    python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case
    ```
+   `--group_con` and `--group_test` are required; use the exact labels from `configure.tsv`.
    Add `--tmp-dir /path/on/large/disk` if you want temp files off the system drive.
 6. **View results**  
    Open `projects/GSE12345/Case_vs_Control_results_index.html` in a browser. All plots/tables live in `projects/GSE12345/Case_vs_Control_results/`.
@@ -98,6 +99,7 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
   mkdir -p "$R_LIBS_USER"
   ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
   ```
+  If a download/analysis command fails mid-run, rerun the same command with `ILLUMETA_FORCE_SETUP=1` set.
   Then retry the download/analysis command.
 - **R package install errors about libxml2/ssl/curl/icu**: on Ubuntu/WSL, install `libxml2-dev libcurl4-openssl-dev libssl-dev libicu-dev`; on macOS, `brew install libxml2 openssl@3` and retry with `R_LIBS_USER` set.
 - **`library path not writable`**: set `R_LIBS_USER` as shown above, then rerun `Rscript r_scripts/setup_env.R`.

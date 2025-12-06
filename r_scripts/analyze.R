@@ -47,6 +47,13 @@ option_list <- list(
 opt_parser <- OptionParser(option_list=option_list)
 opt <- parse_args(opt_parser)
 
+# Timestamped messages for all logging in this script
+ts_message <- function(..., domain = NULL, appendLF = TRUE) {
+  base::message(sprintf("[%s] %s", format(Sys.time(), "%H:%M:%S"), paste(..., collapse = " ")),
+                domain = domain, appendLF = appendLF)
+}
+message <- ts_message
+
 if (is.null(opt$config) || is.null(opt$group_con) || is.null(opt$group_test)){
   print_help(opt_parser)
   stop("Configuration file, group_con, and group_test must be supplied", call.=FALSE)
@@ -290,7 +297,8 @@ message("\n--- Sample Preview (Top 5) ---")
 preview_cols <- c("primary_group", gsm_col, "Basename")
 # Check if columns exist before selecting
 preview_cols <- preview_cols[preview_cols %in% colnames(targets)]
-print(head(targets[, preview_cols], 5))
+preview_out <- capture.output(print(head(targets[, preview_cols], 5)))
+message(paste(preview_out, collapse = "\n"))
 message("------------------------------\n")
 
 # 2. Set Factor Levels for Contrast (Test - Control)

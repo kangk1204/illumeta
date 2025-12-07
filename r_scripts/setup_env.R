@@ -1,3 +1,21 @@
+# Prefer a project-local library unless the caller overrides R_LIBS_USER
+lib_dir <- Sys.getenv("R_LIBS_USER")
+if (lib_dir == "") {
+    lib_dir <- file.path(getwd(), ".r-lib")
+}
+if (!dir.exists(lib_dir)) {
+    dir.create(lib_dir, recursive = TRUE, showWarnings = FALSE)
+    message(paste("Created project library directory:", lib_dir))
+}
+.libPaths(c(lib_dir, .libPaths()))
+message(paste("Using R library:", .libPaths()[1]))
+
+# Warn early if a conda toolchain is forced via ~/.Renviron or CC/CXX envs
+toolchain <- c(Sys.getenv("CC"), Sys.getenv("CXX"), Sys.getenv("CXX11"), Sys.getenv("CXX14"), Sys.getenv("CXX17"), Sys.getenv("CXX20"))
+if (any(grepl("conda", toolchain, ignore.case = TRUE))) {
+    stop("CC/CXX point to a conda toolchain. Disable those overrides (e.g., `export R_ENVIRON_USER=/dev/null && unset CC CXX CXX11 CXX14 CXX17 CXX20 FC F77`) and rerun.")
+}
+
 ensure_writable_lib <- function() {
     writable <- file.access(.libPaths()[1], mode = 2) == 0
     if (writable) return(invisible(TRUE))

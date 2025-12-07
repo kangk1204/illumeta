@@ -1,0 +1,14 @@
+CC=/usr/bin/clang
+CXX=/usr/bin/clang++
+CXX11=/usr/bin/clang++
+CXX14=/usr/bin/clang++
+CXX17=/usr/bin/clang++
+CXX20=/usr/bin/clang++
+FC=/opt/homebrew/bin/gfortran
+F77=/opt/homebrew/bin/gfortran
+CPPFLAGS=-I/opt/homebrew/opt/gettext/include -I/opt/homebrew/opt/libxml2/include -I/opt/homebrew/opt/libomp/include -I/opt/homebrew/opt/zlib/include
+LDFLAGS=-L/opt/homebrew/opt/gettext/lib -L/opt/homebrew/opt/libxml2/lib -L/opt/homebrew/opt/openssl@3/lib -L/opt/homebrew/opt/curl/lib -L/opt/homebrew/opt/libomp/lib -L/opt/homebrew/opt/zlib/lib -lomp -lz -Wl,-rpath,/opt/homebrew/opt/libomp/lib -Wl,-rpath,/usr/lib
+SHLIB_OPENMP_CFLAGS=-Xclang -fopenmp
+SHLIB_OPENMP_CXXFLAGS=-Xclang -fopenmp
+SHLIB_OPENMP_FCFLAGS=-fopenmp
+SHLIB_OPENMP_LDFLAGS=-L/opt/homebrew/opt/libomp/lib -lomp -Wl,-rpath,/opt/homebrew/opt/libomp/lib

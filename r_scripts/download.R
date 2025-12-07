@@ -68,10 +68,9 @@ supp_cols <- grep("supplementary_file", colnames(meta), value = TRUE)
 has_idat <- FALSE
 
 if (length(supp_cols) > 0) {
-    # specific check for .idat.gz
-    # FIX: We use quadruple backslash in the tool input so it writes double backslash to the file.
-    # The file content on disk must look like: grepl("\\.idat\\.gz$", ...)
-    has_idat <- any(apply(meta[, supp_cols, drop=FALSE], 1, function(x) any(grepl("\\.idat\\.gz$", x, ignore.case=TRUE))))
+    # Pattern to detect IDAT files in GEO supplementary metadata
+    # Accept both compressed and uncompressed IDATs
+    has_idat <- any(apply(meta[, supp_cols, drop=FALSE], 1, function(x) any(grepl("\\.idat(\\.gz)?$", x, ignore.case=TRUE))))
 }
 
 if (!has_idat) {
@@ -91,14 +90,14 @@ if (length(existing_idats) > 0) {
     tryCatch({
         # Strategy 1: Try to download individual IDAT files
         files_info <- retry_run(
-            function() getGEOSuppFiles(gse_id, baseDir = out_dir, makeDirectory = TRUE, filter_regex = "idat.gz"),
-            label = "getGEOSuppFiles(idat.gz)"
+            function() getGEOSuppFiles(gse_id, baseDir = out_dir, makeDirectory = TRUE, filter_regex = "(?i)idat(\\\\.gz)?$"),
+            label = "getGEOSuppFiles(idat[.gz])"
         )
         
         downloaded_dir <- file.path(out_dir, gse_id)
         
         # Check if we got any IDATs directly
-        files <- list.files(downloaded_dir, pattern = "idat.gz", full.names = TRUE, recursive = TRUE)
+        files <- list.files(downloaded_dir, pattern = "idat(\\.gz)?$", full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
         
         if (length(files) == 0) {
             message("No individual IDAT files found. Checking for RAW.tar bundle...")

@@ -58,6 +58,33 @@ ensure_writable_lib()
 cleanup_stale_locks()
 ensure_cmake_available()
 
+# Prefer conda/system libxml2/icu/curl if available (for xml2/XML builds)
+conda_prefix <- Sys.getenv("CONDA_PREFIX", unset = Sys.getenv("CONDA_DEFAULT_ENV", unset = ""))
+if (nzchar(conda_prefix) && basename(conda_prefix) == Sys.getenv("CONDA_DEFAULT_ENV")) {
+    conda_prefix <- Sys.getenv("CONDA_PREFIX")
+}
+conda_lib <- file.path(conda_prefix, "lib")
+conda_pkgconfig <- file.path(conda_lib, "pkgconfig")
+add_path <- function(var, path) {
+    cur <- Sys.getenv(var, unset = "")
+    parts <- if (nzchar(cur)) strsplit(cur, ":", fixed = TRUE)[[1]] else character(0)
+    if (!(path %in% parts) && dir.exists(path)) {
+        Sys.setenv(`var` = paste(c(path, parts), collapse = ":"))
+    }
+}
+if (dir.exists(conda_lib)) {
+    if (!grepl(conda_lib, Sys.getenv("LD_LIBRARY_PATH", ""))) {
+        Sys.setenv(LD_LIBRARY_PATH = paste(conda_lib, Sys.getenv("LD_LIBRARY_PATH"), sep = ":"))
+        message(paste("Added to LD_LIBRARY_PATH:", conda_lib))
+    }
+}
+if (dir.exists(conda_pkgconfig)) {
+    if (!grepl(conda_pkgconfig, Sys.getenv("PKG_CONFIG_PATH", ""))) {
+        Sys.setenv(PKG_CONFIG_PATH = paste(conda_pkgconfig, Sys.getenv("PKG_CONFIG_PATH"), sep = ":"))
+        message(paste("Added to PKG_CONFIG_PATH:", conda_pkgconfig))
+    }
+}
+
 suppressPackageStartupMessages({
   if (!require("optparse", quietly = TRUE)) {
     install.packages("optparse", repos = "http://cran.us.r-project.org", lib = .libPaths()[1])
@@ -78,6 +105,7 @@ bioc_pkgs <- c(
     "sesame", 
     "limma", 
     "GEOquery", 
+    "Biobase",
     "IlluminaHumanMethylation450kmanifest",
     "IlluminaHumanMethylationEPICmanifest",
     "IlluminaHumanMethylationEPICv2manifest", # EPIC v2 manifest required
@@ -85,7 +113,8 @@ bioc_pkgs <- c(
     "IlluminaHumanMethylationEPICanno.ilm10b4.hg19",
     "sesameData", # Required for Sesame annotation caching
     "sva", # Added for Surrogate Variable Analysis
-    "variancePartition"
+    "variancePartition",
+    "pvca"
 )
 
 # EPIC v2 annotation names (accept any)
@@ -108,7 +137,8 @@ cran_pkgs <- c(
     "qqman",
     "ggrepel",
     "remotes", # Added for install_github
-    "reformulas"
+    "reformulas",
+    "lme4"
 )
 
 install_bioc_safe <- function(pkgs) {
@@ -135,6 +165,20 @@ install_cran_safe <- function(pkgs) {
 
 install_bioc_safe(bioc_pkgs)
 install_cran_safe(cran_pkgs)
+
+ensure_min_version <- function(pkg, min_ver, installer_fn, lib = .libPaths()[1]) {
+    cur_ver <- tryCatch(packageVersion(pkg), error = function(e) NULL)
+    if (is.null(cur_ver) || cur_ver < as.package_version(min_ver)) {
+        tryCatch(installer_fn(pkg, lib = lib), error = function(e) {
+            message(paste("Warning: version check install failed for", pkg, "-", e$message))
+        })
+    }
+}
+
+# Refresh packages implicated in variancePartition/reformulas changes
+ensure_min_version("reformulas", "0.3.0", function(p, lib) install.packages(p, repos = "http://cran.us.r-project.org", lib = lib))
+ensure_min_version("lme4", "1.1-35", function(p, lib) install.packages(p, repos = "http://cran.us.r-project.org", lib = lib))
+ensure_min_version("variancePartition", "1.30.0", function(p, lib) BiocManager::install(p, update = TRUE, ask = FALSE, lib = lib))
 
 # Install dmrff from GitHub
 if (!requireNamespace("dmrff", quietly = TRUE)) {

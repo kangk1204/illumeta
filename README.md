@@ -9,18 +9,23 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
 - A one-page dashboard: `<Test>_vs_<Control>_results_index.html` linking to all outputs inside `<Test>_vs_<Control>_results/`.
 
 ## Setup: Ubuntu / WSL2 (recommended)
-1) Install system deps:
+1) If you use conda and have `CC/CXX` in `~/.Renviron`, neutralize them first so R does not grab conda compilers:
+   ```bash
+   export R_ENVIRON_USER=/dev/null    # ignore ~/.Renviron for this project
+   unset CC CXX CXX11 CXX14 CXX17 CXX20 FC F77 CPPFLAGS LDFLAGS LIBRARY_PATH CPATH
+   ```
+2) Install system deps:
    ```bash
    sudo apt-get update
    sudo apt-get install -y python3 python3-pip r-base pandoc cmake \
        libcurl4-openssl-dev libssl-dev libxml2-dev libicu-dev
    ```
-2) Clone the repo and enter it:
+3) Clone the repo and enter it:
    ```bash
    git clone https://github.com/kangk1204/illumeta.git
    cd illumeta
    ```
-3) Create a Python venv in the repo (do this once, then just `source .venv/bin/activate` in future shells):
+4) Create a Python venv in the repo (do this once, then just `source .venv/bin/activate` in future shells):
    ```bash
    python3 -m venv .venv
    source .venv/bin/activate
@@ -28,24 +33,29 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
    python -m pip install requests
    ```
    If you really want to use the system interpreter, use `python3 -m pip install --user requests` instead of global installs.
-4) Optional: point R to a user-writable library to avoid permission issues:
+5) Optional: point R to a user-writable library to avoid permission issues:
    ```bash
    export R_LIBS_USER="$HOME/R/library"
    mkdir -p "$R_LIBS_USER"
    ```
-5) First-time R deps (optional; `illumeta.py` will auto-run this on first use):
+6) First-time R deps (optional; `illumeta.py` will auto-run this on first use):
    ```bash
    ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
    ```
 
 ## Setup: macOS (Apple Silicon or Intel)
-1) Install tools and Homebrew packages:
+1) If you use conda and have `CC/CXX` in `~/.Renviron`, neutralize them first so R does not grab conda compilers:
+   ```bash
+   export R_ENVIRON_USER=/dev/null    # ignore ~/.Renviron for this project
+   unset CC CXX CXX11 CXX14 CXX17 CXX20 FC F77 CPPFLAGS LDFLAGS LIBRARY_PATH CPATH GITHUB_PAT
+   ```
+2) Install tools and Homebrew packages:
    ```bash
    xcode-select --install || true                        # one-time build tools
    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"  # if brew is missing
    brew install python r pandoc gettext libxml2 openssl@3 curl pkg-config cmake
    ```
-2) Help R/clang find Homebrew headers/libs (libintl.h, libxml2, OpenSSL, curl):
+3) Help R/clang find Homebrew headers/libs (libintl.h, libxml2, OpenSSL, curl):
    ```bash
    export PATH="/opt/homebrew/opt/gettext/bin:$PATH"
    export PKG_CONFIG_PATH="/opt/homebrew/opt/libxml2/lib/pkgconfig:/opt/homebrew/opt/openssl@3/lib/pkgconfig:/opt/homebrew/opt/curl/lib/pkgconfig:$PKG_CONFIG_PATH"
@@ -53,12 +63,12 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
    export LDFLAGS="-L/opt/homebrew/opt/gettext/lib -L/opt/homebrew/opt/libxml2/lib -L/opt/homebrew/opt/openssl@3/lib -L/opt/homebrew/opt/curl/lib ${LDFLAGS}"
    ```
    Restart the shell so `R`/`Rscript` pick up your PATH.
-3) Clone the repo and enter it:
+4) Clone the repo and enter it:
    ```bash
    git clone https://github.com/kangk1204/illumeta.git
    cd illumeta
    ```
-4) Create a Python venv in the repo (do this once; later just `source .venv/bin/activate`):
+5) Create a Python venv in the repo (do this once; later just `source .venv/bin/activate`):
    ```bash
    python3 -m venv .venv
    source .venv/bin/activate
@@ -66,12 +76,12 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
    python -m pip install requests
    ```
    Homebrew’s Python is “externally managed”, so a venv avoids `externally-managed-environment` errors.
-5) Optional: point R to a user-writable library:
+6) Optional: point R to a user-writable library:
    ```bash
    export R_LIBS_USER="$HOME/R/library"
    mkdir -p "$R_LIBS_USER"
    ```
-6) First-time R deps (optional; `illumeta.py` will auto-run this on first use):
+7) First-time R deps (optional; `illumeta.py` will auto-run this on first use):
    ```bash
    ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
    ```
@@ -154,6 +164,18 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
   ```
   Then re-run your `download`/`analysis` command from the repo root with the same `R_LIBS_USER` exported.
 - **R package install errors about libxml2/ssl/curl/icu**: on Ubuntu/WSL, install `libxml2-dev libcurl4-openssl-dev libssl-dev libicu-dev`; on macOS, `brew install libxml2 openssl@3` and retry with `R_LIBS_USER` set.
+- **macOS/conda: `C compiler cannot create executables` or R keeps using `/miniconda.../clang`**: your `~/.Renviron` is overriding compilers. Either comment out `CC`, `CXX`, `FC`, etc. in `~/.Renviron`, or ignore it for this project:
+  ```bash
+  export R_ENVIRON_USER=/dev/null
+  unset CC CXX CXX11 CXX14 CXX17 CXX20 FC F77 CPPFLAGS LDFLAGS LIBRARY_PATH CPATH GITHUB_PAT
+  ```
+  Then rerun:
+  ```bash
+  PATH="/opt/homebrew/opt/gettext/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+  R_MAKEVARS_USER="$PWD/.R/Makevars" \
+  R_LIBS_USER="$PWD/.r-lib" \
+  ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
+  ```
 - **macOS `fatal error: 'libintl.h' file not found` or `C++ compiler cannot create executables (BiocParallel)`**: install build tools and point R to Homebrew headers/libs before running setup:
   ```bash
   xcode-select --install || true

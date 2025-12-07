@@ -70,8 +70,10 @@ message <- ts_message
 # QC and filtering thresholds (kept as constants for transparency/reuse)
 QC_MEDIAN_INTENSITY_THRESHOLD <- 10.5
 QC_DETECTION_P_THRESHOLD <- 0.01
+QC_SAMPLE_DET_FAIL_FRAC <- 0.05
 SNP_MAF_THRESHOLD <- 0.01
-LOGIT_OFFSET <- 1e-6
+LOGIT_OFFSET <- 1e-4
+BETA_RANGE_MIN <- 0.05
 AUTO_COVARIATE_ALPHA <- 0.01
 MAX_PCS_FOR_COVARIATE_DETECTION <- 5
 DMR_MAXGAP <- 500
@@ -97,6 +99,8 @@ vp_top <- opt$vp_top
 disable_auto_cov <- opt$disable_auto_covariates
 disable_sva <- opt$disable_sva
 include_cov <- ifelse(opt$include_covariates == "", character(0), trimws(strsplit(opt$include_covariates, ",")[[1]]))
+cell_covariates <- character(0)
+cell_counts_df <- NULL
 
 if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
 
@@ -256,6 +260,64 @@ filter_covariates <- function(targets, covariates, group_col) {
     keep <- c(keep, cv)
   }
   list(keep = keep, dropped = drops)
+}
+
+filter_low_range <- function(betas, min_range = BETA_RANGE_MIN) {
+  rng <- apply(betas, 1, function(x) {
+    r <- range(x, na.rm = TRUE)
+    if (any(!is.finite(r))) return(0)
+    diff(r)
+  })
+  keep <- rng >= min_range
+  list(mat = betas[keep, , drop = FALSE], removed = sum(!keep))
+}
+
+estimate_cell_counts_safe <- function(rgSet, composite = "Blood", out_dir = NULL) {
+  refs <- c("FlowSorted.Blood.EPIC", "FlowSorted.Blood.450k")
+  est_fun <- NULL
+  if (exists("estimateCellCounts2", envir = asNamespace("minfi"), inherits = FALSE)) {
+    est_fun <- minfi::estimateCellCounts2
+  } else if (exists("estimateCellCounts", envir = asNamespace("minfi"), inherits = FALSE)) {
+    est_fun <- minfi::estimateCellCounts
+  }
+  if (is.null(est_fun)) {
+    message("Cell composition estimation skipped (minfi::estimateCellCounts[2] not available).")
+    return(NULL)
+  }
+  for (ref in refs) {
+    if (!requireNamespace(ref, quietly = TRUE)) {
+      next
+    }
+    message(sprintf("Estimating cell composition using %s...", ref))
+    ref_platform <- if (grepl("EPIC", ref, ignore.case = TRUE)) "IlluminaHumanMethylationEPIC" else "IlluminaHumanMethylation450k"
+    res <- tryCatch({
+      arg_list <- list(
+        rgSet = rgSet,
+        compositeCellType = composite,
+        referencePlatform = ref_platform,
+        returnAll = FALSE
+      )
+      fn_args <- names(formals(est_fun))
+      if ("processMethod" %in% fn_args) arg_list$processMethod <- "preprocessNoob"
+      if ("normalizationMethod" %in% fn_args) arg_list$normalizationMethod <- "none"
+      if ("meanPlot" %in% fn_args) arg_list$meanPlot <- FALSE
+      do.call(est_fun, arg_list)
+    }, error = function(e) {
+      message("  - Cell composition estimation failed for ", ref, ": ", e$message)
+      NULL
+    })
+    if (is.null(res)) next
+    df <- as.data.frame(res)
+    colnames(df) <- paste0("Cell_", colnames(df))
+    df$SampleID <- rownames(df)
+    if (!is.null(out_dir)) {
+      write.csv(df, file.path(out_dir, paste0("cell_counts_", ref, ".csv")), row.names = FALSE)
+    }
+    message(sprintf("  - Cell composition estimated using %s (saved to CSV if out_dir set).", ref))
+    return(list(counts = df, reference = ref))
+  }
+  message("Cell composition estimation skipped (no FlowSorted reference available).")
+  return(NULL)
 }
 
 summarize_pvals <- function(pmat, exclude = character(0), alpha = 0.05) {
@@ -602,6 +664,16 @@ rgSet <- read.metharray.exp(targets = targets)
 # - Poor quality samples can introduce bias in downstream analysis
 message(sprintf("Performing Sample QC (Illumina recommendation: median M/U signal > %.1f log2)...", QC_MEDIAN_INTENSITY_THRESHOLD))
 detP <- detectionP(rgSet)
+sample_fail <- colMeans(detP > QC_DETECTION_P_THRESHOLD, na.rm = TRUE) > QC_SAMPLE_DET_FAIL_FRAC
+if (any(sample_fail)) {
+    bad_samples <- colnames(detP)[sample_fail]
+    message(sprintf("WARNING: Removing %d samples with > %.0f%% probes failing detection p>%.2g", length(bad_samples), QC_SAMPLE_DET_FAIL_FRAC * 100, QC_DETECTION_P_THRESHOLD))
+    message(paste(bad_samples, collapse = ", "))
+    keep <- !sample_fail
+    rgSet <- rgSet[, keep]
+    detP <- detP[, keep, drop = FALSE]
+    targets <- targets[keep, , drop = FALSE]
+}
 qc <- getQC(preprocessRaw(rgSet))
 bad_samples_idx <- which(qc$mMed < QC_MEDIAN_INTENSITY_THRESHOLD | qc$uMed < QC_MEDIAN_INTENSITY_THRESHOLD)
 if (length(bad_samples_idx) > 0) {
@@ -613,7 +685,7 @@ if (length(bad_samples_idx) > 0) {
     detP <- detP[, -bad_samples_idx]
     if (nrow(targets) < 2) stop("Too few samples remaining after QC.")
 }
-samples_failed_qc <- length(bad_samples_idx)
+samples_failed_qc <- sum(sample_fail) + length(bad_samples_idx)
 
 # Re-check group balance after QC filtering
 n_con <- sum(targets$primary_group == clean_con)
@@ -633,6 +705,30 @@ if (n_con < MIN_GROUP_SIZE_WARN || n_test < MIN_GROUP_SIZE_WARN) {
 }
 
 message(sprintf("Samples retained after QC - Control: %d, Test: %d (total: %d)", n_con, n_test, n_con + n_test))
+
+# Cell composition estimation (before batch correction)
+cell_est <- estimate_cell_counts_safe(rgSet, composite = "Blood", out_dir = out_dir)
+if (!is.null(cell_est)) {
+  cell_df <- cell_est$counts
+  cell_cols <- grep("^Cell_", colnames(cell_df), value = TRUE)
+  clean_id <- function(x) sub("\\.idat.*$", "", basename(as.character(x)))
+  match_idx <- match(clean_id(targets[[gsm_col]]), clean_id(cell_df$SampleID))
+  if (all(is.na(match_idx)) && "Basename" %in% colnames(targets)) {
+    match_idx <- match(clean_id(targets$Basename), clean_id(cell_df$SampleID))
+  }
+  matched <- !is.na(match_idx)
+  if (any(matched)) {
+    for (cc in cell_cols) {
+      if (!cc %in% colnames(targets)) targets[[cc]] <- NA_real_
+      targets[[cc]][matched] <- cell_df[[cc]][match_idx[matched]]
+    }
+    cell_covariates <- cell_cols
+    write.csv(targets[, c(gsm_col, cell_cols), drop = FALSE], file.path(out_dir, "cell_counts_merged.csv"), row.names = FALSE)
+    message(paste("  - Added cell composition covariates:", paste(cell_cols, collapse = ", ")))
+  } else {
+    message("  - Cell composition estimated but sample IDs did not match metadata; skipping merge.")
+  }
+}
 
 # B. Normalization
 message("Preprocessing (Noob)...")
@@ -710,6 +806,11 @@ run_pipeline <- function(betas, prefix, annotation_df) {
   betas <- betas[common_ids, ]
   curr_anno <- curr_anno[common_ids, ]
   
+  range_filt <- filter_low_range(betas, min_range = BETA_RANGE_MIN)
+  betas <- range_filt$mat
+  curr_anno <- curr_anno[rownames(betas), , drop = FALSE]
+  message(sprintf("  - Removed %d probes with beta range < %.2f", range_filt$removed, BETA_RANGE_MIN))
+  
   # Drop probes with zero variance across samples to avoid PCA failures
   var_vals <- apply(betas, 1, var, na.rm = TRUE)
   keep_var <- var_vals > 0
@@ -767,6 +868,13 @@ run_pipeline <- function(betas, prefix, annotation_df) {
     covariates <- unique(c(covariates, present_force))
     if (length(missing_force) > 0) {
       drop_log <- rbind(drop_log, data.frame(Variable = missing_force, Reason = "not_in_config"))
+    }
+  }
+  if (length(cell_covariates) > 0) {
+    present_cells <- intersect(cell_covariates, colnames(targets))
+    varying_cells <- present_cells[vapply(present_cells, function(x) length(unique(targets[[x]])) > 1, logical(1))]
+    if (length(varying_cells) > 0) {
+      covariates <- unique(c(covariates, varying_cells))
     }
   }
   

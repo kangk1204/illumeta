@@ -59,28 +59,26 @@ cleanup_stale_locks()
 ensure_cmake_available()
 
 # Prefer conda/system libxml2/icu/curl if available (for xml2/XML builds)
-conda_prefix <- Sys.getenv("CONDA_PREFIX", unset = Sys.getenv("CONDA_DEFAULT_ENV", unset = ""))
-if (nzchar(conda_prefix) && basename(conda_prefix) == Sys.getenv("CONDA_DEFAULT_ENV")) {
-    conda_prefix <- Sys.getenv("CONDA_PREFIX")
+conda_prefix <- Sys.getenv("CONDA_PREFIX", unset = "")
+if (!nzchar(conda_prefix) || !dir.exists(conda_prefix)) {
+    conda_prefix <- ""
 }
 conda_lib <- file.path(conda_prefix, "lib")
 conda_pkgconfig <- file.path(conda_lib, "pkgconfig")
 add_path <- function(var, path) {
+    if (!dir.exists(path)) return(FALSE)
     cur <- Sys.getenv(var, unset = "")
     parts <- if (nzchar(cur)) strsplit(cur, ":", fixed = TRUE)[[1]] else character(0)
-    if (!(path %in% parts) && dir.exists(path)) {
-        Sys.setenv(`var` = paste(c(path, parts), collapse = ":"))
-    }
+    if (path %in% parts) return(FALSE)
+    new_val <- paste(c(path, parts), collapse = ":")
+    do.call(Sys.setenv, setNames(list(new_val), var))
+    return(TRUE)
 }
-if (dir.exists(conda_lib)) {
-    if (!grepl(conda_lib, Sys.getenv("LD_LIBRARY_PATH", ""))) {
-        Sys.setenv(LD_LIBRARY_PATH = paste(conda_lib, Sys.getenv("LD_LIBRARY_PATH"), sep = ":"))
+if (nzchar(conda_prefix)) {
+    if (add_path("LD_LIBRARY_PATH", conda_lib)) {
         message(paste("Added to LD_LIBRARY_PATH:", conda_lib))
     }
-}
-if (dir.exists(conda_pkgconfig)) {
-    if (!grepl(conda_pkgconfig, Sys.getenv("PKG_CONFIG_PATH", ""))) {
-        Sys.setenv(PKG_CONFIG_PATH = paste(conda_pkgconfig, Sys.getenv("PKG_CONFIG_PATH"), sep = ":"))
+    if (add_path("PKG_CONFIG_PATH", conda_pkgconfig)) {
         message(paste("Added to PKG_CONFIG_PATH:", conda_pkgconfig))
     }
 }

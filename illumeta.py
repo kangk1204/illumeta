@@ -15,13 +15,14 @@ ANALYZE_SCRIPT = os.path.join(R_SCRIPTS_DIR, "analyze.R")
 SETUP_MARKER = os.path.join(BASE_DIR, ".r_setup_done")
 SETUP_SCRIPT = os.path.join(R_SCRIPTS_DIR, "setup_env.R")
 DEFAULT_R_LIB = os.path.join(BASE_DIR, ".r-lib")
-DEFAULT_CONDA_PREFIX = os.environ.get("CONDA_PREFIX", "/home/keunsoo/miniconda3")
-
 def add_conda_paths(env: dict) -> dict:
     """Ensure LD_LIBRARY_PATH/PKG_CONFIG_PATH/PATH include conda libs so xml2/xml load correctly."""
-    conda_lib = os.path.join(DEFAULT_CONDA_PREFIX, "lib")
+    prefix = env.get("CONDA_PREFIX") or os.environ.get("CONDA_PREFIX")
+    if not prefix or not os.path.isdir(prefix):
+        return env
+    conda_lib = os.path.join(prefix, "lib")
     conda_pkgconfig = os.path.join(conda_lib, "pkgconfig")
-    conda_bin = os.path.join(DEFAULT_CONDA_PREFIX, "bin")
+    conda_bin = os.path.join(prefix, "bin")
     def prepend(path_var, new_path):
         cur = env.get(path_var, "")
         parts = cur.split(os.pathsep) if cur else []

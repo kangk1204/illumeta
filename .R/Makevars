@@ -1,14 +1,37 @@
-CC=/usr/bin/clang
-CXX=/usr/bin/clang++
-CXX11=/usr/bin/clang++
-CXX14=/usr/bin/clang++
-CXX17=/usr/bin/clang++
-CXX20=/usr/bin/clang++
-FC=/opt/homebrew/bin/gfortran
-F77=/opt/homebrew/bin/gfortran
-CPPFLAGS=-I/opt/homebrew/opt/gettext/include -I/opt/homebrew/opt/libxml2/include -I/opt/homebrew/opt/libomp/include -I/opt/homebrew/opt/zlib/include
-LDFLAGS=-L/opt/homebrew/opt/gettext/lib -L/opt/homebrew/opt/libxml2/lib -L/opt/homebrew/opt/openssl@3/lib -L/opt/homebrew/opt/curl/lib -L/opt/homebrew/opt/libomp/lib -L/opt/homebrew/opt/zlib/lib -lomp -lz -Wl,-rpath,/opt/homebrew/opt/libomp/lib -Wl,-rpath,/usr/lib
-SHLIB_OPENMP_CFLAGS=-Xclang -fopenmp
-SHLIB_OPENMP_CXXFLAGS=-Xclang -fopenmp
-SHLIB_OPENMP_FCFLAGS=-fopenmp
-SHLIB_OPENMP_LDFLAGS=-L/opt/homebrew/opt/libomp/lib -lomp -Wl,-rpath,/opt/homebrew/opt/libomp/lib
+UNAME_S := $(shell uname -s)
+BREW_PREFIX := $(shell /usr/bin/env brew --prefix 2>/dev/null || true)
+
+ifeq ($(UNAME_S),Darwin)
+  # Default to Apple toolchain + Homebrew paths; override via env if needed.
+  ifeq ($(BREW_PREFIX),)
+    ifneq (,$(wildcard /opt/homebrew))
+      BREW_PREFIX := /opt/homebrew
+    else ifneq (,$(wildcard /usr/local))
+      BREW_PREFIX := /usr/local
+    endif
+  endif
+
+  CC := /usr/bin/clang
+  CXX := /usr/bin/clang++
+  CXX11 := /usr/bin/clang++
+  CXX14 := /usr/bin/clang++
+  CXX17 := /usr/bin/clang++
+  CXX20 := /usr/bin/clang++
+
+  ifneq ($(BREW_PREFIX),)
+    CPPFLAGS += -I$(BREW_PREFIX)/opt/gettext/include -I$(BREW_PREFIX)/opt/libxml2/include -I$(BREW_PREFIX)/opt/libomp/include -I$(BREW_PREFIX)/opt/zlib/include
+    LDFLAGS += -L$(BREW_PREFIX)/opt/gettext/lib -L$(BREW_PREFIX)/opt/libxml2/lib -L$(BREW_PREFIX)/opt/openssl@3/lib -L$(BREW_PREFIX)/opt/curl/lib -L$(BREW_PREFIX)/opt/libomp/lib -L$(BREW_PREFIX)/opt/zlib/lib -lomp -lz -Wl,-rpath,$(BREW_PREFIX)/opt/libomp/lib
+    ifneq (,$(wildcard $(BREW_PREFIX)/bin/gfortran))
+      FC := $(BREW_PREFIX)/bin/gfortran
+      F77 := $(BREW_PREFIX)/bin/gfortran
+    endif
+    SHLIB_OPENMP_CFLAGS := -Xclang -fopenmp
+    SHLIB_OPENMP_CXXFLAGS := -Xclang -fopenmp
+    SHLIB_OPENMP_FCFLAGS := -fopenmp
+    SHLIB_OPENMP_LDFLAGS := -L$(BREW_PREFIX)/opt/libomp/lib -lomp -Wl,-rpath,$(BREW_PREFIX)/opt/libomp/lib
+  else
+    $(warning Homebrew prefix not detected; skipping Homebrew-specific flags.)
+  endif
+else
+  $(warning This Makevars is tuned for macOS/Homebrew; no flags set for $(UNAME_S).)
+endif

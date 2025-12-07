@@ -14,7 +14,31 @@ ensure_writable_lib <- function() {
     message(paste("System library not writable. Using user library:", user_lib))
 }
 
+cleanup_stale_locks <- function(libdir = .libPaths()[1]) {
+    locks <- Sys.glob(file.path(libdir, "00LOCK*"))
+    if (length(locks) == 0) return(invisible())
+    message("Removing stale package locks: ", paste(basename(locks), collapse = ", "))
+    for (lk in locks) {
+        tryCatch(unlink(lk, recursive = TRUE, force = TRUE), error = function(e) {
+            message("  Warning: could not remove ", lk, " (", conditionMessage(e), ")")
+        })
+    }
+}
+
+ensure_cmake_available <- function() {
+    cmake <- Sys.which("cmake")
+    if (cmake != "") return(invisible(cmake))
+    message("ERROR: 'cmake' not found in PATH. Packages nloptr/lme4/variancePartition need it.")
+    message("Install cmake then rerun setup_env.R. Examples:")
+    message("  - Ubuntu/WSL: sudo apt-get install -y cmake")
+    message("  - macOS (Homebrew): brew install cmake")
+    message("  - No sudo: python3 -m pip install cmake  # ensure ~/.local/bin or your venv bin is on PATH")
+    quit(status = 1)
+}
+
 ensure_writable_lib()
+cleanup_stale_locks()
+ensure_cmake_available()
 
 suppressPackageStartupMessages({
   if (!require("optparse", quietly = TRUE)) {

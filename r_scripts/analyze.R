@@ -407,6 +407,14 @@ run_pvca_assessment <- function(betas, meta, factors, prefix, out_dir, threshold
     pvca_df <- data.frame(term = pvca_res$label, proportion = pvca_res$dat)
     out_path <- file.path(out_dir, paste0(prefix, "_PVCA.csv"))
     write.csv(pvca_df, out_path, row.names = FALSE)
+    p_pvca <- ggplot(pvca_df, aes(x = reorder(term, proportion), y = proportion, fill = term, text = scales::percent(proportion, accuracy = 0.1))) +
+      geom_col() +
+      coord_flip() +
+      scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+      labs(x = "Factor", y = "Proportion of Variance", title = paste0(prefix, " PVCA")) +
+      theme_minimal() +
+      theme(legend.position = "none")
+    save_interactive_plot(p_pvca, paste0(prefix, "_PVCA.html"), out_dir)
     message(paste("  PVCA saved to", out_path))
   }, error = function(e) {
     message("  PVCA failed: ", e$message)
@@ -1291,6 +1299,23 @@ if (!disable_sva) {
     message("    - Too few CpGs for reliable DMR analysis (< 100). Skipping DMR detection.")
     dmr_res <- data.frame()
   } else {
+    annotate_dmr <- function(df, anno_tbl) {
+      if (nrow(df) == 0) return(df)
+      anno_tbl$Gene <- ifelse(is.na(anno_tbl$Gene), "", anno_tbl$Gene)
+      anno_tbl$Region <- ifelse(is.na(anno_tbl$Region), "", anno_tbl$Region)
+      gene_region <- function(chr, start, end, field) {
+        idx <- which(anno_tbl$chr == chr & anno_tbl$pos >= start & anno_tbl$pos <= end)
+        if (length(idx) == 0) return("")
+        vals <- unique(unlist(strsplit(anno_tbl[[field]][idx], ";")))
+        vals <- vals[nzchar(vals)]
+        if (length(vals) == 0) return("")
+        paste(head(vals, 5), collapse = ";")
+      }
+      df$Genes <- mapply(gene_region, df$chr, df$start, df$end, MoreArgs = list(field = "Gene"))
+      df$Regions <- mapply(gene_region, df$chr, df$start, df$end, MoreArgs = list(field = "Region"))
+      df
+    }
+
     tryCatch({
       dmr_res <- dmrff(
         estimate = dmr_est,
@@ -1304,6 +1329,7 @@ if (!disable_sva) {
       )
       
       if (nrow(dmr_res) > 0) {
+          dmr_res <- annotate_dmr(dmr_res, curr_anno)
           message(paste("    - Found", nrow(dmr_res), "DMRs."))
           
           # Save Table

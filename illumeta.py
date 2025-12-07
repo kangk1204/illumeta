@@ -275,6 +275,8 @@ def generate_dashboard(output_dir, group_test, group_con):
         ("_DMR_Manhattan.html", "DMR Manhattan Plot", "Genomic distribution of DMRs."),
         ("_Top_DMRs_Heatmap.html", "DMR Heatmap (Top 50)", "Average methylation levels of top 50 DMRs."),
         ("_DMRs_Table.html", "DMRs Table", "Searchable table of differentially methylated regions."),
+        ("_PVCA.html", "PVCA (Raw)", "Variance explained by group/batch/covariates before correction."),
+        ("_AfterCorrection_PVCA.html", "PVCA (Corrected)", "Variance explained after batch correction/SVA.")
     ]
 
     # Define additional files for Minfi/Sesame (full pipeline)

@@ -132,6 +132,20 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
 - Re-running with the same input will re-use installed R packages and cached annotations unless `ILLUMETA_FORCE_SETUP=1` is set.
 
 ## Troubleshooting (common fixes)
+- **`ERROR: Some required R packages failed to install or load (xml2/XML/minfi/GEOquery/...)`**: install headers, clear locks, use a writable lib, and force setup:
+  ```bash
+  # Ubuntu/WSL2
+  sudo apt-get install -y libxml2-dev libcurl4-openssl-dev libssl-dev libicu-dev
+  # macOS
+  brew install libxml2 openssl@3 curl pkg-config
+  # optional if you use conda (helps xml2/XML find libs)
+  export CONDA_PREFIX=$(conda info --base)/envs/illumeta
+  export R_LIBS_USER="$PWD/.r-lib"
+  rm -rf "$R_LIBS_USER"/00LOCK*
+  mkdir -p "$R_LIBS_USER"
+  ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
+  ```
+  Masking messages from Bioconductor (e.g., BiocGenerics) are informational; only errors stop the install.
 - **`R: command not found`**: install R (see prerequisites) and open a new shell.
 - **`pandoc: command not found`**: install pandoc (`sudo apt-get install pandoc` or `brew install pandoc`).
 - **`error: externally-managed-environment` from pip**: activate the repo venv (`source .venv/bin/activate`), then `python -m pip install --upgrade pip requests`. Homebrew’s system Python blocks global installs without a venv.

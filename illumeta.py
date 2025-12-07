@@ -15,6 +15,22 @@ ANALYZE_SCRIPT = os.path.join(R_SCRIPTS_DIR, "analyze.R")
 SETUP_MARKER = os.path.join(BASE_DIR, ".r_setup_done")
 SETUP_SCRIPT = os.path.join(R_SCRIPTS_DIR, "setup_env.R")
 DEFAULT_R_LIB = os.path.join(BASE_DIR, ".r-lib")
+DEFAULT_CONDA_PREFIX = os.environ.get("CONDA_PREFIX", "/home/keunsoo/miniconda3")
+
+def add_conda_paths(env: dict) -> dict:
+    """Ensure LD_LIBRARY_PATH/PKG_CONFIG_PATH/PATH include conda libs so xml2/xml load correctly."""
+    conda_lib = os.path.join(DEFAULT_CONDA_PREFIX, "lib")
+    conda_pkgconfig = os.path.join(conda_lib, "pkgconfig")
+    conda_bin = os.path.join(DEFAULT_CONDA_PREFIX, "bin")
+    def prepend(path_var, new_path):
+        cur = env.get(path_var, "")
+        parts = cur.split(os.pathsep) if cur else []
+        if new_path and os.path.exists(new_path) and new_path not in parts:
+            env[path_var] = os.pathsep.join([new_path] + parts if parts else [new_path])
+    prepend("LD_LIBRARY_PATH", conda_lib)
+    prepend("PKG_CONFIG_PATH", conda_pkgconfig)
+    prepend("PATH", conda_bin)
+    return env
 
 def log(msg: str):
     """Prints a timestamped info message."""
@@ -91,6 +107,7 @@ def ensure_r_lib_env(env):
 def ensure_r_dependencies():
     """Runs the setup_env.R script to install required R packages and cache data."""
     env = ensure_r_lib_env(os.environ.copy())
+    env = add_conda_paths(env)
     force_setup = os.environ.get("ILLUMETA_FORCE_SETUP") == "1"
     marker_ok = False
     if os.path.exists(SETUP_MARKER):
@@ -138,6 +155,7 @@ def run_download(args):
     cmd = ["Rscript", DOWNLOAD_SCRIPT, "--gse", args.gse_id, "--out", out_dir]
     
     env = ensure_r_lib_env(os.environ.copy())
+    env = add_conda_paths(env)
 
     try:
         subprocess.run(cmd, check=True, env=env)
@@ -201,6 +219,7 @@ def run_analysis(args):
     
     # Handle custom temp directory
     env = ensure_r_lib_env(os.environ.copy())
+    env = add_conda_paths(env)
     if args.tmp_dir:
         if not os.path.exists(args.tmp_dir):
             os.makedirs(args.tmp_dir)

@@ -114,7 +114,9 @@ bioc_pkgs <- c(
     "sesameData", # Required for Sesame annotation caching
     "sva", # Added for Surrogate Variable Analysis
     "variancePartition",
-    "pvca"
+    "pvca",
+    "FlowSorted.Blood.EPIC",   # Cell type reference (EPIC/EPICv2)
+    "FlowSorted.Blood.450k"    # Cell type reference (450k)
 )
 
 # EPIC v2 annotation names (accept any)

@@ -6,6 +6,7 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
 ## What you get
 - GEO download helper that pulls raw IDATs (or uses existing `idat/` if present) and writes `configure.tsv` + `configure_original.tsv`.
 - Minfi + sesame processing, QC, DMP/DMR tables, and interactive plots.
+- Blood cell-type composition estimation (FlowSorted.Blood.EPIC/450k) when available; results saved to `cell_counts_*.csv` and used during batch correction.
 - A one-page dashboard: `<Test>_vs_<Control>_results_index.html` linking to all outputs inside `<Test>_vs_<Control>_results/`.
 
 ## Setup: Ubuntu / WSL2 (recommended)
@@ -42,6 +43,7 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
    ```bash
    ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
    ```
+   (Installs FlowSorted blood references for cell-type estimation.)
 
 ## Setup: macOS (Apple Silicon or Intel)
 1) If you use conda and have `CC/CXX` in `~/.Renviron`, neutralize them first so R does not grab conda compilers:
@@ -85,6 +87,7 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
    ```bash
    ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
    ```
+   (Installs FlowSorted blood references for cell-type estimation.)
 
 ## Quick start (after setup; run from repo root with `.venv` activated)
 1. **Enter the repo and activate your venv (don’t recreate it)**  
@@ -169,6 +172,7 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
   rm -rf .r-lib/00LOCK*
   ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
   ```
+- **Cell composition skipped (FlowSorted.Blood.* missing)**: rerun `Rscript r_scripts/setup_env.R` to install `FlowSorted.Blood.EPIC`/`FlowSorted.Blood.450k`, then rerun your analysis.
 - **Segfault while installing `h5mread`/`Rhdf5lib` on macOS**: start with a clean user library and rerun setup to avoid stale compiled binaries:
   ```bash
   export R_LIBS_USER="$PWD/.r-lib"

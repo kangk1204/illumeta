@@ -21,7 +21,12 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
   ```bash
   xcode-select --install                          # one-time build tools
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"  # if brew is missing
-  brew install python r pandoc libxml2 openssl@3
+  brew install python r pandoc gettext libxml2 openssl@3 curl pkg-config
+  # Help R/clang find Homebrew headers/libs (libintl.h, libxml2, OpenSSL, curl)
+  export PATH="/opt/homebrew/opt/gettext/bin:$PATH"
+  export PKG_CONFIG_PATH="/opt/homebrew/opt/libxml2/lib/pkgconfig:/opt/homebrew/opt/openssl@3/lib/pkgconfig:/opt/homebrew/opt/curl/lib/pkgconfig:$PKG_CONFIG_PATH"
+  export CPPFLAGS="-I/opt/homebrew/opt/gettext/include -I/opt/homebrew/opt/libxml2/include ${CPPFLAGS}"
+  export LDFLAGS="-L/opt/homebrew/opt/gettext/lib -L/opt/homebrew/opt/libxml2/lib -L/opt/homebrew/opt/openssl@3/lib -L/opt/homebrew/opt/curl/lib ${LDFLAGS}"
   ```
   Make sure `R` and `Rscript` are on your PATH (restart the terminal after installing).
 - **Python packages (use a venv to avoid PEP 668 errors)**  
@@ -117,5 +122,15 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
   ```
   Then re-run your `download`/`analysis` command from the repo root with the same `R_LIBS_USER` exported.
 - **R package install errors about libxml2/ssl/curl/icu**: on Ubuntu/WSL, install `libxml2-dev libcurl4-openssl-dev libssl-dev libicu-dev`; on macOS, `brew install libxml2 openssl@3` and retry with `R_LIBS_USER` set.
+- **macOS `fatal error: 'libintl.h' file not found` or `C++ compiler cannot create executables (BiocParallel)`**: install build tools and point R to Homebrew headers/libs before running setup:
+  ```bash
+  xcode-select --install || true
+  brew install gettext libxml2 openssl@3 curl pkg-config
+  export PATH="/opt/homebrew/opt/gettext/bin:$PATH"
+  export PKG_CONFIG_PATH="/opt/homebrew/opt/libxml2/lib/pkgconfig:/opt/homebrew/opt/openssl@3/lib/pkgconfig:/opt/homebrew/opt/curl/lib/pkgconfig:$PKG_CONFIG_PATH"
+  export CPPFLAGS="-I/opt/homebrew/opt/gettext/include -I/opt/homebrew/opt/libxml2/include ${CPPFLAGS}"
+  export LDFLAGS="-L/opt/homebrew/opt/gettext/lib -L/opt/homebrew/opt/libxml2/lib -L/opt/homebrew/opt/openssl@3/lib -L/opt/homebrew/opt/curl/lib ${LDFLAGS}"
+  ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
+  ```
 - **`library path not writable`**: set `R_LIBS_USER` as shown above, then rerun `Rscript r_scripts/setup_env.R`.
 - **No samples matched your groups**: check spelling/case of `primary_group` values in `configure.tsv` and that IDAT basenames include the GSM/accession strings used in the file.

@@ -12,7 +12,7 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
 1) Install system deps:
    ```bash
    sudo apt-get update
-   sudo apt-get install -y python3 python3-pip r-base pandoc \
+   sudo apt-get install -y python3 python3-pip r-base pandoc cmake \
        libcurl4-openssl-dev libssl-dev libxml2-dev libicu-dev
    ```
 2) Clone the repo and enter it:
@@ -43,7 +43,7 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
    ```bash
    xcode-select --install || true                        # one-time build tools
    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"  # if brew is missing
-   brew install python r pandoc gettext libxml2 openssl@3 curl pkg-config
+   brew install python r pandoc gettext libxml2 openssl@3 curl pkg-config cmake
    ```
 2) Help R/clang find Homebrew headers/libs (libintl.h, libxml2, OpenSSL, curl):
    ```bash
@@ -139,6 +139,12 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
   ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
   ```
   IlluMeta defaults to `.r-lib`, so it will be recreated automatically on the next run.
+- **`variancePartition`/`nloptr`/`lme4` complains about CMake**: install CMake so `nloptr` can build (Ubuntu/WSL: `sudo apt-get install cmake`, macOS: `brew install cmake`, or without sudo: `python3 -m pip install cmake` and ensure `~/.local/bin` or your venv’s `bin` is on `PATH`). Then rerun `Rscript r_scripts/setup_env.R`.
+- **`failed to lock directory '.r-lib/00LOCK-...'`**: delete stale locks and retry:
+  ```bash
+  rm -rf .r-lib/00LOCK*
+  ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
+  ```
 - **Segfault while installing `h5mread`/`Rhdf5lib` on macOS**: start with a clean user library and rerun setup to avoid stale compiled binaries:
   ```bash
   export R_LIBS_USER="$PWD/.r-lib"

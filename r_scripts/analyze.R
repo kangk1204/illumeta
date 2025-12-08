@@ -18,6 +18,7 @@ suppressPackageStartupMessages(library(variancePartition))
 suppressPackageStartupMessages(library(reformulas))
 suppressPackageStartupMessages(library(Biobase))
 suppressPackageStartupMessages(library(pvca))
+suppressPackageStartupMessages(library(RefFreeEWAS))
 if (!exists("findbars")) {
   findbars <- reformulas::findbars
 }
@@ -273,6 +274,56 @@ filter_low_range <- function(betas, min_range = BETA_RANGE_MIN) {
 }
 
 estimate_cell_counts_safe <- function(rgSet, tissue = "Blood", out_dir = NULL) {
+  # 1. Reference-Free Mode (Auto)
+  if (tissue == "Auto") {
+    message("Estimating cell composition using Reference-Free method (RefFreeEWAS)...")
+    if (!requireNamespace("RefFreeEWAS", quietly = TRUE)) {
+      message("  - RefFreeEWAS package not installed. Skipping.")
+      return(NULL)
+    }
+    
+    tryCatch({
+      # RefFreeEWAS requires a beta matrix. We preprocess efficiently here.
+      # using minfi's preprocessNoob for consistency with main pipeline
+      mSet <- preprocessNoob(rgSet)
+      betas <- getBeta(mSet)
+      betas <- betas[rowSums(is.na(betas)) == 0, ] # Remove NAs
+      
+      # Select variable probes to speed up and improve signal
+      # Top 10,000 variable probes is usually sufficient for deconvolution
+      vars <- apply(betas, 1, var)
+      top_idx <- head(order(vars, decreasing = TRUE), 10000)
+      betas_sub <- betas[top_idx, ]
+      
+      # Run RefFreeCellMix
+      # K=5 is a reasonable default for many tissues (e.g. blood has ~5-6 majors)
+      # Estimating K can be unstable on small datasets, so fixed K is safer for automation.
+      K_latent <- 5
+      message(sprintf("  - Running RefFreeCellMix with K=%d latent components...", K_latent))
+      
+      # Initialize with K-means (standard RefFreeEWAS approach)
+      res <- RefFreeEWAS::RefFreeCellMix(betas_sub, K = K_latent, verbose = FALSE)
+      
+      # Extract proportions (Omega)
+      props <- res$Omega
+      df <- as.data.frame(props)
+      colnames(df) <- paste0("Cell_Latent", 1:ncol(df))
+      df$SampleID <- rownames(df)
+      
+      if (!is.null(out_dir)) {
+        write.csv(df, file.path(out_dir, "cell_counts_RefFree.csv"), row.names = FALSE)
+      }
+      
+      message("  - Reference-Free estimation complete.")
+      return(list(counts = df, reference = "RefFreeEWAS"))
+      
+    }, error = function(e) {
+      message("  - Reference-Free estimation failed: ", e$message)
+      return(NULL)
+    })
+  }
+
+  # 2. Reference-Based Mode
   # Map tissue types to potential reference packages (prioritized order)
   ref_map <- list(
     "Blood" = c("FlowSorted.Blood.EPIC", "FlowSorted.Blood.450k"),
@@ -283,7 +334,7 @@ estimate_cell_counts_safe <- function(rgSet, tissue = "Blood", out_dir = NULL) {
   
   refs <- ref_map[[tissue]]
   if (is.null(refs)) {
-    message(sprintf("Cell composition skipped: No known references for tissue '%s'. (Supported: %s)", 
+    message(sprintf("Cell composition skipped: No known references for tissue '%s'. (Supported: %s, or use 'Auto' for reference-free)", 
                     tissue, paste(names(ref_map), collapse=", ")))
     return(NULL)
   }
@@ -302,7 +353,7 @@ estimate_cell_counts_safe <- function(rgSet, tissue = "Blood", out_dir = NULL) {
 
   for (ref in refs) {
     if (!requireNamespace(ref, quietly = TRUE)) {
-      message(sprintf("  - Reference package '%s' not installed. Skipping...", ref))
+      # message(sprintf("  - Reference package '%s' not installed. Skipping...", ref))
       next
     }
     

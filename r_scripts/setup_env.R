@@ -114,7 +114,8 @@ bioc_pkgs <- c(
     "variancePartition",
     "pvca",
     "FlowSorted.Blood.EPIC",   # Cell type reference (EPIC/EPICv2)
-    "FlowSorted.Blood.450k"    # Cell type reference (450k)
+    "FlowSorted.Blood.450k",   # Cell type reference (450k)
+    "wateRmelon"               # Epigenetic clocks (Horvath/Hannum/PhenoAge)
 )
 
 # EPIC v2 annotation names (accept any)
@@ -298,7 +299,7 @@ required_pkgs <- c(
   "IlluminaHumanMethylationEPICv2manifest",
   "IlluminaHumanMethylation450kanno.ilmn12.hg19",
   "IlluminaHumanMethylationEPICanno.ilm10b4.hg19",
-  "sesameData", "sva", "variancePartition"
+  "sesameData", "sva", "variancePartition", "pvca"
 )
 
 failed <- character(0)

@@ -5,7 +5,9 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
 
 ## What you get
 - GEO download helper that pulls raw IDATs (or uses existing `idat/` if present) and writes `configure.tsv` + `configure_original.tsv`.
-- Minfi + sesame processing, QC, DMP/DMR tables, and interactive plots.
+- Minfi + sesame processing, QC, DMP/DMR tables (with gene/region annotation), and interactive plots.
+- PVCA (raw vs corrected) + batch-PC association heatmaps to quantify batch effects before/after covariate/SVA cleanup.
+- Epigenetic clocks (Horvath/Hannum/PhenoAge via wateRmelon) if an age column exists; saves a CSV plus an age-scatter HTML.
 - Blood cell-type composition estimation (FlowSorted.Blood.EPIC/450k) when available; results saved to `cell_counts_*.csv` and used during batch correction.
 - A one-page dashboard: `<Test>_vs_<Control>_results_index.html` linking to all outputs inside `<Test>_vs_<Control>_results/`.
 
@@ -129,6 +131,13 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
 - `--permutations 1000` to estimate null DMP counts; `--vp-top 10000` to change variancePartition probe count.
 - `--tmp-dir /mnt/drive/tmp` to write temp files to a larger disk.
 
+## Key outputs (per run)
+- `<Test>_vs_<Control>_results_index.html`: dashboard entry point; cards only appear when the corresponding files exist.
+- `*_PVCA.html` / `*_AfterCorrection_PVCA.html`: variance share for group/batch/covariates before/after covariate/SVA cleanup (large batch bars → consider ComBat/model covariates).
+- `*_Batch_Evaluation_Before/After.html`: PC–covariate association heatmaps to spot hidden batch drivers.
+- `*_Epigenetic_Age.csv` (+ `*.html` if `Age`/`chronological_age` is in `configure.tsv`): Horvath/Hannum/PhenoAge predictions, missing-probe counts, and age acceleration residuals.
+- `*_DMRs.csv/html` + `*_Top_DMRs_Heatmap.html`: DMRs with gene/region annotations and region-level heatmap; `*_Top_DMPs.html` for probe-level hits.
+
 ## Notes and tips
 - The pipeline caches data in `cache/` (kept alongside the repo). Delete it only if you want to reclaim space or force a recache.
 - Large GEO folders (`GSE*/`) and `cache/` are ignored by git; keep raw data out of commits.
@@ -160,6 +169,7 @@ A compact, ready-to-run toolkit to go from GEO accession to interpretable methyl
   ```
   If a download/analysis command fails mid-run, rerun the same command with `ILLUMETA_FORCE_SETUP=1` set.
   Then retry the download/analysis command.
+- **Epigenetic clocks skipped with `ageCoefs` missing**: some Bioconductor releases no longer ship Horvath/Hannum coefficients. The pipeline will continue without clocks; to enable them, install a wateRmelon build that includes `ageCoefs` (or the `wateRmelonData` bundle from an older Bioc release).
 - **Bioconductor install failed or partial install**: remove the repo-local library and rerun setup:
   ```bash
   rm -rf .r-lib

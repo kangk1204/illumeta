@@ -402,23 +402,115 @@ run_pvca_assessment <- function(betas, meta, factors, prefix, out_dir, threshold
   pheno <- AnnotatedDataFrame(data = pvca_meta)
   eset <- ExpressionSet(assayData = as.matrix(betas_use), phenoData = pheno)
   
+  pvca_res <- tryCatch(pvcaBatchAssess(eset, colnames(pvca_meta), threshold), error = function(e) e)
+  if (inherits(pvca_res, "error") || is.null(pvca_res$dat) || is.null(pvca_res$label)) {
+    message("  PVCA failed: ", if (inherits(pvca_res, "error")) pvca_res$message else "invalid PVCA result")
+    return(NULL)
+  }
+  pvca_df <- data.frame(term = pvca_res$label, proportion = as.numeric(pvca_res$dat))
+  if (nrow(pvca_df) == 0 || any(is.na(pvca_df$proportion))) {
+    message("  PVCA failed: empty or invalid PVCA results.")
+    return(NULL)
+  }
+  out_path <- file.path(out_dir, paste0(prefix, "_PVCA.csv"))
+  write.csv(pvca_df, out_path, row.names = FALSE)
+  message(paste("  PVCA saved to", out_path))
+  # Try to render interactive bar chart; also emit a static PNG fallback for dashboard previews
+  pvca_plot_name <- paste0(prefix, "_PVCA.html")
+  pvca_png_name <- paste0(prefix, "_PVCA.png")
   tryCatch({
-    pvca_res <- pvcaBatchAssess(eset, colnames(pvca_meta), threshold)
-    pvca_df <- data.frame(term = pvca_res$label, proportion = pvca_res$dat)
-    out_path <- file.path(out_dir, paste0(prefix, "_PVCA.csv"))
-    write.csv(pvca_df, out_path, row.names = FALSE)
-    p_pvca <- ggplot(pvca_df, aes(x = reorder(term, proportion), y = proportion, fill = term, text = scales::percent(proportion, accuracy = 0.1))) +
+    p_pvca <- ggplot(pvca_df, aes(x = reorder(term, proportion), y = proportion, fill = term,
+                                  text = paste0(term, ": ", scales::percent(proportion, accuracy = 0.1)))) +
       geom_col() +
       coord_flip() +
       scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
       labs(x = "Factor", y = "Proportion of Variance", title = paste0(prefix, " PVCA")) +
       theme_minimal() +
       theme(legend.position = "none")
-    save_interactive_plot(p_pvca, paste0(prefix, "_PVCA.html"), out_dir)
-    message(paste("  PVCA saved to", out_path))
+    save_interactive_plot(p_pvca, pvca_plot_name, out_dir)
+    tryCatch({
+      ggsave(filename = file.path(out_dir, pvca_png_name), plot = p_pvca, width = 7, height = 4, dpi = 120)
+    }, error = function(e) {
+      message("  PVCA PNG save skipped: ", e$message)
+    })
   }, error = function(e) {
-    message("  PVCA failed: ", e$message)
+    message("  PVCA plot failed: ", e$message)
   })
+}
+
+compute_epigenetic_clocks <- function(betas, meta, id_col, prefix, out_dir) {
+  if (!requireNamespace("wateRmelon", quietly = TRUE)) {
+    message("Epigenetic clocks skipped: wateRmelon not installed.")
+    return(NULL)
+  }
+  if (!id_col %in% colnames(meta)) {
+    message("Epigenetic clocks skipped: ID column not found in metadata.")
+    return(NULL)
+  }
+  safe_id <- function(x) sub("\\.idat.*$", "", basename(as.character(x)))
+  sample_ids <- safe_id(colnames(betas))
+  betas_use <- pmin(pmax(betas, LOGIT_OFFSET), 1 - LOGIT_OFFSET)
+  clock_res <- tryCatch({
+    wateRmelon::agep(betas_use, method = "all")
+  }, error = function(e) {
+    if (grepl("ageCoefs", e$message, ignore.case = TRUE)) {
+      message("Epigenetic clocks skipped: age coefficients not available (ageCoefs). Install wateRmelonData or an older wateRmelon bundle to enable clocks.")
+    } else {
+      message("Epigenetic clocks skipped: ", e$message)
+    }
+    NULL
+  })
+  if (is.null(clock_res)) return(NULL)
+  
+  clock_df <- as.data.frame(clock_res)
+  clock_df$Sample <- sample_ids
+  age_cols <- grep("\\.age$", colnames(clock_df), value = TRUE)
+  if (length(age_cols) == 0) {
+    message("Epigenetic clocks: no age columns returned; skipping plot.")
+  }
+  
+  # Map metadata (chronological age if available)
+  meta$.__id <- safe_id(meta[[id_col]])
+  idx <- match(sample_ids, meta$.__id)
+  age_candidates <- c("chronological_age", "Age", "age", "age_years", "Age_years")
+  age_col <- age_candidates[match(tolower(age_candidates), tolower(colnames(meta)))]
+  age_col <- age_col[!is.na(age_col)][1]
+  chron_age <- NULL
+  if (!is.null(age_col)) {
+    chron_age <- meta[[age_col]][idx]
+    clock_df$ChronologicalAge <- chron_age
+    for (ac in age_cols) {
+      accel_name <- paste0(gsub("\\.age$", "", ac), "_accel")
+      clock_df[[accel_name]] <- clock_df[[ac]] - chron_age
+    }
+  }
+  
+  out_path <- file.path(out_dir, paste0(prefix, "_Epigenetic_Age.csv"))
+  col_order <- c("Sample", setdiff(colnames(clock_df), "Sample"))
+  write.csv(clock_df[, col_order], out_path, row.names = FALSE)
+  message("  Epigenetic clocks saved to ", out_path)
+  
+  if (!is.null(chron_age) && length(age_cols) > 0 && all(is.finite(chron_age))) {
+    long_df <- do.call(rbind, lapply(age_cols, function(ac) {
+      data.frame(
+        Sample = sample_ids,
+        Clock = gsub("\\.age$", "", ac),
+        PredAge = clock_df[[ac]],
+        ChronologicalAge = chron_age,
+        stringsAsFactors = FALSE
+      )
+    }))
+    p_age <- ggplot(long_df, aes(x = ChronologicalAge, y = PredAge, color = Clock,
+                                 text = paste0("Sample: ", Sample,
+                                               "<br>Clock: ", Clock,
+                                               "<br>Predicted: ", round(PredAge, 2),
+                                               "<br>Chronological: ", round(ChronologicalAge, 2)))) +
+      geom_point(size = 3, alpha = 0.7) +
+      geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray40") +
+      theme_minimal() +
+      labs(x = "Chronological Age", y = "Predicted DNAm Age", title = paste0(prefix, " Epigenetic Clocks"))
+    save_interactive_plot(p_age, paste0(prefix, "_Epigenetic_Age.html"), out_dir)
+  }
 }
 
 select_batch_factor <- function(meta, preferred = c("Sentrix_ID", "Sentrix_Position")) {
@@ -895,6 +987,7 @@ run_pipeline <- function(betas, prefix, annotation_df) {
   # PVCA before model fitting to quantify variance explained by group/batch factors
   pvca_factors <- unique(c("primary_group", covariates))
   run_pvca_assessment(betas, targets, pvca_factors, prefix, out_dir, threshold = 0.6, max_probes = 5000, sample_ids = colnames(betas))
+  compute_epigenetic_clocks(betas, targets, id_col = gsm_col, prefix = prefix, out_dir = out_dir)
 
   # Compare batch correction strategies (none/ComBat/removeBatchEffect/SVA)
   batch_col <- select_batch_factor(targets, preferred = c("Sentrix_ID", "Sentrix_Position"))

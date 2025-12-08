@@ -192,13 +192,13 @@ if (!requireNamespace("dmrff", quietly = TRUE)) {
     })
 }
 
-# Install RefFreeEWAS from GitHub
+# Install RefFreeEWAS from CRAN Archive (version 2.2)
 if (!requireNamespace("RefFreeEWAS", quietly = TRUE)) {
-    message("Installing RefFreeEWAS from GitHub...")
+    message("Installing RefFreeEWAS (v2.2) from CRAN Archive...")
     tryCatch({
-        remotes::install_github("eahouseman/RefFreeEWAS", upgrade = "never", lib = .libPaths()[1])
+        remotes::install_version("RefFreeEWAS", version = "2.2", repos = "https://cloud.r-project.org", lib = .libPaths()[1], upgrade = "never")
     }, error = function(e) {
-        message("Warning: Failed to install RefFreeEWAS from GitHub.")
+        message("Warning: Failed to install RefFreeEWAS from CRAN Archive.")
         message(paste("Error details:", e$message))
     })
 }

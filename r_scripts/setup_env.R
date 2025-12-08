@@ -196,7 +196,7 @@ if (!requireNamespace("dmrff", quietly = TRUE)) {
 if (!requireNamespace("RefFreeEWAS", quietly = TRUE)) {
     message("Installing RefFreeEWAS from GitHub...")
     tryCatch({
-        remotes::install_github("touseilab/RefFreeEWAS", upgrade = "never", lib = .libPaths()[1])
+        remotes::install_github("eahouseman/RefFreeEWAS", upgrade = "never", lib = .libPaths()[1])
     }, error = function(e) {
         message("Warning: Failed to install RefFreeEWAS from GitHub.")
         message(paste("Error details:", e$message))

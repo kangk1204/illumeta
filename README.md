@@ -51,7 +51,7 @@ ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
 
 ## 🏃 Quick Start (Demo)
 
-Try the pipeline with a small public dataset (**GSE116339**, ~6 samples) to verify your installation.
+Try the pipeline with a small public dataset (**GSE121633**, ~4 samples) to verify your installation.
 
 ### Step 1: Download Data
 ```bash
@@ -59,30 +59,30 @@ Try the pipeline with a small public dataset (**GSE116339**, ~6 samples) to veri
 source .venv/bin/activate
 
 # Download IDAT files for the demo dataset
-python3 illumeta.py download GSE116339 -o projects/GSE116339
+python3 illumeta.py download GSE121633 -o projects/GSE121633
 ```
 
 ### Step 2: Configure Groups
-The download creates a `configure.tsv` file in `projects/GSE116339/`. You need to tell IlluMeta which samples are "Control" and which are "Test".
+The download creates a `configure.tsv` file in `projects/GSE121633/`. You need to tell IlluMeta which samples are "Control" and which are "Test".
 
-1. Open `projects/GSE116339/configure.tsv`.
+1. Open `projects/GSE121633/configure.tsv`.
 2. Locate the `primary_group` column (it will be empty).
 3. Fill it in. For this demo, let's pretend:
-   - First 3 samples -> `Control`
-   - Last 3 samples -> `Case`
+   - First 2 samples -> `Control`
+   - Last 2 samples -> `Case`
 4. Save the file.
 
 ### Step 3: Run Analysis
 ```bash
 python3 illumeta.py analysis \
-    -i projects/GSE116339 \
+    -i projects/GSE121633 \
     --group_con Control \
     --group_test Case
 ```
 
 ### Step 4: View Results
 Open the generated dashboard in your browser:
-`projects/GSE116339/Case_vs_Control_results_index.html`
+`projects/GSE121633/Case_vs_Control_results_index.html`
 
 ---
 

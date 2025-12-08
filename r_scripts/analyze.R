@@ -838,9 +838,20 @@ gmSet <- mapToGenome(mSet)
 # C. Probe-Level QC
 message("Performing Probe QC...")
 nrow_raw <- nrow(gmSet)
-keep_detP <- rowSums(detP < QC_DETECTION_P_THRESHOLD) == ncol(gmSet)
-gmSet <- gmSet[keep_detP, ]
-probes_failed_detection <- sum(!keep_detP)
+
+# Fix: Filter detP to match gmSet probes first
+common_probes <- intersect(rownames(detP), rownames(gmSet))
+detP_sub <- detP[common_probes, ]
+gmSet <- gmSet[common_probes, ]
+
+# Identify probes passing detection p-value threshold
+# We keep probes where P-value < threshold in ALL samples (strict) or fraction?
+# Original logic: keep_detP <- rowSums(detP < QC_DETECTION_P_THRESHOLD) == ncol(gmSet)
+# This implies ALL samples must pass.
+pass_detP <- rowSums(detP_sub < QC_DETECTION_P_THRESHOLD) == ncol(gmSet)
+gmSet <- gmSet[pass_detP, ]
+
+probes_failed_detection <- length(common_probes) - sum(pass_detP)
 message(sprintf("  - Removed %d probes with high detection P-value (threshold: %.3f).", probes_failed_detection, QC_DETECTION_P_THRESHOLD))
 
 before_snps <- nrow(gmSet)

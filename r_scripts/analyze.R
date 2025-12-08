@@ -55,7 +55,9 @@ option_list <- list(
   make_option(c("--permutations"), type="integer", default=0,
               help="Number of label permutations for null DMP counts (0 to skip)"),
   make_option(c("--vp_top"), type="integer", default=5000,
-              help="Number of top-variable CpGs for variancePartition (default: 5000)")
+              help="Number of top-variable CpGs for variancePartition (default: 5000)"),
+  make_option(c("--tissue"), type="character", default="Blood", 
+              help="Tissue type for cell deconvolution (default: Blood). Supported: Blood, CordBlood, DLPFC, or Auto (Reference-Free)")
 )
 
 opt_parser <- OptionParser(option_list=option_list)

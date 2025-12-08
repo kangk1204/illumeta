@@ -115,7 +115,8 @@ bioc_pkgs <- c(
     "pvca",
     "FlowSorted.Blood.EPIC",   # Cell type reference (EPIC/EPICv2)
     "FlowSorted.Blood.450k",   # Cell type reference (450k)
-    "wateRmelon"               # Epigenetic clocks (Horvath/Hannum/PhenoAge)
+    "wateRmelon",              # Epigenetic clocks (Horvath/Hannum/PhenoAge)
+    "EpiDISH"                  # Reference-free cell type estimation
 )
 
 # EPIC v2 annotation names (accept any)
@@ -139,7 +140,7 @@ cran_pkgs <- c(
     "ggrepel",
     "remotes", # Added for install_github
     "reformulas",
-    "lme4"
+    "RefFreeEWAS"              # Reference-free deconvolution
 )
 
 install_bioc_safe <- function(pkgs) {

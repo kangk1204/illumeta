@@ -534,7 +534,7 @@ def main():
     parser_analysis.add_argument("--disable-auto-covariates", action="store_true", help="Disable automatic covariate selection via PCs")
     parser_analysis.add_argument("--disable-sva", action="store_true", help="Disable surrogate variable analysis")
     parser_analysis.add_argument("--include-covariates", type=str, help="Comma-separated covariate names to always try to include (if present in configure.tsv)")
-    parser_analysis.add_argument("--tissue", type=str, default="Blood", help="Tissue type for cell deconvolution (Blood, CordBlood, DLPFC, etc.)")
+    parser_analysis.add_argument("--tissue", type=str, default="Blood", help="Tissue type for cell deconvolution (Blood, CordBlood, DLPFC, or Auto for Reference-Free)")
     parser_analysis.add_argument("--permutations", type=int, default=0, help="Number of label permutations for null DMP counts (0 to skip)")
     parser_analysis.add_argument("--vp-top", type=int, default=5000, help="Top-variable CpGs for variancePartition (default: 5000)")
     

@@ -277,7 +277,9 @@ def generate_dashboard(output_dir, group_test, group_con):
         ("_Top_DMRs_Heatmap.html", "DMR Heatmap (Top 50)", "Average methylation levels of top 50 DMRs."),
         ("_DMRs_Table.html", "DMRs Table", "Searchable table of differentially methylated regions."),
         ("_PVCA.html", "PVCA (Raw)", "Variance explained by group/batch/covariates before correction."),
-        ("_AfterCorrection_PVCA.html", "PVCA (Corrected)", "Variance explained after batch correction/SVA.")
+        ("_AfterCorrection_PVCA.html", "PVCA (Corrected)", "Variance explained after batch correction/SVA."),
+        ("_Epigenetic_Age.html", "Epigenetic Age (Clocks)", "Horvath/Hannum/PhenoAge vs chronological age (if provided)."),
+        ("_Epigenetic_Age.csv", "Epigenetic Age Table", "DNAm clock predictions per sample (predicted age, missing probes, residuals).")
     ]
 
     # Define additional files for Minfi/Sesame (full pipeline)

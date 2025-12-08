@@ -7,6 +7,8 @@ import csv
 import json
 from datetime import datetime
 
+__version__ = "1.0.0"
+
 # Configuration for R script paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 R_SCRIPTS_DIR = os.path.join(BASE_DIR, "r_scripts")
@@ -15,6 +17,7 @@ ANALYZE_SCRIPT = os.path.join(R_SCRIPTS_DIR, "analyze.R")
 SETUP_MARKER = os.path.join(BASE_DIR, ".r_setup_done")
 SETUP_SCRIPT = os.path.join(R_SCRIPTS_DIR, "setup_env.R")
 DEFAULT_R_LIB = os.path.join(BASE_DIR, ".r-lib")
+DEFAULT_CONDA_PREFIX = os.environ.get("CONDA_PREFIX")
 def add_conda_paths(env: dict) -> dict:
     """Ensure LD_LIBRARY_PATH/PKG_CONFIG_PATH/PATH include conda libs so xml2/xml load correctly."""
     prefix = env.get("CONDA_PREFIX") or os.environ.get("CONDA_PREFIX")

@@ -139,8 +139,7 @@ cran_pkgs <- c(
     "qqman",
     "ggrepel",
     "remotes", # Added for install_github
-    "reformulas",
-    "RefFreeEWAS"              # Reference-free deconvolution
+    "lme4"
 )
 
 install_bioc_safe <- function(pkgs) {
@@ -193,6 +192,17 @@ if (!requireNamespace("dmrff", quietly = TRUE)) {
     })
 }
 
+# Install RefFreeEWAS from GitHub
+if (!requireNamespace("RefFreeEWAS", quietly = TRUE)) {
+    message("Installing RefFreeEWAS from GitHub...")
+    tryCatch({
+        remotes::install_github("touseilab/RefFreeEWAS", upgrade = "never", lib = .libPaths()[1])
+    }, error = function(e) {
+        message("Warning: Failed to install RefFreeEWAS from GitHub.")
+        message(paste("Error details:", e$message))
+    })
+}
+
 install_epicv2_manifest <- function() {
   if (requireNamespace("IlluminaHumanMethylationEPICv2manifest", quietly = TRUE)) return(invisible(TRUE))
   message("Attempting EPIC v2 manifest from Bioconductor...")
@@ -214,20 +224,10 @@ install_epicv2_manifest <- function() {
 }
 
 install_epicv2_annos <- function() {
-  # Try Bioc names
-  tryCatch({
-    install_bioc_safe("IlluminaHumanMethylationEPICv2anno.20a1.hg38")
-    install_bioc_safe("IlluminaHumanMethylationEPICv2anno.ilm10b5.hg38")
-  }, error = function(e) {})
-  # Try GitHub legacy name
-  if (!requireNamespace("IlluminaHumanMethylationEPICanno.ilm10b5.hg38", quietly = TRUE)) {
-    message("Attempting EPIC v2 annotation (achilleasNP/IlluminaHumanMethylationEPICanno.ilm10b5.hg38) from GitHub...")
-    tryCatch({
-      remotes::install_github("achilleasNP/IlluminaHumanMethylationEPICanno.ilm10b5.hg38", upgrade = "never", lib = .libPaths()[1])
-    }, error = function(e) {
-      message("Warning: Failed to install EPIC v2 annotation from GitHub (ilm10b5).")
-      message(paste("Error details:", e$message))
-    })
+  # Install the official Bioconductor annotation package for EPIC v2
+  if (!requireNamespace("IlluminaHumanMethylationEPICv2anno.20a1.hg38", quietly = TRUE)) {
+      message("Installing EPIC v2 annotation (IlluminaHumanMethylationEPICv2anno.20a1.hg38)...")
+      install_bioc_safe("IlluminaHumanMethylationEPICv2anno.20a1.hg38")
   }
 }
 
@@ -300,7 +300,8 @@ required_pkgs <- c(
   "IlluminaHumanMethylationEPICv2manifest",
   "IlluminaHumanMethylation450kanno.ilmn12.hg19",
   "IlluminaHumanMethylationEPICanno.ilm10b4.hg19",
-  "sesameData", "sva", "variancePartition", "pvca"
+  "sesameData", "sva", "variancePartition", "pvca",
+  "RefFreeEWAS"
 )
 
 failed <- character(0)
@@ -331,16 +332,10 @@ if (length(failed) > 0) {
   message("All required dependencies installed and loadable.")
 }
 
-# EPIC v2 annotation check (must have at least one)
-epicv2_anno_ok <- any(vapply(epicv2_annos, function(pkg) {
-  tryCatch(requireNamespace(pkg, quietly = TRUE), error = function(e) FALSE)
-}, logical(1)))
-
-if (!epicv2_anno_ok) {
-  message("ERROR: EPIC v2 annotation package not installed. At least one of the following is required:")
-  for (pkg in epicv2_annos) message(paste0("  - ", pkg))
-  message("Tried Bioconductor (IlluminaHumanMethylationEPICv2anno.20a1.hg38 / ...ilm10b5...) and GitHub (achilleasNP/IlluminaHumanMethylationEPICanno.ilm10b5.hg38).")
-  message("If unavailable for your R/Bioc version, try upgrading Bioc or installing from source when it becomes available.")
+# EPIC v2 annotation check
+if (!requireNamespace("IlluminaHumanMethylationEPICv2anno.20a1.hg38", quietly = TRUE)) {
+  message("ERROR: EPIC v2 annotation package (IlluminaHumanMethylationEPICv2anno.20a1.hg38) not installed.")
+  message("Please ensure Bioconductor is configured correctly or install it manually.")
   quit(status = 1)
 }
 

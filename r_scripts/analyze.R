@@ -272,51 +272,86 @@ filter_low_range <- function(betas, min_range = BETA_RANGE_MIN) {
   list(mat = betas[keep, , drop = FALSE], removed = sum(!keep))
 }
 
-estimate_cell_counts_safe <- function(rgSet, composite = "Blood", out_dir = NULL) {
-  refs <- c("FlowSorted.Blood.EPIC", "FlowSorted.Blood.450k")
+estimate_cell_counts_safe <- function(rgSet, tissue = "Blood", out_dir = NULL) {
+  # Map tissue types to potential reference packages (prioritized order)
+  ref_map <- list(
+    "Blood" = c("FlowSorted.Blood.EPIC", "FlowSorted.Blood.450k"),
+    "CordBlood" = c("FlowSorted.CordBlood.EPIC", "FlowSorted.CordBlood.450k", "FlowSorted.CordBloodCombined.450k"),
+    "DLPFC" = c("FlowSorted.DLPFC.450k"), # Brain
+    "Saliva" = c("FlowSorted.Saliva.450k") # Rare but exists
+  )
+  
+  refs <- ref_map[[tissue]]
+  if (is.null(refs)) {
+    message(sprintf("Cell composition skipped: No known references for tissue '%s'. (Supported: %s)", 
+                    tissue, paste(names(ref_map), collapse=", ")))
+    return(NULL)
+  }
+
   est_fun <- NULL
   if (exists("estimateCellCounts2", envir = asNamespace("minfi"), inherits = FALSE)) {
     est_fun <- minfi::estimateCellCounts2
   } else if (exists("estimateCellCounts", envir = asNamespace("minfi"), inherits = FALSE)) {
     est_fun <- minfi::estimateCellCounts
   }
+  
   if (is.null(est_fun)) {
-    message("Cell composition estimation skipped (minfi::estimateCellCounts[2] not available).")
+    message("Cell composition skipped (minfi::estimateCellCounts[2] not available).")
     return(NULL)
   }
+
   for (ref in refs) {
     if (!requireNamespace(ref, quietly = TRUE)) {
+      message(sprintf("  - Reference package '%s' not installed. Skipping...", ref))
       next
     }
-    message(sprintf("Estimating cell composition using %s...", ref))
+    
+    # Check if reference supports the query array type (roughly)
+    # EPIC array usually works with 450k references via projection, but explicit EPIC refs are better.
+    
+    message(sprintf("Estimating cell composition for tissue '%s' using %s...", tissue, ref))
+    
+    # Determine reference platform string for minfi
+    # Usually inferred by the package name, but estimateCellCounts wants 'referencePlatform' sometimes
     ref_platform <- if (grepl("EPIC", ref, ignore.case = TRUE)) "IlluminaHumanMethylationEPIC" else "IlluminaHumanMethylation450k"
+    
     res <- tryCatch({
       arg_list <- list(
         rgSet = rgSet,
-        compositeCellType = composite,
+        compositeCellType = tissue,   # This must match the key in the FlowSorted package (usually "Blood", "DLPFC")
         referencePlatform = ref_platform,
         returnAll = FALSE
       )
+      
+      # Some specialized packages might use slightly different composite names
+      # e.g. CordBlood might still expect "Blood" or specific subtypes. 
+      # Standard minfi packages align compositeCellType with the tissue name in the package (e.g. "Blood", "DLPFC", "CordBlood")
+      
       fn_args <- names(formals(est_fun))
       if ("processMethod" %in% fn_args) arg_list$processMethod <- "preprocessNoob"
       if ("normalizationMethod" %in% fn_args) arg_list$normalizationMethod <- "none"
       if ("meanPlot" %in% fn_args) arg_list$meanPlot <- FALSE
+      
       do.call(est_fun, arg_list)
     }, error = function(e) {
       message("  - Cell composition estimation failed for ", ref, ": ", e$message)
       NULL
     })
+    
     if (is.null(res)) next
+    
     df <- as.data.frame(res)
     colnames(df) <- paste0("Cell_", colnames(df))
     df$SampleID <- rownames(df)
+    
     if (!is.null(out_dir)) {
       write.csv(df, file.path(out_dir, paste0("cell_counts_", ref, ".csv")), row.names = FALSE)
     }
-    message(sprintf("  - Cell composition estimated using %s (saved to CSV if out_dir set).", ref))
+    message(sprintf("  - Cell composition estimated using %s.", ref))
     return(list(counts = df, reference = ref))
   }
-  message("Cell composition estimation skipped (no FlowSorted reference available).")
+  
+  message(sprintf("Cell composition skipped (all references for '%s' failed or missing).", tissue))
   return(NULL)
 }
 
@@ -807,7 +842,7 @@ if (n_con < MIN_GROUP_SIZE_WARN || n_test < MIN_GROUP_SIZE_WARN) {
 message(sprintf("Samples retained after QC - Control: %d, Test: %d (total: %d)", n_con, n_test, n_con + n_test))
 
 # Cell composition estimation (before batch correction)
-cell_est <- estimate_cell_counts_safe(rgSet, composite = "Blood", out_dir = out_dir)
+cell_est <- estimate_cell_counts_safe(rgSet, tissue = opt$tissue, out_dir = out_dir)
 if (!is.null(cell_est)) {
   cell_df <- cell_est$counts
   cell_cols <- grep("^Cell_", colnames(cell_df), value = TRUE)

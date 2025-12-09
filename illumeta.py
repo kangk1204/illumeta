@@ -218,6 +218,8 @@ def run_analysis(args):
         cmd.extend(["--include_covariates", args.include_covariates])
     if args.tissue:
         cmd.extend(["--tissue", args.tissue])
+    if args.positive_controls:
+        cmd.extend(["--positive_controls", args.positive_controls])
     if args.permutations and args.permutations > 0:
         cmd.extend(["--permutations", str(args.permutations)])
     if args.vp_top:
@@ -535,6 +537,7 @@ def main():
     parser_analysis.add_argument("--disable-sva", action="store_true", help="Disable surrogate variable analysis")
     parser_analysis.add_argument("--include-covariates", type=str, help="Comma-separated covariate names to always try to include (if present in configure.tsv)")
     parser_analysis.add_argument("--tissue", type=str, default="Blood", help="Tissue type for cell deconvolution (Blood, CordBlood, DLPFC, or Auto for Reference-Free)")
+    parser_analysis.add_argument("--positive_controls", type=str, help="Comma-separated list of known marker genes to verify (e.g. 'AHRR,CYP1A1')")
     parser_analysis.add_argument("--permutations", type=int, default=0, help="Number of label permutations for null DMP counts (0 to skip)")
     parser_analysis.add_argument("--vp-top", type=int, default=5000, help="Top-variable CpGs for variancePartition (default: 5000)")
     

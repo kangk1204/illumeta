@@ -429,8 +429,23 @@ prepare_pvca_meta <- function(meta, factors) {
     val <- meta[[nm]]
     if (is.numeric(val)) {
       if (length(unique(val)) < 2) next
-      val <- cut(val, breaks = quantile(val, probs = seq(0, 1, length.out = 5), na.rm = TRUE),
-                 include.lowest = TRUE, ordered_result = TRUE)
+      # Robust binning for PVCA
+      # 1. Try 5 bins
+      breaks <- unique(quantile(val, probs = seq(0, 1, length.out = 5), na.rm = TRUE))
+      # 2. If distinct values are few, quantiles might collapse. Ensure at least 2 breaks.
+      if (length(breaks) < 2) {
+         # Fallback: just min/max if they differ
+         rng <- range(val, na.rm=TRUE)
+         if (diff(rng) > 1e-8) breaks <- rng else next
+      }
+      if (length(breaks) == 1) next # still one point? skip
+      
+      # 3. Cut
+      val <- tryCatch(
+        cut(val, breaks = breaks, include.lowest = TRUE, ordered_result = TRUE),
+        error = function(e) NULL
+      )
+      if (is.null(val)) next
     } else {
       val <- as.factor(val)
     }

@@ -57,7 +57,9 @@ option_list <- list(
   make_option(c("--vp_top"), type="integer", default=5000,
               help="Number of top-variable CpGs for variancePartition (default: 5000)"),
   make_option(c("--tissue"), type="character", default="Blood", 
-              help="Tissue type for cell deconvolution (default: Blood). Supported: Blood, CordBlood, DLPFC, or Auto (Reference-Free)")
+              help="Tissue type for cell deconvolution (default: Blood). Supported: Blood, CordBlood, DLPFC, or Auto (Reference-Free)"),
+  make_option(c("--positive_controls"), type="character", default=NULL,
+              help="Comma-separated list of gene symbols (e.g. 'AHRR,CYP1A1') to verify as positive controls.")
 )
 
 opt_parser <- OptionParser(option_list=option_list)
@@ -928,6 +930,43 @@ if (!is.null(cell_est)) {
     cell_covariates <- cell_cols
     write.csv(targets[, c(gsm_col, cell_cols), drop = FALSE], file.path(out_dir, "cell_counts_merged.csv"), row.names = FALSE)
     message(paste("  - Added cell composition covariates:", paste(cell_cols, collapse = ", ")))
+    
+    # [Over-correction Check] Evaluate association between Cell Types and Primary Group
+    # High association indicates risk of over-adjustment (confounding)
+    assoc_results <- data.frame(CellType = character(), P_Value = numeric(), Eta_Squared = numeric(), stringsAsFactors = FALSE)
+    
+    for (cc in cell_cols) {
+        # ANOVA for numeric cell prop vs Factor group
+        # Eta-squared ~ R-squared
+        tryCatch({
+            fit_aov <- aov(targets[[cc]] ~ targets$primary_group)
+            summ <- summary(fit_aov)[[1]]
+            ss_group <- summ["targets$primary_group", "Sum Sq"]
+            ss_total <- sum(summ[, "Sum Sq"])
+            eta_sq <- ss_group / ss_total
+            p_val <- summ["targets$primary_group", "Pr(>F)"][1]
+            
+            assoc_results <- rbind(assoc_results, data.frame(CellType = cc, P_Value = p_val, Eta_Squared = eta_sq))
+        }, error = function(e) {
+            # Skip if error (e.g. constant values)
+        })
+    }
+    
+    if (nrow(assoc_results) > 0) {
+        write.csv(assoc_results, file.path(out_dir, "Cell_Group_Association.csv"), row.names = FALSE)
+        
+        # Check for high confounding (Eta-squared > 0.5 is very strong association)
+        high_confound <- assoc_results[assoc_results$Eta_Squared > 0.5, ]
+        if (nrow(high_confound) > 0) {
+            message("WARNING: Strong association detected between Cell Composition and Group. Risk of Over-correction!")
+            for (i in 1:nrow(high_confound)) {
+                message(sprintf("  - %s: Eta^2 = %.3f (P = %.3g)", high_confound$CellType[i], high_confound$Eta_Squared[i], high_confound$P_Value[i]))
+            }
+            message("  > Consider removing these covariates if they represent biological pathology rather than noise.")
+        } else {
+            message("  - Cell composition vs Group association checked: No strong confounding detected (all Eta^2 <= 0.5).")
+        }
+    }
   } else {
     message("  - Cell composition estimated but sample IDs did not match metadata; skipping merge.")
   }
@@ -1886,6 +1925,40 @@ if (!disable_sva) {
   )
   metrics_path <- file.path(out_dir, paste0(prefix, "_Metrics.csv"))
   write.csv(metrics, metrics_path, row.names = FALSE)
+  
+  # Positive Control Check
+  if (!is.null(opt$positive_controls)) {
+      pc_genes <- trimws(strsplit(opt$positive_controls, ",")[[1]])
+      # res$Gene contains "GeneA;GeneB" format. We search loosely.
+      pc_hits <- data.frame()
+      for (pg in pc_genes) {
+          # Regex search for exact gene symbol (surrounded by ; or start/end)
+          # Simplified: just grep the symbol
+          idx <- grep(paste0("(^|;)", pg, "(;|$)"), res$Gene)
+          if (length(idx) > 0) {
+              hits <- res[idx, c("CpG", "Gene", "logFC", "P.Value", "adj.P.Val")]
+              hits$Target <- pg
+              # Take top hit by P-value
+              top_hit <- hits[which.min(hits$P.Value), ]
+              pc_hits <- rbind(pc_hits, top_hit)
+          } else {
+              # Not found row
+              pc_hits <- rbind(pc_hits, data.frame(CpG="Not Found", Gene=NA, logFC=NA, P.Value=NA, adj.P.Val=NA, Target=pg))
+          }
+      }
+      
+      if (nrow(pc_hits) > 0) {
+          pc_out <- file.path(out_dir, paste0(prefix, "_Positive_Controls.csv"))
+          write.csv(pc_hits, pc_out, row.names=FALSE)
+          message(paste("  - Positive Control Check:", paste(nrow(pc_hits), "genes checked.")))
+          # Print brief summary of found genes
+          found_pcs <- pc_hits[!is.na(pc_hits$P.Value), ]
+          if (nrow(found_pcs) > 0) {
+              message("    > Found:")
+              print(found_pcs[, c("Target", "logFC", "adj.P.Val")])
+          }
+      }
+  }
   
   return(res)
 }

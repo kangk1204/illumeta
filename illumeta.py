@@ -18,6 +18,40 @@ SETUP_MARKER = os.path.join(BASE_DIR, ".r_setup_done")
 SETUP_SCRIPT = os.path.join(R_SCRIPTS_DIR, "setup_env.R")
 DEFAULT_R_LIB = os.path.join(BASE_DIR, ".r-lib")
 DEFAULT_CONDA_PREFIX = os.environ.get("CONDA_PREFIX")
+CORE_R_PACKAGES = [
+    "optparse",
+    "GEOquery",
+    "minfi",
+    "sesame",
+    "limma",
+    "dmrff",
+    "sesameData",
+    "sva",
+    "variancePartition",
+    "pvca",
+    "Biobase",
+    "reformulas",
+    "ggplot2",
+    "plotly",
+    "DT",
+    "data.table",
+    "htmlwidgets",
+    "dplyr",
+    "stringr",
+    "ggrepel",
+    "IlluminaHumanMethylation450kmanifest",
+    "IlluminaHumanMethylationEPICmanifest",
+    "IlluminaHumanMethylationEPICv2manifest",
+    "IlluminaHumanMethylation450kanno.ilmn12.hg19",
+    "IlluminaHumanMethylationEPICanno.ilm10b4.hg19",
+    "IlluminaHumanMethylationEPICv2anno.20a1.hg38",
+]
+OPTIONAL_R_PACKAGES = [
+    "FlowSorted.Blood.EPIC",
+    "FlowSorted.Blood.450k",
+    "wateRmelon",
+    "RefFreeEWAS",
+]
 def add_conda_paths(env: dict) -> dict:
     """Ensure LD_LIBRARY_PATH/PKG_CONFIG_PATH/PATH include conda libs so xml2/xml load correctly."""
     prefix = env.get("CONDA_PREFIX") or os.environ.get("CONDA_PREFIX")
@@ -121,12 +155,14 @@ def ensure_r_dependencies():
             marker_ok = "epicv2_required=1" in content
         except Exception:
             marker_ok = False
-    core_pkgs = ["optparse", "GEOquery", "sesame", "minfi"]
-    missing_core = missing_r_packages(core_pkgs) if marker_ok else []
+    missing_core = missing_r_packages(CORE_R_PACKAGES) if marker_ok else []
+    missing_optional = missing_r_packages(OPTIONAL_R_PACKAGES) if marker_ok else []
     if marker_ok and not force_setup and not missing_core:
+        if missing_optional:
+            log(f"[*] Optional R packages missing (analysis will skip related features): {', '.join(missing_optional)}")
         log("[*] R dependencies already set up (skipping). Set ILLUMETA_FORCE_SETUP=1 to force reinstall.")
         return
-    if missing_core and not force_setup:
+    if marker_ok and missing_core and not force_setup:
         log(f"[*] R setup marker found but missing packages: {', '.join(missing_core)}. Re-running setup_env.R ...")
 
     log("[*] Ensuring R dependencies (this may take a few minutes on first run)...")
@@ -135,6 +171,9 @@ def ensure_r_dependencies():
         with open(SETUP_MARKER, "w") as f:
             f.write(f"setup completed at {datetime.now().isoformat()}\n")
             f.write("epicv2_required=1\n")
+        missing_optional_after = missing_r_packages(OPTIONAL_R_PACKAGES)
+        if missing_optional_after:
+            log(f"[*] Optional R packages missing (features will be skipped): {', '.join(missing_optional_after)}")
     except subprocess.CalledProcessError as e:
         log_err(f"[!] Error while installing R dependencies: {e}")
         log_err("    Hint: If you see 'library path not writable', set a user library first:")
@@ -224,6 +263,8 @@ def run_analysis(args):
         cmd.extend(["--permutations", str(args.permutations)])
     if args.vp_top:
         cmd.extend(["--vp_top", str(args.vp_top)])
+    if args.id_column:
+        cmd.extend(["--id_column", args.id_column])
     
     # Handle custom temp directory
     env = ensure_r_lib_env(os.environ.copy())
@@ -540,6 +581,7 @@ def main():
     parser_analysis.add_argument("--positive_controls", type=str, help="Comma-separated list of known marker genes to verify (e.g. 'AHRR,CYP1A1')")
     parser_analysis.add_argument("--permutations", type=int, default=0, help="Number of label permutations for null DMP counts (0 to skip)")
     parser_analysis.add_argument("--vp-top", type=int, default=5000, help="Top-variable CpGs for variancePartition (default: 5000)")
+    parser_analysis.add_argument("--id-column", type=str, help="Column in configure.tsv to treat as sample ID (useful for non-GEO datasets)")
     
     args = parser.parse_args()
 

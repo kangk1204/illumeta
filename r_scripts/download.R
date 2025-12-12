@@ -53,12 +53,27 @@ retry_run <- function(fn, label = "request", attempts = 3, wait = 3) {
   stop(sprintf("%s failed after %d attempts: %s", label, attempts, last_err$message))
 }
 
-# Fetch GEO series
-gse <- retry_run(function() getGEO(gse_id, GSEMatrix = TRUE), label = "getGEO")
-if (length(gse) > 1) {
-  message("Warning: Multiple platforms found. Using the first one.")
+# Fetch GEO series (possibly multi-platform)
+gse_list <- retry_run(function() getGEO(gse_id, GSEMatrix = TRUE), label = "getGEO")
+if (length(gse_list) > 1) {
+  message(sprintf("Multiple platforms detected (%d). Selecting the one with IDAT evidence...", length(gse_list)))
+  idat_counts <- vapply(gse_list, function(eset) {
+    pdat <- pData(eset)
+    supp_cols <- grep("supplementary_file", colnames(pdat), value = TRUE)
+    if (length(supp_cols) == 0) return(0L)
+    vals <- as.character(unlist(pdat[, supp_cols, drop = FALSE]))
+    sum(grepl("\\.idat(\\.gz)?$", vals, ignore.case = TRUE))
+  }, integer(1))
+  best_idx <- if (all(idat_counts == 0)) 1 else which.max(idat_counts)
+  if (all(idat_counts == 0)) {
+    message("  No platform showed explicit IDAT links; defaulting to the first.")
+  } else {
+    message(sprintf("  Choosing platform %d (IDAT hits: %d)", best_idx, idat_counts[best_idx]))
+  }
+  gse <- gse_list[[best_idx]]
+} else {
+  gse <- gse_list[[1]]
 }
-gse <- gse[[1]]
 
 meta <- pData(gse)
 

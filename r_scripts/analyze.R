@@ -59,7 +59,9 @@ option_list <- list(
   make_option(c("--tissue"), type="character", default="Blood", 
               help="Tissue type for cell deconvolution (default: Blood). Supported: Blood, CordBlood, DLPFC, or Auto (Reference-Free)"),
   make_option(c("--positive_controls"), type="character", default=NULL,
-              help="Comma-separated list of gene symbols (e.g. 'AHRR,CYP1A1') to verify as positive controls.")
+              help="Comma-separated list of gene symbols (e.g. 'AHRR,CYP1A1') to verify as positive controls."),
+  make_option(c("--id_column"), type="character", default="",
+              help="Column in configure.tsv to treat as sample ID (for non-GEO datasets). If empty, tries GSM/geo_accession.")
 )
 
 opt_parser <- OptionParser(option_list=option_list)
@@ -106,6 +108,7 @@ disable_sva <- opt$disable_sva
 include_cov <- ifelse(opt$include_covariates == "", character(0), trimws(strsplit(opt$include_covariates, ",")[[1]]))
 cell_covariates <- character(0)
 cell_counts_df <- NULL
+id_col_override <- opt$id_column
 
 if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
 
@@ -781,14 +784,69 @@ idat_dir <- file.path(project_dir, "idat")
 files <- list.files(idat_dir, pattern = "_Grn.idat", full.names = TRUE)
 basenames <- unique(sub("_Grn.idat.*", "", files))
 
-gsm_col <- grep("GSM|geo_accession", colnames(targets), value = TRUE, ignore.case = TRUE)[1]
-if (is.na(gsm_col)) stop("Could not identify GSM ID column in configure.tsv")
+# Resolve sample ID column (user override > GSM/geo_accession > Basename)
+if (nzchar(id_col_override)) {
+  if (!id_col_override %in% colnames(targets)) {
+    stop(paste("Specified --id_column", id_col_override, "not found in configure.tsv"))
+  }
+  id_col <- id_col_override
+} else {
+  id_col <- grep("GSM|geo_accession", colnames(targets), value = TRUE, ignore.case = TRUE)[1]
+  if (is.na(id_col) && "Basename" %in% colnames(targets)) {
+    id_col <- "Basename"
+  }
+}
 
-targets$Basename <- NA
-for (i in 1:nrow(targets)) {
-  gsm <- targets[[gsm_col]][i]
-  match <- grep(gsm, basenames, value = TRUE)
-  if (length(match) > 0) targets$Basename[i] <- match[1]
+if (is.na(id_col) || id_col == "") {
+  stop("Could not identify a sample ID column. Provide --id_column or include GSM/geo_accession/Basename in configure.tsv.")
+}
+
+targets$SampleID <- trimws(targets[[id_col]])
+if (any(is.na(targets$SampleID) | targets$SampleID == "")) {
+  stop("Sample ID column contains missing/empty values. Please fill it before running analysis.")
+}
+if (any(duplicated(targets$SampleID))) {
+  stop("Duplicate sample IDs detected. Ensure Sample IDs are unique or pass a different --id_column.")
+}
+gsm_col <- "SampleID"
+
+if (!"Basename" %in% colnames(targets)) {
+  targets$Basename <- NA_character_
+}
+
+find_basename_for_id <- function(sample_id, basenames) {
+  exact <- basenames[basename(basenames) == sample_id]
+  if (length(exact) > 0) return(exact[1])
+  contains <- basenames[grepl(sample_id, basename(basenames), fixed = TRUE)]
+  if (length(contains) > 0) return(contains[1])
+  return(NA_character_)
+}
+
+resolve_basename <- function(candidate, sample_id, basenames, project_dir) {
+  cand <- candidate
+  if (is.na(cand) || cand == "") {
+    cand <- find_basename_for_id(sample_id, basenames)
+  } else {
+    # If relative path, anchor to project directory
+    if (!grepl("^/", cand)) cand <- file.path(project_dir, cand)
+    # If file is missing, try to fall back to discovered basenames
+    test_paths <- c(paste0(cand, "_Grn.idat"), paste0(cand, "_Grn.idat.gz"))
+    if (!any(file.exists(test_paths))) {
+      alt <- find_basename_for_id(sample_id, basenames)
+      if (!is.na(alt)) cand <- alt
+    }
+  }
+  cand
+}
+
+for (i in seq_len(nrow(targets))) {
+  targets$Basename[i] <- resolve_basename(targets$Basename[i], targets$SampleID[i], basenames, project_dir)
+}
+
+missing_base <- which(is.na(targets$Basename))
+if (length(missing_base) > 0) {
+  stop(paste0("Could not find IDAT basenames for: ", paste(targets$SampleID[missing_base], collapse = ", "),
+              ". Ensure the IDAT filenames contain the sample IDs or set Basename explicitly."))
 }
 
 targets <- targets[!is.na(targets$Basename), ]
@@ -830,10 +888,10 @@ if ((n_con + n_test) < MIN_TOTAL_SIZE_STOP) {
 }
 
 if (any(is.na(targets[[gsm_col]]))) {
-  stop("Configuration has missing GSM IDs; cannot align samples.")
+  stop("Configuration has missing sample IDs; cannot align samples.")
 }
 if (any(duplicated(targets[[gsm_col]]))) {
-  stop("Duplicate GSM/geo_accession IDs detected; please ensure unique sample identifiers.")
+  stop("Duplicate sample identifiers detected; please ensure unique sample identifiers.")
 }
 rownames(targets) <- targets[[gsm_col]]
 
@@ -1018,12 +1076,11 @@ qc_report <- data.frame(
 write.csv(qc_report, file.path(out_dir, "QC_Summary.csv"), row.names = FALSE)
 
 beta_minfi <- getBeta(gmSet)
-colnames(beta_minfi) <- sub("_.*", "", colnames(beta_minfi))
-align_idx <- match(colnames(beta_minfi), targets[[gsm_col]])
-if (any(is.na(align_idx))) {
-  stop("Failed to align metadata to Minfi beta matrix by GSM ID.")
+if (ncol(beta_minfi) != nrow(targets)) {
+  stop("Failed to align metadata to Minfi beta matrix: sample counts differ.")
 }
-targets <- targets[align_idx, , drop = FALSE]
+# Preserve explicit sample IDs (no underscore trimming)
+colnames(beta_minfi) <- targets[[gsm_col]]
 
 anno_data <- getAnnotation(gmSet)
 anno <- anno_data[, c("chr", "pos", "Name", "UCSC_RefGene_Name", "UCSC_RefGene_Group", "Relation_to_Island")]
@@ -1053,6 +1110,8 @@ message(paste("Intersection:", length(common_cpgs), "CpGs common to Minfi and Se
 
 run_pipeline <- function(betas, prefix, annotation_df) {
   message(paste("Running pipeline for:", prefix))
+  # Work on a local copy of targets to avoid altering the shared metadata across pipelines
+  targets <- targets
   
   curr_anno <- annotation_df[rownames(betas), ]
   common_ids <- intersect(rownames(betas), rownames(curr_anno))
@@ -1135,6 +1194,29 @@ run_pipeline <- function(betas, prefix, annotation_df) {
     message(paste("  Covariate candidates after filtering:", paste(covariates, collapse = ", ")))
   } else {
     message("  No covariate candidates retained before design drop.")
+  }
+
+  # Drop samples with NA in any design variable to prevent model.matrix failures
+  design_vars <- unique(c("primary_group", covariates))
+  design_vars <- intersect(design_vars, colnames(targets))
+  if (length(design_vars) > 0) {
+    cc_idx <- complete.cases(targets[, design_vars, drop = FALSE])
+    if (!all(cc_idx)) {
+      dropped_ids <- rownames(targets)[!cc_idx]
+      message(sprintf("  Removing %d samples with NA in design variables (%s): %s",
+                      sum(!cc_idx), paste(design_vars, collapse = ", "),
+                      paste(dropped_ids, collapse = ", ")))
+      targets <- targets[cc_idx, , drop = FALSE]
+      betas <- betas[, cc_idx, drop = FALSE]
+    }
+  }
+  n_con_local <- sum(targets$primary_group == clean_con)
+  n_test_local <- sum(targets$primary_group == clean_test)
+  if (n_con_local == 0 || n_test_local == 0) {
+    stop("After removing samples with NA covariates, one of the groups has zero samples.")
+  }
+  if (n_con_local < MIN_GROUP_SIZE_WARN || n_test_local < MIN_GROUP_SIZE_WARN) {
+    message(sprintf("  WARNING: Very small sample size after NA filtering (Control: %d, Test: %d)", n_con_local, n_test_local))
   }
   
   # PVCA before model fitting to quantify variance explained by group/batch factors
@@ -1377,7 +1459,7 @@ if (!disable_sva) {
   plot_res$diffexpressed[plot_res$adj.P.Val < pval_thresh & plot_res$logFC > lfc_thresh] <- "UP"
   plot_res$diffexpressed[plot_res$adj.P.Val < pval_thresh & plot_res$logFC < -lfc_thresh] <- "DOWN"
   
-  subtitle_str <- paste0("Control: ", group_con_in, " (n=", n_con, ") vs Test: ", group_test_in, " (n=", n_test, ")")
+  subtitle_str <- paste0("Control: ", group_con_in, " (n=", n_con_local, ") vs Test: ", group_test_in, " (n=", n_test_local, ")")
   
   p_vol <- ggplot(plot_res, aes(x=logFC, y=-log10(P.Value), color=diffexpressed, 
                   text=paste("CpG:", CpG, "<br>Gene:", Gene, "<br>Region:", Region, "<br>Island:", Island_Context))) +

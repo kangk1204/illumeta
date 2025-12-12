@@ -247,8 +247,12 @@ def run_analysis(args):
         "--group_test", args.group_test,
         "--max_plots", str(args.max_plots),
         "--pval", str(args.pval),
-        "--lfc", str(args.lfc)
+        "--lfc", str(args.lfc),
+        "--min_total_size", str(args.min_total_size),
+        "--qc_intensity_threshold", str(args.qc_intensity_threshold)
     ]
+    if args.force_idat:
+        cmd.append("--force_idat")
     if args.disable_auto_covariates:
         cmd.append("--disable_auto_covariates")
     if args.disable_sva:
@@ -336,6 +340,7 @@ def generate_dashboard(output_dir, group_test, group_con):
         ("_PCA_After_Correction.html", "PCA (Corrected)", "PCA after removing detected batch effects."),
         ("_Sample_Clustering_Distance.html", "Sample Clustering", "Euclidean distance matrix of samples."),
         ("_QQPlot.html", "Q-Q Plot", "Check for genomic inflation and systematic bias."),
+        ("_Batch_Method_Comparison.html", "Correction Method", "Comparison of batch residual vs group signal for each method."),
         ("_Batch_Evaluation_Before.html", "Batch Eval (Before)", "Covariate association with PCs (Raw)."),
         ("_Batch_Evaluation_After.html", "Batch Eval (After)", "Covariate association with PCs (Corrected).")
     ]
@@ -577,11 +582,14 @@ def main():
     parser_analysis.add_argument("--disable-auto-covariates", action="store_true", help="Disable automatic covariate selection via PCs")
     parser_analysis.add_argument("--disable-sva", action="store_true", help="Disable surrogate variable analysis")
     parser_analysis.add_argument("--include-covariates", type=str, help="Comma-separated covariate names to always try to include (if present in configure.tsv)")
-    parser_analysis.add_argument("--tissue", type=str, default="Blood", help="Tissue type for cell deconvolution (Blood, CordBlood, DLPFC, or Auto for Reference-Free)")
+    parser_analysis.add_argument("--tissue", type=str, default="Auto", help="Tissue type for cell deconvolution (default Auto = reference-free; options: Auto, Blood, CordBlood, DLPFC)")
     parser_analysis.add_argument("--positive_controls", type=str, help="Comma-separated list of known marker genes to verify (e.g. 'AHRR,CYP1A1')")
     parser_analysis.add_argument("--permutations", type=int, default=0, help="Number of label permutations for null DMP counts (0 to skip)")
     parser_analysis.add_argument("--vp-top", type=int, default=5000, help="Top-variable CpGs for variancePartition (default: 5000)")
     parser_analysis.add_argument("--id-column", type=str, help="Column in configure.tsv to treat as sample ID (useful for non-GEO datasets)")
+    parser_analysis.add_argument("--min-total-size", type=int, default=6, help="Minimum total sample size required to proceed (default: 6)")
+    parser_analysis.add_argument("--qc-intensity-threshold", type=float, default=10.5, help="Median M/U intensity threshold (log2). Set <=0 to disable intensity-based sample drop (default: 10.5)")
+    parser_analysis.add_argument("--force-idat", action="store_true", help="Force reading IDATs if array sizes differ but types are similar")
     
     args = parser.parse_args()
 

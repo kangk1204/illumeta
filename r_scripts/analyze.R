@@ -19,6 +19,7 @@ suppressPackageStartupMessages(library(reformulas))
 suppressPackageStartupMessages(library(Biobase))
 suppressPackageStartupMessages(library(pvca))
 suppressPackageStartupMessages(library(RefFreeEWAS))
+suppressPackageStartupMessages(library(illuminaio))
 if (!exists("findbars")) {
   findbars <- reformulas::findbars
 }
@@ -56,12 +57,18 @@ option_list <- list(
               help="Number of label permutations for null DMP counts (0 to skip)"),
   make_option(c("--vp_top"), type="integer", default=5000,
               help="Number of top-variable CpGs for variancePartition (default: 5000)"),
-  make_option(c("--tissue"), type="character", default="Blood", 
-              help="Tissue type for cell deconvolution (default: Blood). Supported: Blood, CordBlood, DLPFC, or Auto (Reference-Free)"),
+  make_option(c("--tissue"), type="character", default="Auto", 
+              help="Tissue type for cell deconvolution (default: Auto = reference-free). Supported: Auto (RefFreeEWAS), Blood, CordBlood, DLPFC"),
   make_option(c("--positive_controls"), type="character", default=NULL,
               help="Comma-separated list of gene symbols (e.g. 'AHRR,CYP1A1') to verify as positive controls."),
   make_option(c("--id_column"), type="character", default="",
-              help="Column in configure.tsv to treat as sample ID (for non-GEO datasets). If empty, tries GSM/geo_accession.")
+              help="Column in configure.tsv to treat as sample ID (for non-GEO datasets). If empty, tries GSM/geo_accession."),
+  make_option(c("--min_total_size"), type="integer", default=6,
+              help="Minimum total sample size required to proceed (default: 6)."),
+  make_option(c("--qc_intensity_threshold"), type="double", default=10.5,
+              help="Median M/U signal intensity threshold for sample QC (log2). Set <=0 to disable intensity-based sample drop (default: 10.5)"),
+  make_option(c("--force_idat"), action="store_true", default=FALSE,
+              help="Force reading IDATs when array sizes differ but types are similar (passes force=TRUE to read.metharray).")
 )
 
 opt_parser <- OptionParser(option_list=option_list)
@@ -87,7 +94,7 @@ DMR_MAXGAP <- 500
 DMR_P_CUTOFF <- 0.05
 BATCH_EVAL_TOP_VAR <- 20000
 MIN_GROUP_SIZE_WARN <- 3
-MIN_TOTAL_SIZE_STOP <- 6
+MIN_TOTAL_SIZE_STOP <- NULL
 
 if (is.null(opt$config) || is.null(opt$group_con) || is.null(opt$group_test)){
   print_help(opt_parser)
@@ -109,6 +116,9 @@ include_cov <- ifelse(opt$include_covariates == "", character(0), trimws(strspli
 cell_covariates <- character(0)
 cell_counts_df <- NULL
 id_col_override <- opt$id_column
+MIN_TOTAL_SIZE_STOP <- max(2, opt$min_total_size)
+force_idat <- opt$force_idat
+QC_MEDIAN_INTENSITY_THRESHOLD <- ifelse(opt$qc_intensity_threshold <= 0, -Inf, opt$qc_intensity_threshold)
 
 if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
 
@@ -764,6 +774,41 @@ eval_batch_method <- function(M_mat, meta, group_col, batch_col, covariates, met
   )
 }
 
+apply_batch_correction <- function(betas, method, batch_col, covariates, targets, design) {
+  # Apply the selected batch correction method to betas (logit space) while preserving group effects.
+  if (is.null(method) || method == "none" || is.null(batch_col) || !(batch_col %in% colnames(targets))) {
+    return(list(betas = betas, method = "none"))
+  }
+  batch_vals <- targets[[batch_col]]
+  if (length(unique(batch_vals)) < 2) {
+    return(list(betas = betas, method = "none"))
+  }
+  covariates <- covariates[covariates %in% colnames(targets)]
+  cov_mat <- NULL
+  if (length(covariates) > 0) {
+    cov_formula <- as.formula(paste("~ 0 +", paste(covariates, collapse = " + ")))
+    cov_mat <- model.matrix(cov_formula, data = targets)
+  }
+  design_keep <- model.matrix(~ primary_group, data = targets)
+  M_mat <- logit_offset(betas)
+
+  if (method == "combat") {
+    mod <- design
+    M_corr <- ComBat(dat = M_mat, batch = as.factor(batch_vals), mod = mod, par.prior = TRUE, prior.plots = FALSE)
+  } else if (method == "limma") {
+    M_corr <- removeBatchEffect(M_mat, batch = as.factor(batch_vals), covariates = cov_mat, design = design_keep)
+  } else if (method == "sva") {
+    # SVA handled via surrogate variables already included in the design.
+    return(list(betas = betas, method = "sva"))
+  } else {
+    return(list(betas = betas, method = "none"))
+  }
+
+  betas_corr <- 2^M_corr / (1 + 2^M_corr)
+  betas_corr <- pmin(pmax(betas_corr, LOGIT_OFFSET), 1 - LOGIT_OFFSET)
+  list(betas = betas_corr, method = method)
+}
+
 # --- 1. Load and Prepare Data ---
 
 set.seed(12345) # Ensure reproducibility
@@ -852,6 +897,34 @@ if (length(missing_base) > 0) {
 targets <- targets[!is.na(targets$Basename), ]
 if (nrow(targets) == 0) stop("No matching IDAT files found for the defined samples.")
 
+# Drop samples whose IDAT array size deviates from the modal value (prevents mixed-platform parsing errors)
+idat_size <- vapply(targets$Basename, function(bn) {
+  f <- paste0(bn, "_Grn.idat")
+  if (!file.exists(f)) f <- paste0(bn, "_Grn.idat.gz")
+  if (!file.exists(f)) return(NA_real_)
+  tryCatch({
+    readIDAT(f)[["nSNPsRead"]]
+  }, error = function(e) NA_real_)
+}, numeric(1))
+mode_size <- NA_real_
+if (sum(!is.na(idat_size)) > 0) {
+  tbl <- sort(table(idat_size), decreasing = TRUE)
+  mode_size <- as.numeric(names(tbl)[1])
+  if (length(tbl) > 1) {
+    mismatch_idx <- which(!is.na(idat_size) & idat_size != mode_size)
+    if (length(mismatch_idx) > 0) {
+      bad_ids <- targets[[gsm_col]][mismatch_idx]
+      bad_sizes <- idat_size[mismatch_idx]
+      message(sprintf("Dropping %d sample(s) with non-modal IDAT array size (mode=%s): %s",
+                      length(mismatch_idx), format(mode_size, scientific = FALSE),
+                      paste(paste0(bad_ids, " (", bad_sizes, ")"), collapse = ", ")))
+      targets <- targets[-mismatch_idx, , drop = FALSE]
+      idat_size <- idat_size[-mismatch_idx]
+      if (nrow(targets) == 0) stop("All samples were dropped due to IDAT size mismatch.")
+    }
+  }
+}
+
 # 1. Filter for specified groups (Case-Insensitive)
 # Standardize to check match
 target_groups_lower <- tolower(targets$primary_group)
@@ -884,7 +957,7 @@ if (n_con < MIN_GROUP_SIZE_WARN || n_test < MIN_GROUP_SIZE_WARN) {
   message("         Statistical power may be limited; interpret results with caution.")
 }
 if ((n_con + n_test) < MIN_TOTAL_SIZE_STOP) {
-  stop("ERROR: Total sample size too small (n < 6). Cannot proceed with reliable statistical analysis.")
+  stop(sprintf("ERROR: Total sample size too small (n < %d). Cannot proceed with reliable statistical analysis.", MIN_TOTAL_SIZE_STOP))
 }
 
 if (any(is.na(targets[[gsm_col]]))) {
@@ -919,15 +992,18 @@ targets$primary_group <- factor(targets$primary_group, levels = c(clean_con, cle
 # --- 2. Minfi Analysis ---
 
 message("--- Starting Minfi Analysis ---")
-rgSet <- read.metharray.exp(targets = targets)
+if (force_idat) {
+  message("  Forcing IDAT read despite differing array sizes (force=TRUE).")
+}
+rgSet <- read.metharray.exp(targets = targets, force = force_idat)
 
 # A. Sample-Level QC
 # Sample QC thresholds based on Illumina recommendations:
 # - Median M/U signal intensity > 10.5 (log2 scale) indicates good quality
 # - Poor quality samples can introduce bias in downstream analysis
-message(sprintf("Performing Sample QC (Illumina recommendation: median M/U signal > %.1f log2)...", QC_MEDIAN_INTENSITY_THRESHOLD))
 detP <- detectionP(rgSet)
 sample_fail <- colMeans(detP > QC_DETECTION_P_THRESHOLD, na.rm = TRUE) > QC_SAMPLE_DET_FAIL_FRAC
+bad_samples_idx <- integer(0)
 if (any(sample_fail)) {
     bad_samples <- colnames(detP)[sample_fail]
     message(sprintf("WARNING: Removing %d samples with > %.0f%% probes failing detection p>%.2g", length(bad_samples), QC_SAMPLE_DET_FAIL_FRAC * 100, QC_DETECTION_P_THRESHOLD))
@@ -937,16 +1013,21 @@ if (any(sample_fail)) {
     detP <- detP[, keep, drop = FALSE]
     targets <- targets[keep, , drop = FALSE]
 }
-qc <- getQC(preprocessRaw(rgSet))
-bad_samples_idx <- which(qc$mMed < QC_MEDIAN_INTENSITY_THRESHOLD | qc$uMed < QC_MEDIAN_INTENSITY_THRESHOLD)
-if (length(bad_samples_idx) > 0) {
-    bad_samples <- rownames(qc)[bad_samples_idx]
-    message(paste("WARNING: Removing", length(bad_samples), "samples due to low signal intensity (<", QC_MEDIAN_INTENSITY_THRESHOLD, "log2):"))
-    message(paste(bad_samples, collapse=", "))
-    targets <- targets[-bad_samples_idx, ]
-    rgSet <- rgSet[, -bad_samples_idx]
-    detP <- detP[, -bad_samples_idx]
-    if (nrow(targets) < 2) stop("Too few samples remaining after QC.")
+if (is.finite(QC_MEDIAN_INTENSITY_THRESHOLD)) {
+    message(sprintf("Performing Sample QC (Illumina recommendation: median M/U signal > %.1f log2)...", QC_MEDIAN_INTENSITY_THRESHOLD))
+    qc <- getQC(preprocessRaw(rgSet))
+    bad_samples_idx <- which(qc$mMed < QC_MEDIAN_INTENSITY_THRESHOLD | qc$uMed < QC_MEDIAN_INTENSITY_THRESHOLD)
+    if (length(bad_samples_idx) > 0) {
+        bad_samples <- rownames(qc)[bad_samples_idx]
+        message(paste("WARNING: Removing", length(bad_samples), "samples due to low signal intensity (<", QC_MEDIAN_INTENSITY_THRESHOLD, "log2):"))
+        message(paste(bad_samples, collapse=", "))
+        targets <- targets[-bad_samples_idx, ]
+        rgSet <- rgSet[, -bad_samples_idx]
+        detP <- detP[, -bad_samples_idx]
+        if (nrow(targets) < 2) stop("Too few samples remaining after QC.")
+    }
+} else {
+    message("Performing Sample QC: intensity filter disabled (--qc_intensity_threshold<=0); skipping intensity-based removal.")
 }
 samples_failed_qc <- sum(sample_fail) + length(bad_samples_idx)
 
@@ -959,7 +1040,7 @@ if (n_con == 0 || n_test == 0) {
 }
 
 if ((n_con + n_test) < MIN_TOTAL_SIZE_STOP) {
-  stop(sprintf("ERROR: Total sample size too small after QC (n = %d). Cannot proceed with reliable statistical analysis.", n_con + n_test))
+  stop(sprintf("ERROR: Total sample size too small after QC (n = %d, threshold = %d). Cannot proceed with reliable statistical analysis.", n_con + n_test, MIN_TOTAL_SIZE_STOP))
 }
 
 if (n_con < MIN_GROUP_SIZE_WARN || n_test < MIN_GROUP_SIZE_WARN) {
@@ -1100,7 +1181,14 @@ common_probes_sesame <- Reduce(intersect, lapply(betas_sesame_list, names))
 beta_sesame <- do.call(cbind, lapply(betas_sesame_list, function(x) x[common_probes_sesame]))
 colnames(beta_sesame) <- targets[[gsm_col]]
 beta_sesame <- na.omit(beta_sesame)
-message(paste("Sesame processed", nrow(beta_sesame), "probes."))
+sesame_before_qc <- nrow(beta_sesame)
+# Harmonize Sesame with Minfi QC/annotation footprint
+qc_probes <- rownames(beta_minfi)
+shared_qc <- intersect(rownames(beta_sesame), qc_probes)
+if (length(shared_qc) > 0) {
+  beta_sesame <- beta_sesame[shared_qc, , drop = FALSE]
+}
+message(paste("Sesame processed", sesame_before_qc, "probes (after QC alignment:", nrow(beta_sesame), ")."))
 
 # --- 4. Intersection ---
 common_cpgs <- intersect(rownames(beta_minfi), rownames(beta_sesame))
@@ -1113,6 +1201,7 @@ run_pipeline <- function(betas, prefix, annotation_df) {
   # Work on a local copy of targets to avoid altering the shared metadata across pipelines
   targets <- targets
   
+  best_method <- "none"
   curr_anno <- annotation_df[rownames(betas), ]
   common_ids <- intersect(rownames(betas), rownames(curr_anno))
   betas <- betas[common_ids, ]
@@ -1226,7 +1315,7 @@ run_pipeline <- function(betas, prefix, annotation_df) {
 
   # Compare batch correction strategies (none/ComBat/removeBatchEffect/SVA)
   batch_col <- select_batch_factor(targets, preferred = c("Sentrix_ID", "Sentrix_Position"))
-  if (!is.null(batch_col)) {
+  if (!is.null(batch_col) && nrow(targets) >= 4) {
     message(paste("  Evaluating batch correction methods using batch factor:", batch_col))
     M_mat <- logit_offset(betas)
     methods <- c("none", "combat", "limma", "sva")
@@ -1249,9 +1338,36 @@ run_pipeline <- function(betas, prefix, annotation_df) {
       best_idx <- which.min(batch_df$score)
       best_method <- batch_df$method[best_idx]
       message(paste("  Best batch method by score:", best_method, "(saved to", out_batch_path, ")"))
+      
+      # Visualization: Batch Method Comparison
+      tryCatch({
+        plot_df <- batch_df[, c("method", "batch_var", "group_var", "score")]
+        # Normalize/Scale for visualization if needed, but raw values are informative enough for relative comparison
+        # Reshape to long
+        long_df <- reshape2::melt(plot_df, id.vars = "method")
+        
+        # Add a flag for the best method
+        long_df$is_best <- long_df$method == best_method
+        
+        p_comp <- ggplot(long_df, aes(x = method, y = value, fill = variable, alpha = is_best)) +
+          geom_bar(stat = "identity", position = "dodge") +
+          scale_alpha_manual(values = c("FALSE"=0.6, "TRUE"=1.0), guide="none") +
+          scale_fill_manual(values = c("batch_var"="#e74c3c", "group_var"="#3498db", "score"="#95a5a6"),
+                            labels = c("Batch Residual (Lower is better)", "Group Signal (Higher is better)", "Combined Score (Lower is better)")) +
+          labs(title = paste(prefix, "Batch Correction Method Evaluation"),
+               subtitle = paste("Selected Best Method:", best_method),
+               y = "Metric Value", x = "Method", fill = "Metric") +
+          theme_minimal()
+          
+        save_interactive_plot(p_comp, paste0(prefix, "_Batch_Method_Comparison.html"), out_dir)
+      }, error = function(e) {
+        message("  - Failed to generate batch comparison plot: ", e$message)
+      })
     } else {
       message("  Batch method comparison skipped: no results.")
     }
+  } else if (!is.null(batch_col)) {
+    message("  Skipping batch method comparison (too few samples for stable evaluation).")
   } else {
     message("  No eligible batch factor found for batch method comparison.")
   }
@@ -1388,6 +1504,21 @@ if (!disable_sva) {
     # PVCA after correction to quantify residual batch/group contribution
     run_pvca_assessment(clean_betas, targets, pvca_factors, paste0(prefix, "_AfterCorrection"), out_dir, threshold = 0.6, max_probes = 5000, sample_ids = colnames(clean_betas))
   }
+
+  # Apply the selected batch correction method to the modeling matrix
+  betas_for_model <- betas
+  applied_batch_method <- "none"
+  if (!is.null(batch_col) && (batch_col %in% colnames(targets)) && length(unique(targets[[batch_col]])) > 1) {
+    bc_res <- apply_batch_correction(betas, best_method, batch_col, all_covariates, targets, design)
+    betas_for_model <- bc_res$betas
+    applied_batch_method <- bc_res$method
+    if (applied_batch_method != "none") {
+      message(paste("  Batch correction applied for modeling using:", applied_batch_method))
+    } else {
+      message("  Batch correction not applied to modeling matrix (method=none or unsupported).")
+    }
+  }
+  betas <- betas_for_model
   
   groups <- levels(targets$primary_group)
   if (length(groups) < 2) {
@@ -1603,9 +1734,15 @@ if (!disable_sva) {
   col_order <- c("CpG", "Gene", setdiff(colnames(res), c("CpG", "Gene")))
   res <- res[, col_order]
 
-  save_datatable(head(res, 2000), paste0(prefix, "_Top_DMPs.html"), out_dir)
+  write.csv(res, file.path(out_dir, paste0(prefix, "_DMPs_full.csv")), row.names = FALSE)
+  top_for_table <- head(res, min(10000, nrow(res)))
+  save_datatable(top_for_table, paste0(prefix, "_Top_DMPs.html"), out_dir)
   
   # --- D. DMR Analysis (dmrff) ---
+  if (nrow(targets) < 4) {
+    message("  Skipping DMR analysis (dmrff) due to very small sample size (<4).")
+    dmr_res <- data.frame()
+  } else {
   message("  Running DMR analysis (dmrff)...")
   
   # Prepare inputs for dmrff
@@ -1988,13 +2125,13 @@ if (!disable_sva) {
   }, error=function(e) NA)
   
   metrics <- data.frame(
-    metric = c("pipeline", "lambda", "n_samples", "n_cpgs", "n_covariates_used", "covariates_used", "n_sv_used", "sv_used",
+    metric = c("pipeline", "lambda", "batch_method_applied", "n_samples", "n_cpgs", "n_covariates_used", "covariates_used", "n_sv_used", "sv_used",
                "batch_sig_p_lt_0.05_before", "batch_min_p_before",
                "batch_sig_p_lt_0.05_after", "batch_min_p_after",
                "group_min_p_before", "group_min_p_after",
                "dropped_covariates",
                "perm_mean_sig", "perm_max_sig", "vp_primary_group_mean"),
-    value = c(prefix, lambda_val, nrow(targets), nrow(betas), length(used_covariates),
+    value = c(prefix, lambda_val, applied_batch_method, nrow(targets), nrow(betas), length(used_covariates),
               paste(used_covariates, collapse=";"),
               length(sv_cols), paste(sv_cols, collapse=";"),
               batch_before$sig_count, batch_before$min_p,
@@ -2043,6 +2180,7 @@ if (!disable_sva) {
   }
   
   return(res)
+}
 }
 
 res_minfi <- run_pipeline(beta_minfi, "Minfi", anno_df)

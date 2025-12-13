@@ -116,7 +116,10 @@ bioc_pkgs <- c(
     "FlowSorted.Blood.EPIC",   # Cell type reference (EPIC/EPICv2)
     "FlowSorted.Blood.450k",   # Cell type reference (450k)
     "wateRmelon",              # Epigenetic clocks (Horvath/Hannum/PhenoAge)
-    "EpiDISH"                  # Reference-free cell type estimation
+    "EpiDISH",                 # Reference-free cell type estimation
+    "planet",                  # Placental DNA methylation clocks
+    "methylclock",             # General epigenetic clocks
+    "methylclockData"          # Data for methylclock
 )
 
 # EPIC v2 annotation names (accept any)
@@ -138,13 +141,21 @@ cran_pkgs <- c(
     "data.table",
     "qqman",
     "ggrepel",
-    "remotes", # Added for install_github
-    "lme4"
+    "remotes",
+    "lme4",
+    # Add other core tidyverse components explicitly if needed by methylclock
+    # For now, rely on archived tidyverse for simplicity
+    "tibble",
+    "purrr",
+    "readr",
+    "tidyr",
+    "forcats"
 )
 
 install_bioc_safe <- function(pkgs) {
     miss <- setdiff(pkgs, rownames(installed.packages()))
     if (length(miss) == 0) return(invisible())
+    message(paste("Installing Bioconductor packages:", paste(miss, collapse = ", ")))
     tryCatch({
         BiocManager::install(miss, update = FALSE, ask = FALSE, lib = .libPaths()[1])
     }, error = function(e) {
@@ -156,11 +167,33 @@ install_bioc_safe <- function(pkgs) {
 install_cran_safe <- function(pkgs) {
     miss <- setdiff(pkgs, rownames(installed.packages()))
     if (length(miss) == 0) return(invisible())
+    message(paste("Installing CRAN packages:", paste(miss, collapse = ", ")))
     tryCatch({
         install.packages(miss, repos = "http://cran.us.r-project.org", lib = .libPaths()[1])
     }, error = function(e) {
         message("Warning: install.packages failed for: ", paste(miss, collapse = ", "))
         message("  Detail: ", conditionMessage(e))
+    })
+}
+
+# Ensure archived versions of devtools and tidyverse are installed to avoid dependency conflicts
+# (e.g., ragg/pkgdown issues with latest versions)
+if (!requireNamespace("devtools", quietly = TRUE)) {
+    message("Installing archived devtools (2.4.3) to avoid pkgdown/ragg issues...")
+    tryCatch({
+        install.packages('https://cran.r-project.org/src/contrib/Archive/devtools/devtools_2.4.3.tar.gz', repos=NULL, type="source", lib = .libPaths()[1])
+    }, error = function(e) {
+        message("Warning: Failed to install archived devtools. Trying latest CRAN version.")
+        install_cran_safe("devtools")
+    })
+}
+if (!requireNamespace("tidyverse", quietly = TRUE)) {
+    message("Installing archived tidyverse (1.3.2) to avoid ragg issues...")
+    tryCatch({
+        install.packages('https://cran.r-project.org/src/contrib/Archive/tidyverse/tidyverse_1.3.2.tar.gz', repos=NULL, type="source", lib = .libPaths()[1])
+    }, error = function(e) {
+        message("Warning: Failed to install archived tidyverse. Trying latest CRAN version.")
+        install_cran_safe("tidyverse")
     })
 }
 

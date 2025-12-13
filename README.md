@@ -13,6 +13,7 @@ A publication-ready, fully automated toolkit to go from GEO accession (or raw ID
 - **Advanced Batch Correction:** Automatically detects and corrects batch effects using SVA (Surrogate Variable Analysis) and ComBat.
 - **Interactive Reporting:** Generates a full HTML dashboard with Volcano plots, Heatmaps, Manhattan plots, and QC metrics.
 - **Cross-Platform:** Runs seamlessly on **Ubuntu/Linux**, **macOS (Intel & Apple Silicon)**, and **Windows 11 (via WSL2)**.
+- **Advanced Epigenetic Clocks:** Integrates `methylclock` for a wide range of epigenetic clocks (Horvath, Hannum, PhenoAge, etc.) and `planet` specifically for placental gestational age predictions.
 
 ---
 
@@ -23,9 +24,9 @@ Ensure you have the following installed:
 - **Python** (3.8+)
 - **R** (4.2+)
 - **Git**
-- **System Libraries** (for R packages):
-  - **Ubuntu/WSL:** `sudo apt-get install -y libcurl4-openssl-dev libssl-dev libxml2-dev libicu-dev cmake pandoc`
-  - **macOS:** `brew install openssl@3 libxml2 cmake pandoc`
+- **System Libraries** (for R packages, crucial for graphics and compilation):
+  - **Ubuntu/WSL:** `sudo apt-get install -y libcurl4-openssl-dev libssl-dev libxml2-dev libicu-dev cmake pandoc libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev libwebp-dev`
+  - **macOS:** `brew install openssl@3 libxml2 cmake pandoc freetype libpng libtiff jpeg webp`
 
 ### 2. Clone & Install
 ```bash
@@ -115,7 +116,40 @@ python3 illumeta.py analysis -i projects/GSE12345 --pval 0.01 --lfc 1.0 ...
 python3 illumeta.py analysis -i projects/GSE12345 --disable-sva ...
 
 # Use a custom temporary directory (for large datasets)
+
 python3 illumeta.py analysis -i projects/GSE12345 --tmp-dir /mnt/big_drive/tmp ...
+
+
+
+### Epigenetic Clocks
+
+IlluMeta now integrates advanced epigenetic clock analysis:
+
+
+
+-   **Default (General Tissues):** Uses `methylclock` to estimate various epigenetic ages (Horvath, Hannum, PhenoAge, etc.) for general tissue types. Results are saved in `*_Epigenetic_Age_methylclock.csv` and `*_Epigenetic_Age_methylclock.html`.
+
+-   **Placental Tissues:** For placental samples, specify `--tissue Placenta` to additionally run `planet`, which calculates specialized placental gestational age clocks (RPC, CPC). Results are saved in `*_Placental_Age_planet.csv`.
+
+
+
+Example (Placenta-specific clocks):
+
+```bash
+
+python3 illumeta.py analysis -i projects/GSE307314 --group_con control --group_test test --tissue Placenta --qc-intensity-threshold 10.0
+
+```
+
+
+
+---
+
+
+
+## ⚠️ Troubleshooting
+
+
 ```
 
 ---

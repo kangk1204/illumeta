@@ -330,8 +330,10 @@ def generate_dashboard(output_dir, group_test, group_con):
         ("_DMRs_Table.html", "DMRs Table", "Searchable table of differentially methylated regions."),
         ("_PVCA.html", "PVCA (Raw)", "Variance explained by group/batch/covariates before correction."),
         ("_AfterCorrection_PVCA.html", "PVCA (Corrected)", "Variance explained after batch correction/SVA."),
-        ("_Epigenetic_Age.html", "Epigenetic Age (Clocks)", "Horvath/Hannum/PhenoAge vs chronological age (if provided)."),
-        ("_Epigenetic_Age.csv", "Epigenetic Age Table", "DNAm clock predictions per sample (predicted age, missing probes, residuals).")
+        ("_Epigenetic_Age.html", "Epigenetic Age (wateRmelon)", "Horvath/Hannum/PhenoAge vs chronological age (if provided)."),
+        ("_Epigenetic_Age_methylclock.html", "Epigenetic Age (methylclock)", "Horvath/Hannum/PhenoAge/SkinBlood vs chronological age."),
+        ("_Epigenetic_Age_methylclock.csv", "Epigenetic Age Table", "DNAm clock predictions (methylclock)."),
+        ("_Placental_Age_planet.csv", "Placental Age (planet)", "RPC/CPC Gestational Age predictions (Placenta only).")
     ]
 
     # Define additional files for Minfi/Sesame (full pipeline)
@@ -582,7 +584,7 @@ def main():
     parser_analysis.add_argument("--disable-auto-covariates", action="store_true", help="Disable automatic covariate selection via PCs")
     parser_analysis.add_argument("--disable-sva", action="store_true", help="Disable surrogate variable analysis")
     parser_analysis.add_argument("--include-covariates", type=str, help="Comma-separated covariate names to always try to include (if present in configure.tsv)")
-    parser_analysis.add_argument("--tissue", type=str, default="Auto", help="Tissue type for cell deconvolution (default Auto = reference-free; options: Auto, Blood, CordBlood, DLPFC)")
+    parser_analysis.add_argument("--tissue", type=str, default="Auto", help="Tissue type for cell deconvolution (default Auto = reference-free; options: Auto, Blood, CordBlood, DLPFC, Placenta)")
     parser_analysis.add_argument("--positive_controls", type=str, help="Comma-separated list of known marker genes to verify (e.g. 'AHRR,CYP1A1')")
     parser_analysis.add_argument("--permutations", type=int, default=0, help="Number of label permutations for null DMP counts (0 to skip)")
     parser_analysis.add_argument("--vp-top", type=int, default=5000, help="Top-variable CpGs for variancePartition (default: 5000)")

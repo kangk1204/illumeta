@@ -5,5 +5,12 @@ geo_idat_methylation.tsv
 # Python bytecode
 __pycache__/
 *.pyc
+# Local Python venv
+.venv/
 # Local R library (auto-created)
 .r-lib/
+# Local analysis outputs / scratch
+projects/
+batch_report.csv
+batch_runner.py
+cancer_candidates.tsv

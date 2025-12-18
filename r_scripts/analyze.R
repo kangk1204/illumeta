@@ -20,6 +20,39 @@ suppressPackageStartupMessages(library(Biobase))
 suppressPackageStartupMessages(library(pvca))
 suppressPackageStartupMessages(library(RefFreeEWAS))
 suppressPackageStartupMessages(library(illuminaio))
+
+# Workaround for variancePartition / lme4 compatibility issue
+# variancePartition still calls lme4::findbars; in newer lme4 this may be a stub
+# that errors and instructs to use reformulas. Patch lme4::findbars to point to
+# reformulas::findbars when needed.
+if (requireNamespace("lme4", quietly = TRUE) && requireNamespace("reformulas", quietly = TRUE)) {
+  lme4_ns <- asNamespace("lme4")
+  fb_lme4 <- tryCatch(get("findbars", envir = lme4_ns), error = function(e) NULL)
+  fb_need_patch <- is.null(fb_lme4) || !identical(fb_lme4, reformulas::findbars)
+  if (fb_need_patch) {
+    tryCatch(unlockBinding("findbars", lme4_ns), error = function(e) {})
+    assign("findbars", reformulas::findbars, envir = lme4_ns)
+    tryCatch(lockBinding("findbars", lme4_ns), error = function(e) {})
+    message("  [Patch] Set lme4::findbars <- reformulas::findbars to support variancePartition.")
+  }
+}
+
+# variancePartition may import the stubbed findbars at load time; patch its namespace too.
+if (requireNamespace("variancePartition", quietly = TRUE) && requireNamespace("reformulas", quietly = TRUE)) {
+  vp_ns <- asNamespace("variancePartition")
+  vp_imp <- parent.env(vp_ns) # imported bindings live in the namespace parent
+  if (exists("findbars", envir = vp_imp, inherits = FALSE)) {
+    fb_vp <- tryCatch(get("findbars", envir = vp_imp, inherits = FALSE), error = function(e) NULL)
+    fb_need_patch <- !is.null(fb_vp) && !identical(fb_vp, reformulas::findbars)
+    if (fb_need_patch) {
+      tryCatch(unlockBinding("findbars", vp_imp), error = function(e) {})
+      tryCatch(assign("findbars", reformulas::findbars, envir = vp_imp), error = function(e) {})
+      tryCatch(lockBinding("findbars", vp_imp), error = function(e) {})
+      message("  [Patch] Set variancePartition::findbars <- reformulas::findbars (compat fix).")
+    }
+  }
+}
+
 if (!exists("findbars")) {
   findbars <- reformulas::findbars
 }
@@ -156,6 +189,14 @@ if (!cache_preexisting) {
 save_interactive_plot <- function(p, filename, dir) {
   pp <- ggplotly(p)
   saveWidget(pp, file = file.path(dir, filename), selfcontained = TRUE)
+}
+
+save_static_plot <- function(p, filename, dir, width = 7, height = 4, dpi = 300) {
+  tryCatch({
+    ggsave(filename = file.path(dir, filename), plot = p, width = width, height = height, dpi = dpi)
+  }, error = function(e) {
+    message(sprintf("  Static plot save skipped (%s): %s", filename, e$message))
+  })
 }
 
 save_datatable <- function(df, filename, dir) {
@@ -586,24 +627,53 @@ compute_epigenetic_clocks <- function(betas, meta, id_col, prefix, out_dir, tiss
        mc_success <- TRUE
        
        # Visualization
-       idx <- match(sample_ids, meta$.__id)
+       meta_ids <- NULL
+       if (!is.null(id_col) && nzchar(id_col) && id_col %in% colnames(meta)) {
+           meta_ids <- safe_id(meta[[id_col]])
+       } else if (!is.null(rownames(meta))) {
+           meta_ids <- safe_id(rownames(meta))
+       }
+       idx <- if (!is.null(meta_ids)) match(sample_ids, meta_ids) else seq_along(sample_ids)
        age_candidates <- c("chronological_age", "Age", "age", "age_years", "Age_years")
-       age_col <- age_candidates[match(tolower(age_candidates), tolower(colnames(meta)))]
-       age_col <- age_col[!is.na(age_col)][1]
+       age_col <- NULL
+       meta_cols_lower <- tolower(colnames(meta))
+       for (cand in age_candidates) {
+           hit <- which(meta_cols_lower == tolower(cand))
+           if (length(hit) > 0) {
+               age_col <- colnames(meta)[hit[1]]
+               break
+           }
+       }
        
        if (!is.null(age_col) && "Horvath" %in% colnames(mc_df)) {
-           chron_age <- meta[[age_col]][idx]
-           if (all(is.finite(chron_age))) {
-               p_mc <- ggplot(mc_df, aes(x = chron_age, y = Horvath, 
-                                        text = paste0("Sample: ", Sample,
-                                                      "<br>Horvath: ", round(Horvath, 2),
-                                                      "<br>Chronological: ", round(chron_age, 2)))) +
-                 geom_point(size = 3, alpha = 0.7, color="purple") +
-                 geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray40") +
-                 theme_minimal() +
-                 labs(x = "Chronological Age", y = "Horvath DNAm Age", title = paste0(prefix, " Epigenetic Clock (methylclock)"))
+           raw_age <- meta[[age_col]][idx]
+           # Force conversion to numeric (handles factors/characters like "45", "45 years" if clean)
+           chron_age <- suppressWarnings(as.numeric(as.character(raw_age)))
+           
+           if (any(!is.na(chron_age)) && all(is.finite(chron_age[!is.na(chron_age)]))) {
+               # Subset to valid samples only
+               valid_mask <- !is.na(chron_age) & is.finite(chron_age)
                
-               save_interactive_plot(p_mc, paste0(prefix, "_Epigenetic_Age_methylclock.html"), out_dir)
+               if (sum(valid_mask) >= 2) {
+                   plot_df <- data.frame(
+                     Sample = mc_df$Sample[valid_mask],
+                     Chronological_Age = chron_age[valid_mask],
+                     Horvath = mc_df$Horvath[valid_mask],
+                     stringsAsFactors = FALSE
+                   )
+                   
+                   p_mc <- ggplot(plot_df, aes(x = Chronological_Age, y = Horvath,
+                                               text = paste0("Sample: ", Sample,
+                                                             "<br>Horvath: ", round(Horvath, 2),
+                                                             "<br>Chronological: ", round(Chronological_Age, 2)))) +
+                     geom_point(size = 3, alpha = 0.7, color="purple") +
+                     geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray40") +
+                     theme_minimal() +
+                     labs(x = "Chronological Age", y = "Horvath DNAm Age", title = paste0(prefix, " Epigenetic Clock (methylclock)"))
+                   
+                   save_interactive_plot(p_mc, paste0(prefix, "_Epigenetic_Age_methylclock.html"), out_dir)
+                   save_static_plot(p_mc, paste0(prefix, "_Epigenetic_Age_methylclock.png"), out_dir, width = 5, height = 4)
+               }
            }
        }
      }, error = function(e) {
@@ -641,11 +711,34 @@ compute_epigenetic_clocks <- function(betas, meta, id_col, prefix, out_dir, tiss
        write.csv(planet_df, out_planet_path, row.names = FALSE)
        message("  Placental clocks (planet) saved to ", out_planet_path)
        
+       if (all(c("RPC_Gestational_Age_Weeks", "CPC_Gestational_Age_Weeks") %in% colnames(planet_df))) {
+         ok <- is.finite(planet_df$RPC_Gestational_Age_Weeks) & is.finite(planet_df$CPC_Gestational_Age_Weeks)
+         if (sum(ok) >= 2) {
+           p_planet <- ggplot(planet_df[ok, , drop = FALSE],
+                              aes(x = RPC_Gestational_Age_Weeks, y = CPC_Gestational_Age_Weeks,
+                                  text = paste0("Sample: ", Sample,
+                                                "<br>RPC: ", round(RPC_Gestational_Age_Weeks, 2),
+                                                "<br>CPC: ", round(CPC_Gestational_Age_Weeks, 2)))) +
+             geom_point(size = 3, alpha = 0.8, color = "#2c3e50") +
+             geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray50") +
+             theme_minimal() +
+             labs(
+               title = paste0(prefix, " Placental clocks (planet)"),
+               x = "RPC gestational age (weeks)",
+               y = "CPC gestational age (weeks)"
+             )
+           save_interactive_plot(p_planet, paste0(prefix, "_Placental_Age_planet_scatter.html"), out_dir)
+           save_static_plot(p_planet, paste0(prefix, "_Placental_Age_planet_scatter.png"), out_dir, width = 5, height = 4)
+         }
+       }
+       
      }, error = function(e) {
        message("  planet clock failed: ", e$message)
      })
   }
-}select_batch_factor <- function(meta, preferred = c("Sentrix_ID", "Sentrix_Position")) {
+}
+
+select_batch_factor <- function(meta, preferred = c("Sentrix_ID", "Sentrix_Position")) {
   for (nm in preferred) {
     if (nm %in% colnames(meta)) {
       vals <- meta[[nm]]
@@ -688,6 +781,13 @@ eval_batch_method <- function(M_mat, meta, group_col, batch_col, covariates, met
   }
   batch <- meta_use[[batch_col]]
   group <- meta_use[[group_col]]
+  
+  # Speed: evaluate batch strategies on top-variable probes only
+  if (nrow(M_mat) > BATCH_EVAL_TOP_VAR) {
+    vars0 <- apply(M_mat, 1, var, na.rm = TRUE)
+    eval_idx <- head(order(vars0, decreasing = TRUE), BATCH_EVAL_TOP_VAR)
+    M_mat <- M_mat[eval_idx, , drop = FALSE]
+  }
   
   # Helper to build model matrices safely
   mm_safe <- function(formula_str, data) {
@@ -1064,6 +1164,78 @@ if (n_con < MIN_GROUP_SIZE_WARN || n_test < MIN_GROUP_SIZE_WARN) {
 
 message(sprintf("Samples retained after QC - Control: %d, Test: %d (total: %d)", n_con, n_test, n_con + n_test))
 
+# Save sample-level QC metrics and figures (publication-friendly)
+tryCatch({
+    qc_metrics <- data.frame(
+      Sample = colnames(detP),
+      Group = as.character(targets$primary_group[match(colnames(detP), rownames(targets))]),
+      Detection_Fail_Fraction = colMeans(detP > QC_DETECTION_P_THRESHOLD, na.rm = TRUE),
+      stringsAsFactors = FALSE
+    )
+    if (any(is.na(qc_metrics$Group))) qc_metrics$Group <- as.character(targets$primary_group)
+    
+    qc_for_plot <- NULL
+    if (exists("qc", inherits = FALSE)) {
+      qc_for_plot <- qc
+    } else {
+      qc_for_plot <- tryCatch(getQC(preprocessRaw(rgSet)), error = function(e) NULL)
+    }
+    if (!is.null(qc_for_plot) && nrow(qc_for_plot) > 0) {
+      m_idx <- match(qc_metrics$Sample, rownames(qc_for_plot))
+      qc_metrics$M_Median <- qc_for_plot$mMed[m_idx]
+      qc_metrics$U_Median <- qc_for_plot$uMed[m_idx]
+    }
+    
+    write.csv(qc_metrics, file.path(out_dir, "Sample_QC_Metrics.csv"), row.names = FALSE)
+    
+    p_det <- ggplot(qc_metrics, aes(x = reorder(Sample, Detection_Fail_Fraction),
+                                   y = Detection_Fail_Fraction,
+                                   fill = Group,
+                                   text = paste0("Sample: ", Sample, "<br>Fail frac: ", round(Detection_Fail_Fraction, 4)))) +
+      geom_col() +
+      coord_flip() +
+      geom_hline(yintercept = QC_SAMPLE_DET_FAIL_FRAC, linetype = "dashed", color = "red") +
+      theme_minimal() +
+      labs(
+        title = "Sample QC: Detection P-value failure fraction",
+        subtitle = sprintf("Threshold: > %.0f%% probes failing (P > %.3g)", QC_SAMPLE_DET_FAIL_FRAC * 100, QC_DETECTION_P_THRESHOLD),
+        x = NULL,
+        y = "Fraction of probes failing"
+      ) +
+      theme(legend.position = "bottom")
+    save_interactive_plot(p_det, "Sample_QC_DetectionP_FailFraction.html", out_dir)
+    save_static_plot(p_det, "Sample_QC_DetectionP_FailFraction.png", out_dir, width = 7, height = 4)
+    
+    if ("M_Median" %in% colnames(qc_metrics) && "U_Median" %in% colnames(qc_metrics) &&
+        any(is.finite(qc_metrics$M_Median)) && any(is.finite(qc_metrics$U_Median))) {
+      p_int <- ggplot(qc_metrics, aes(x = U_Median, y = M_Median, color = Group,
+                                     text = paste0("Sample: ", Sample,
+                                                   "<br>U median: ", round(U_Median, 2),
+                                                   "<br>M median: ", round(M_Median, 2)))) +
+        geom_point(size = 3, alpha = 0.8) +
+        theme_minimal() +
+        labs(
+          title = "Sample QC: Median signal intensity (M/U)",
+          subtitle = if (is.finite(QC_MEDIAN_INTENSITY_THRESHOLD)) {
+            sprintf("Threshold: %.1f log2 (dashed lines)", QC_MEDIAN_INTENSITY_THRESHOLD)
+          } else {
+            "Intensity filter disabled"
+          },
+          x = "Unmethylated median (log2)",
+          y = "Methylated median (log2)"
+        )
+      if (is.finite(QC_MEDIAN_INTENSITY_THRESHOLD)) {
+        p_int <- p_int +
+          geom_vline(xintercept = QC_MEDIAN_INTENSITY_THRESHOLD, linetype = "dashed", color = "red") +
+          geom_hline(yintercept = QC_MEDIAN_INTENSITY_THRESHOLD, linetype = "dashed", color = "red")
+      }
+      save_interactive_plot(p_int, "Sample_QC_Intensity_Medians.html", out_dir)
+      save_static_plot(p_int, "Sample_QC_Intensity_Medians.png", out_dir, width = 5, height = 4)
+    }
+}, error = function(e) {
+    message("  QC plot export skipped: ", e$message)
+})
+
 # Cell composition estimation (before batch correction)
 cell_est <- estimate_cell_counts_safe(rgSet, tissue = opt$tissue, out_dir = out_dir)
 if (!is.null(cell_est)) {
@@ -1216,10 +1388,9 @@ run_pipeline <- function(betas, prefix, annotation_df) {
   targets <- targets
   
   best_method <- "none"
-  curr_anno <- annotation_df[rownames(betas), ]
-  common_ids <- intersect(rownames(betas), rownames(curr_anno))
-  betas <- betas[common_ids, ]
-  curr_anno <- curr_anno[common_ids, ]
+  common_ids <- intersect(rownames(betas), rownames(annotation_df))
+  betas <- betas[common_ids, , drop = FALSE]
+  curr_anno <- annotation_df[common_ids, , drop = FALSE]
   
   range_filt <- filter_low_range(betas, min_range = BETA_RANGE_MIN)
   betas <- range_filt$mat
@@ -1252,11 +1423,13 @@ run_pipeline <- function(betas, prefix, annotation_df) {
       ggtitle(paste(prefix, "Sample Distance Matrix (Top 1000 Var Probes)"))
       
   save_interactive_plot(p_dist, paste0(prefix, "_Sample_Clustering_Distance.html"), out_dir)
+  save_static_plot(p_dist, paste0(prefix, "_Sample_Clustering_Distance.png"), out_dir, width = 7, height = 6)
 
   pca_res <- prcomp(t(betas), scale. = TRUE)
   pca_df <- data.frame(PC1 = pca_res$x[,1], PC2 = pca_res$x[,2], Group = targets$primary_group)
   p_pca <- ggplot(pca_df, aes(x=PC1, y=PC2, color=Group)) + geom_point(size=3) + theme_minimal() + ggtitle(paste(prefix, "PCA (Raw)"))
   save_interactive_plot(p_pca, paste0(prefix, "_PCA_Before.html"), out_dir)
+  save_static_plot(p_pca, paste0(prefix, "_PCA_Before.png"), out_dir, width = 5, height = 4)
   
   # Auto-detect covariates via PC association (top PCs) unless disabled
   covariates <- character(0)
@@ -1325,7 +1498,7 @@ run_pipeline <- function(betas, prefix, annotation_df) {
   # PVCA before model fitting to quantify variance explained by group/batch factors
   pvca_factors <- unique(c("primary_group", covariates))
   run_pvca_assessment(betas, targets, pvca_factors, prefix, out_dir, threshold = 0.6, max_probes = 5000, sample_ids = colnames(betas))
-  compute_epigenetic_clocks(betas, targets, id_col = gsm_col, prefix = prefix, out_dir = out_dir)
+  compute_epigenetic_clocks(betas, targets, id_col = gsm_col, prefix = prefix, out_dir = out_dir, tissue = opt$tissue)
 
   # Compare batch correction strategies (none/ComBat/removeBatchEffect/SVA)
   batch_col <- select_batch_factor(targets, preferred = c("Sentrix_ID", "Sentrix_Position"))
@@ -1357,8 +1530,12 @@ run_pipeline <- function(betas, prefix, annotation_df) {
       tryCatch({
         plot_df <- batch_df[, c("method", "batch_var", "group_var", "score")]
         # Normalize/Scale for visualization if needed, but raw values are informative enough for relative comparison
-        # Reshape to long
-        long_df <- reshape2::melt(plot_df, id.vars = "method")
+        # Reshape to long (avoid extra package dependencies)
+        long_df <- rbind(
+          data.frame(method = plot_df$method, variable = "batch_var", value = plot_df$batch_var),
+          data.frame(method = plot_df$method, variable = "group_var", value = plot_df$group_var),
+          data.frame(method = plot_df$method, variable = "score", value = plot_df$score)
+        )
         
         # Add a flag for the best method
         long_df$is_best <- long_df$method == best_method
@@ -1374,6 +1551,7 @@ run_pipeline <- function(betas, prefix, annotation_df) {
           theme_minimal()
           
         save_interactive_plot(p_comp, paste0(prefix, "_Batch_Method_Comparison.html"), out_dir)
+        save_static_plot(p_comp, paste0(prefix, "_Batch_Method_Comparison.png"), out_dir, width = 7, height = 4)
       }, error = function(e) {
         message("  - Failed to generate batch comparison plot: ", e$message)
       })
@@ -1414,7 +1592,14 @@ if (!disable_sva) {
         message(paste("    - Skipping SVA (", label, "): Sample size too small for stable estimation.", sep=""))
         return(NULL)
       }
-      svobj <- sva(betas, mod, mod0)
+      # Speed: estimate SVs on top-variable probes only
+      sva_mat <- betas
+      if (nrow(sva_mat) > BATCH_EVAL_TOP_VAR) {
+        v0 <- apply(sva_mat, 1, var, na.rm = TRUE)
+        top_idx <- head(order(v0, decreasing = TRUE), BATCH_EVAL_TOP_VAR)
+        sva_mat <- sva_mat[top_idx, , drop = FALSE]
+      }
+      svobj <- sva(sva_mat, mod, mod0)
       return(svobj)
     }
     
@@ -1514,6 +1699,7 @@ if (!disable_sva) {
     p_pca_clean <- ggplot(pca_clean_df, aes(x=PC1, y=PC2, color=Group)) + 
       geom_point(size=3) + theme_minimal() + ggtitle(paste(prefix, "PCA (Corrected: covariates + SVs)"))
     save_interactive_plot(p_pca_clean, paste0(prefix, "_PCA_After_Correction.html"), out_dir)
+    save_static_plot(p_pca_clean, paste0(prefix, "_PCA_After_Correction.png"), out_dir, width = 5, height = 4)
     
     # PVCA after correction to quantify residual batch/group contribution
     run_pvca_assessment(clean_betas, targets, pvca_factors, paste0(prefix, "_AfterCorrection"), out_dir, threshold = 0.6, max_probes = 5000, sample_ids = colnames(clean_betas))
@@ -1533,6 +1719,13 @@ if (!disable_sva) {
     }
   }
   betas <- betas_for_model
+
+  # Effect sizes on the beta scale (paper-friendly interpretability)
+  con_mask <- targets$primary_group == clean_con
+  test_mask <- targets$primary_group == clean_test
+  mean_beta_con <- rowMeans(betas[, con_mask, drop = FALSE], na.rm = TRUE)
+  mean_beta_test <- rowMeans(betas[, test_mask, drop = FALSE], na.rm = TRUE)
+  delta_beta <- mean_beta_test - mean_beta_con
   
   groups <- levels(targets$primary_group)
   if (length(groups) < 2) {
@@ -1551,6 +1744,10 @@ if (!disable_sva) {
   fit2 <- eBayes(fit2)
   res <- topTable(fit2, coef = 1, number = Inf, adjust.method = "BH")
   res$CpG <- rownames(res)
+
+  res$Mean_Beta_Con <- mean_beta_con[res$CpG]
+  res$Mean_Beta_Test <- mean_beta_test[res$CpG]
+  res$Delta_Beta <- delta_beta[res$CpG]
   
   # Add annotation
   res <- merge(res, curr_anno, by.x="CpG", by.y="CpG")
@@ -1593,6 +1790,7 @@ if (!disable_sva) {
       ggtitle(paste(prefix, "Q-Q Plot (Lambda =", round(lambda_val, 3), ")"))
       
   save_interactive_plot(p_qq, paste0(prefix, "_QQPlot.html"), out_dir)
+  save_static_plot(p_qq, paste0(prefix, "_QQPlot.png"), out_dir, width = 5, height = 4)
 
   plot_res <- res[order(res$P.Value), ]
   if (nrow(plot_res) > max_points) {
@@ -1607,13 +1805,18 @@ if (!disable_sva) {
   subtitle_str <- paste0("Control: ", group_con_in, " (n=", n_con_local, ") vs Test: ", group_test_in, " (n=", n_test_local, ")")
   
   p_vol <- ggplot(plot_res, aes(x=logFC, y=-log10(P.Value), color=diffexpressed, 
-                  text=paste("CpG:", CpG, "<br>Gene:", Gene, "<br>Region:", Region, "<br>Island:", Island_Context))) +
+                  text=paste("CpG:", CpG,
+                             "<br>Gene:", Gene,
+                             "<br>DeltaBeta:", round(Delta_Beta, 4),
+                             "<br>Region:", Region,
+                             "<br>Island:", Island_Context))) +
     geom_point(alpha=0.5) + theme_minimal() +
     scale_color_manual(values=c("DOWN"="blue", "NO"="grey", "UP"="red")) +
     labs(title = paste(prefix, "Volcano Plot"), 
          subtitle = subtitle_str,
          color = "Status")
   save_interactive_plot(p_vol, paste0(prefix, "_Volcano.html"), out_dir)
+  save_static_plot(p_vol, paste0(prefix, "_Volcano.png"), out_dir, width = 6, height = 5)
   
   chr_map <- c(as.character(1:22), "X", "Y", "M")
   chr_vals <- 1:25
@@ -1645,7 +1848,11 @@ if (!disable_sva) {
       chr_labels <- names(chr_vals)[match(axis_set$chr_num, chr_vals)]
       
       p_man <- ggplot(plot_res_man, aes(x=pos_cum, y=-log10(P.Value), color=as.factor(chr_num), 
-                        text=paste("CpG:", CpG, "<br>Gene:", Gene, "<br>Region:", Region, "<br>Island:", Island_Context))) +
+                        text=paste("CpG:", CpG,
+                                   "<br>Gene:", Gene,
+                                   "<br>DeltaBeta:", round(Delta_Beta, 4),
+                                   "<br>Region:", Region,
+                                   "<br>Island:", Island_Context))) +
         geom_point(alpha=0.7, size=1) +
         scale_x_continuous(label = chr_labels, breaks = axis_set$center) +
         theme_minimal() +
@@ -1659,6 +1866,7 @@ if (!disable_sva) {
         ggtitle(paste(prefix, "Manhattan Plot (Top", nrow(plot_res_man), "CpG sites)"))
       
       save_interactive_plot(p_man, paste0(prefix, "_Manhattan.html"), out_dir)
+      save_static_plot(p_man, paste0(prefix, "_Manhattan.png"), out_dir, width = 8, height = 4)
   } else {
       message("Skipping Manhattan: No valid chromosome data found in subsample.")
   }
@@ -1742,6 +1950,7 @@ if (!disable_sva) {
             layout(title = paste(prefix, "Top 100 CpG sites Heatmap"))
               
           saveWidget(final_heatmap, file = file.path(out_dir, paste0(prefix, "_Top100_Heatmap.html")), selfcontained = TRUE)
+          save_static_plot(p_heat_top, paste0(prefix, "_Top100_Heatmap.png"), out_dir, width = 8, height = 10)
       }
   }
 
@@ -1831,6 +2040,7 @@ if (!disable_sva) {
                    x = "Mean Methylation Difference (Estimate)", y = "-log10 Adjusted P-value",
                    color = "Status")
           save_interactive_plot(p_vol_dmr, paste0(prefix, "_DMR_Volcano.html"), out_dir)
+          save_static_plot(p_vol_dmr, paste0(prefix, "_DMR_Volcano.png"), out_dir, width = 6, height = 5)
           
           # 2. DMR Manhattan Plot
           chr_map <- c(as.character(1:22), "X", "Y", "M")
@@ -1872,6 +2082,7 @@ if (!disable_sva) {
                   ggtitle(paste(prefix, "DMR Manhattan Plot"))
               
               save_interactive_plot(p_man_dmr, paste0(prefix, "_DMR_Manhattan.html"), out_dir)
+              save_static_plot(p_man_dmr, paste0(prefix, "_DMR_Manhattan.png"), out_dir, width = 8, height = 4)
           }
           
           # 3. DMR Heatmap (Top 50 DMRs - Average Methylation per Region)
@@ -1946,6 +2157,7 @@ if (!disable_sva) {
                     ggtitle(paste(prefix, "Top 50 DMRs Heatmap (Avg Methylation)"))
                     
                save_interactive_plot(p_heat_dmr, paste0(prefix, "_Top_DMRs_Heatmap.html"), out_dir)
+               save_static_plot(p_heat_dmr, paste0(prefix, "_Top_DMRs_Heatmap.png"), out_dir, width = 8, height = 8)
           }
           
       } else {
@@ -1954,6 +2166,7 @@ if (!disable_sva) {
     }, error = function(e) {
         message("    - DMR analysis failed: ", e$message)
     })
+  }
   }
 
   evaluate_batch <- function(data_betas, meta, label, file_suffix, allowed_vars) {
@@ -2016,6 +2229,7 @@ if (!disable_sva) {
   
   p_eval_before <- evaluate_batch(betas, targets, paste(prefix, "Before"), "Before", allowed_vars)
   save_interactive_plot(p_eval_before$plot, paste0(prefix, "_Batch_Evaluation_Before.html"), out_dir)
+  save_static_plot(p_eval_before$plot, paste0(prefix, "_Batch_Evaluation_Before.png"), out_dir, width = 7, height = 5)
   pvals_before <- p_eval_before$pvals
   
   p_eval_after <- NULL
@@ -2032,6 +2246,7 @@ if (!disable_sva) {
       p_eval_after <- evaluate_batch(clean_betas, targets, paste(prefix, "After"), "After", allowed_vars)
       pvals_after <- p_eval_after$pvals
       save_interactive_plot(p_eval_after$plot, paste0(prefix, "_Batch_Evaluation_After.html"), out_dir)
+      save_static_plot(p_eval_after$plot, paste0(prefix, "_Batch_Evaluation_After.png"), out_dir, width = 7, height = 5)
   }
   
   # Permutation test on top-variable CpGs (optional)
@@ -2195,14 +2410,98 @@ if (!disable_sva) {
   
   return(res)
 }
-}
 
 res_minfi <- run_pipeline(beta_minfi, "Minfi", anno_df)
 res_sesame <- run_pipeline(beta_sesame, "Sesame", anno_df)
-beta_intersect <- beta_minfi[common_cpgs, ]
-res_intersect <- run_pipeline(beta_intersect, "Intersection", anno_df)
+
+# --- Consensus (Intersection) between Minfi and Sesame ---
+# For publication-ready "double validation", we define consensus DMPs as probes that are significant
+# in BOTH pipelines with the same direction (and passing the same thresholds).
+consensus_counts <- list(up = 0, down = 0)
+tryCatch({
+  keep_cols <- intersect(
+    c("CpG", "Gene", "chr", "pos", "Region", "Island_Context", "logFC", "P.Value", "adj.P.Val"),
+    colnames(res_minfi)
+  )
+  a <- res_minfi[, keep_cols, drop = FALSE]
+  b <- res_sesame[, intersect(c("CpG", "logFC", "P.Value", "adj.P.Val"), colnames(res_sesame)), drop = FALSE]
+  concord <- merge(a, b, by = "CpG", suffixes = c(".Minfi", ".Sesame"))
+  concord <- concord[is.finite(concord$logFC.Minfi) & is.finite(concord$logFC.Sesame), , drop = FALSE]
+  
+  is_up <- concord$adj.P.Val.Minfi < pval_thresh &
+    concord$adj.P.Val.Sesame < pval_thresh &
+    concord$logFC.Minfi > lfc_thresh &
+    concord$logFC.Sesame > lfc_thresh
+  
+  is_down <- concord$adj.P.Val.Minfi < pval_thresh &
+    concord$adj.P.Val.Sesame < pval_thresh &
+    concord$logFC.Minfi < -lfc_thresh &
+    concord$logFC.Sesame < -lfc_thresh
+  
+  consensus_counts$up <- sum(is_up, na.rm = TRUE)
+  consensus_counts$down <- sum(is_down, na.rm = TRUE)
+  
+  consensus_df <- concord[is_up | is_down, , drop = FALSE]
+  if (nrow(consensus_df) > 0) {
+    consensus_df$logFC_mean <- rowMeans(consensus_df[, c("logFC.Minfi", "logFC.Sesame")], na.rm = TRUE)
+    consensus_df$P.Value <- pmax(consensus_df$P.Value.Minfi, consensus_df$P.Value.Sesame, na.rm = TRUE)
+    consensus_df$adj.P.Val <- pmax(consensus_df$adj.P.Val.Minfi, consensus_df$adj.P.Val.Sesame, na.rm = TRUE)
+    consensus_df <- consensus_df[order(consensus_df$P.Value, consensus_df$adj.P.Val), , drop = FALSE]
+    
+    out_cons_csv <- file.path(out_dir, "Intersection_Consensus_DMPs.csv")
+    write.csv(consensus_df, out_cons_csv, row.names = FALSE)
+    save_datatable(head(consensus_df, min(10000, nrow(consensus_df))), "Intersection_Consensus_DMPs.html", out_dir)
+    message(paste("Consensus DMPs saved to", out_cons_csv))
+  }
+  
+  # Concordance plot (logFC Minfi vs Sesame)
+  concord$Consensus <- (is_up | is_down)
+  plot_df <- concord
+  if (nrow(plot_df) > max_points) {
+    set.seed(12345)
+    idx <- sample(seq_len(nrow(plot_df)), max_points)
+    plot_df <- plot_df[idx, , drop = FALSE]
+  }
+  r_val <- suppressWarnings(cor(concord$logFC.Minfi, concord$logFC.Sesame, use = "complete.obs"))
+  p_conc <- ggplot(plot_df, aes(x = logFC.Minfi, y = logFC.Sesame, color = Consensus)) +
+    geom_point(alpha = 0.4, size = 1) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+    scale_color_manual(values = c("FALSE" = "gray70", "TRUE" = "#e74c3c")) +
+    theme_minimal() +
+    labs(
+      title = "Minfi vs Sesame logFC concordance",
+      subtitle = sprintf("Pearson r = %.3f (points subsampled to max_plots=%d for rendering)", r_val, max_points),
+      x = "log2FC (Minfi)",
+      y = "log2FC (Sesame)",
+      color = "Consensus"
+    )
+  save_interactive_plot(p_conc, "Intersection_LogFC_Concordance.html", out_dir)
+  save_static_plot(p_conc, "Intersection_LogFC_Concordance.png", out_dir, width = 6, height = 6)
+  
+  # Overlap summary plot (counts)
+  sig_minfi <- concord$adj.P.Val.Minfi < pval_thresh & abs(concord$logFC.Minfi) > lfc_thresh
+  sig_sesame <- concord$adj.P.Val.Sesame < pval_thresh & abs(concord$logFC.Sesame) > lfc_thresh
+  n_both <- sum(is_up | is_down, na.rm = TRUE)
+  overlap_df <- data.frame(
+    Category = c("Minfi only", "Sesame only", "Both (consensus)"),
+    Count = c(sum(sig_minfi, na.rm = TRUE) - n_both, sum(sig_sesame, na.rm = TRUE) - n_both, n_both)
+  )
+  p_ov <- ggplot(overlap_df, aes(x = Category, y = Count, fill = Category, text = Count)) +
+    geom_col() +
+    scale_fill_manual(values = c("Minfi only" = "#3498db", "Sesame only" = "#2ecc71", "Both (consensus)" = "#e74c3c")) +
+    theme_minimal() +
+    theme(legend.position = "none") +
+    labs(title = "Significant DMP overlap (Minfi vs Sesame)", y = "Count", x = NULL)
+  save_interactive_plot(p_ov, "Intersection_Significant_Overlap.html", out_dir)
+  save_static_plot(p_ov, "Intersection_Significant_Overlap.png", out_dir, width = 7, height = 4)
+  
+}, error = function(e) {
+  message("Warning: Consensus (Intersection) outputs failed: ", e$message)
+})
 
 get_sig_counts <- function(res_df) {
+  if (is.null(res_df) || nrow(res_df) == 0) return(list(up = 0, down = 0))
   up <- sum(res_df$adj.P.Val < pval_thresh & res_df$logFC > lfc_thresh, na.rm=TRUE)
   down <- sum(res_df$adj.P.Val < pval_thresh & res_df$logFC < -lfc_thresh, na.rm=TRUE)
   return(list(up=up, down=down))
@@ -2210,7 +2509,7 @@ get_sig_counts <- function(res_df) {
 
 minfi_counts <- get_sig_counts(res_minfi)
 sesame_counts <- get_sig_counts(res_sesame)
-intersect_counts <- get_sig_counts(res_intersect)
+intersect_counts <- consensus_counts
 
 tryCatch({
   summary_json <- sprintf(
@@ -2244,5 +2543,89 @@ tryCatch({
 
 message("Saving session info...")
 writeLines(capture.output(sessionInfo()), file.path(out_dir, "sessionInfo.txt"))
+
+tryCatch({
+  qc_path <- file.path(out_dir, "QC_Summary.csv")
+  qc_tbl <- NULL
+  if (file.exists(qc_path)) {
+    qc_tbl <- read.csv(qc_path, stringsAsFactors = FALSE)
+  }
+  qc_val <- function(metric, default = NA) {
+    if (is.null(qc_tbl) || nrow(qc_tbl) == 0) return(default)
+    v <- qc_tbl$value[qc_tbl$metric == metric]
+    if (length(v) == 0) return(default)
+    v[1]
+  }
+  qc_intensity_str <- if (is.finite(QC_MEDIAN_INTENSITY_THRESHOLD)) {
+    sprintf("median methylated/unmethylated intensity < %.1f (log2)", QC_MEDIAN_INTENSITY_THRESHOLD)
+  } else {
+    "disabled"
+  }
+  methods_lines <- c(
+    "# IlluMeta analysis methods (auto-generated)",
+    "",
+    sprintf("- Generated: %s", format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
+    sprintf("- Config: `%s`", config_file),
+    sprintf("- Output: `%s`", out_dir),
+    sprintf("- Groups: control=`%s` (n=%s), test=`%s` (n=%s)", group_con_in, n_con, group_test_in, n_test),
+    sprintf("- Tissue: `%s`", opt$tissue),
+    sprintf("- Significance thresholds: BH FDR < %.3f and |log2FC| > %.2f", pval_thresh, lfc_thresh),
+    "",
+    "## Overview",
+    "IlluMeta performs an end-to-end DNA methylation analysis from raw Illumina IDAT files, running two independent normalization pipelines (minfi and sesame) and reporting both per-pipeline results and a consensus (intersection) call set.",
+    "",
+    "## Data input",
+    "- Raw IDATs are read from the project `idat/` directory.",
+    sprintf("- Samples are defined by `%s` and `primary_group` in `configure.tsv`.", gsm_col),
+    "",
+    "## Sample-level QC",
+    sprintf("- Detection P-value: samples with > %.0f%% probes failing (P > %.3g) are excluded.", QC_SAMPLE_DET_FAIL_FRAC * 100, QC_DETECTION_P_THRESHOLD),
+    sprintf("- Signal intensity QC: %s.", qc_intensity_str),
+    "- Mixed-array safeguard: samples whose IDAT array size deviates from the modal array size are excluded (unless `--force_idat`).",
+    "",
+    "## Probe-level QC (minfi-derived probe set)",
+    sprintf("- Detection P-value filter: probes are retained only if P < %.3g in all retained samples.", QC_DETECTION_P_THRESHOLD),
+    sprintf("- SNP filtering: probes overlapping common SNPs (SBE/CpG; MAF ≥ %.2f) are removed using `minfi::dropLociWithSnps()`.", SNP_MAF_THRESHOLD),
+    "- Sex chromosome probes (chrX/chrY) are removed.",
+    "",
+    "## Normalization (two pipelines)",
+    "- **minfi**: `preprocessNoob()` followed by `mapToGenome()`; beta values are extracted with `getBeta()`.",
+    "- **sesame**: `noob()` + `dyeBiasCorrTypeINorm()`; beta values are extracted with `getBetas()`.",
+    "",
+    "## Covariates and batch control",
+    sprintf("- Automatic covariate discovery: metadata variables associated with the top PCs (alpha=%.3f; up to %d PCs) are considered, then filtered for stability/confounding.", AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION),
+    "- Cell composition: if `--tissue Auto`, reference-free deconvolution is performed via RefFreeEWAS (K=5 latent components); these components are optionally added as covariates after basic sanity checks.",
+    "- Surrogate variable analysis (SVA): enabled unless `--disable_sva`; SVs are estimated on top-variable probes for speed and appended to the design.",
+    "- Batch method comparison: if a suitable batch factor exists, multiple correction strategies are evaluated and a best method is chosen for modeling.",
+    "",
+    "## Differential methylation (DMP)",
+    sprintf("- Beta values are transformed to M-values with a logit offset of %.6f.", LOGIT_OFFSET),
+    "- Differential methylation is tested using limma (`lmFit`/`eBayes`) with a group contrast (test − control).",
+    "- Multiple testing is controlled by Benjamini–Hochberg FDR.",
+    "",
+    "## Differentially methylated regions (DMR)",
+    sprintf("- DMRs are called with `dmrff` (maxgap=%d; p.cutoff=%.3f).", DMR_MAXGAP, DMR_P_CUTOFF),
+    "",
+    "## Consensus (intersection) call set",
+    "- Consensus DMPs are defined as CpGs significant in **both** minfi and sesame with the **same direction** under the same thresholds.",
+    "- Consensus outputs: `Intersection_Consensus_DMPs.csv`, `Intersection_Consensus_DMPs.html`, and concordance/overlap plots.",
+    "",
+    "## Reproducibility artifacts",
+    "- `analysis_parameters.json`: run parameters and thresholds.",
+    "- `sessionInfo.txt`: full R session/package versions.",
+    "- `code_version.txt`: git commit hash (when available).",
+    "",
+    "## QC summary (from QC_Summary.csv)",
+    sprintf("- Total_samples_input: %s", qc_val("Total_samples_input", NA)),
+    sprintf("- Samples_failed_QC: %s", qc_val("Samples_failed_QC", NA)),
+    sprintf("- Samples_passed_QC: %s", qc_val("Samples_passed_QC", NA)),
+    sprintf("- Total_probes_raw: %s", qc_val("Total_probes_raw", NA)),
+    sprintf("- Probes_final: %s", qc_val("Probes_final", NA))
+  )
+  writeLines(methods_lines, file.path(out_dir, "methods.md"))
+  message("Methods summary saved to methods.md")
+}, error = function(e) {
+  message("Warning: failed to write methods.md: ", e$message)
+})
 
 message("Analysis Complete.")

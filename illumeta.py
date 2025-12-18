@@ -29,6 +29,8 @@ CORE_R_PACKAGES = [
     "sva",
     "variancePartition",
     "pvca",
+    "illuminaio",
+    "RefFreeEWAS",
     "Biobase",
     "reformulas",
     "ggplot2",
@@ -39,6 +41,9 @@ CORE_R_PACKAGES = [
     "dplyr",
     "stringr",
     "ggrepel",
+    "methylclock",
+    "methylclockData",
+    "planet",
     "IlluminaHumanMethylation450kmanifest",
     "IlluminaHumanMethylationEPICmanifest",
     "IlluminaHumanMethylationEPICv2manifest",
@@ -50,7 +55,6 @@ OPTIONAL_R_PACKAGES = [
     "FlowSorted.Blood.EPIC",
     "FlowSorted.Blood.450k",
     "wateRmelon",
-    "RefFreeEWAS",
 ]
 def add_conda_paths(env: dict) -> dict:
     """Ensure LD_LIBRARY_PATH/PKG_CONFIG_PATH/PATH include conda libs so xml2/xml load correctly."""
@@ -133,9 +137,20 @@ def missing_r_packages(pkgs):
     return [p.strip() for p in output.replace("\n", " ").split(",") if p.strip()]
 
 def ensure_r_lib_env(env):
-    """Ensure R_LIBS_USER points to a repo-local, writable library."""
-    if env.get("R_LIBS_USER"):
+    """
+    Ensure R uses a repo-local, writable library by default for reproducibility.
+    To respect an externally-set R_LIBS_USER instead, set ILLUMETA_RESPECT_R_LIBS_USER=1.
+    """
+    respect_existing = (env.get("ILLUMETA_RESPECT_R_LIBS_USER") == "1") or (
+        os.environ.get("ILLUMETA_RESPECT_R_LIBS_USER") == "1"
+    )
+    existing = env.get("R_LIBS_USER")
+    if respect_existing and existing:
         return env
+
+    if existing and existing != DEFAULT_R_LIB and not respect_existing:
+        log(f"[*] Overriding R_LIBS_USER={existing} -> {DEFAULT_R_LIB} (set ILLUMETA_RESPECT_R_LIBS_USER=1 to keep)")
+
     env["R_LIBS_USER"] = DEFAULT_R_LIB
     if not os.path.exists(DEFAULT_R_LIB):
         os.makedirs(DEFAULT_R_LIB, exist_ok=True)
@@ -185,6 +200,32 @@ def ensure_r_dependencies():
             except OSError:
                 pass
         sys.exit(1)
+
+def run_doctor(args):
+    """Checks system and R dependencies without installing anything."""
+    check_r_installation()
+    if not args.skip_pandoc:
+        check_pandoc_installation()
+
+    env = ensure_r_lib_env(os.environ.copy())
+    env = add_conda_paths(env)
+
+    log("[*] Checking required R packages...")
+    missing_core = missing_r_packages(CORE_R_PACKAGES)
+    missing_optional = missing_r_packages(OPTIONAL_R_PACKAGES)
+
+    if missing_core:
+        log_err("[!] Missing required R packages:")
+        for pkg in missing_core:
+            log_err(f"  - {pkg}")
+        log_err("    Fix: run `ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R` (or run any IlluMeta command once).")
+        sys.exit(1)
+
+    log("[*] Core R packages: OK")
+    if missing_optional:
+        log("[*] Optional R packages missing (features will be skipped): " + ", ".join(missing_optional))
+    else:
+        log("[*] Optional R packages: OK")
 
 def run_download(args):
     """Executes the download step."""
@@ -324,6 +365,10 @@ def generate_dashboard(output_dir, group_test, group_con):
         ("_Manhattan.html", "Manhattan Plot", "Genomic distribution of methylation changes."),
         ("_Top100_Heatmap.html", "Heatmap (Top 100)", "Clustering of the top 100 most significant CpGs."),
         ("_Top_DMPs.html", "Top DMPs Table", "Searchable table of differentially methylated probes (sorted by P.Value)."),
+        ("_Consensus_DMPs.html", "Consensus DMPs Table", "CpGs significant in both Minfi and Sesame (same direction)."),
+        ("_Consensus_DMPs.csv", "Consensus DMPs CSV", "Consensus DMP list (CSV)."),
+        ("_LogFC_Concordance.html", "Pipeline Concordance", "Minfi vs Sesame logFC concordance (consensus highlighted)."),
+        ("_Significant_Overlap.html", "Pipeline Overlap", "Significant DMP counts and overlap between Minfi and Sesame."),
         ("_DMR_Volcano.html", "DMR Volcano Plot", "Visualizes significant DMRs (Est. Diff vs P-value)."),
         ("_DMR_Manhattan.html", "DMR Manhattan Plot", "Genomic distribution of DMRs."),
         ("_Top_DMRs_Heatmap.html", "DMR Heatmap (Top 50)", "Average methylation levels of top 50 DMRs."),
@@ -592,6 +637,10 @@ def main():
     parser_analysis.add_argument("--min-total-size", type=int, default=6, help="Minimum total sample size required to proceed (default: 6)")
     parser_analysis.add_argument("--qc-intensity-threshold", type=float, default=10.5, help="Median M/U intensity threshold (log2). Set <=0 to disable intensity-based sample drop (default: 10.5)")
     parser_analysis.add_argument("--force-idat", action="store_true", help="Force reading IDATs if array sizes differ but types are similar")
+
+    # Doctor Command
+    parser_doctor = subparsers.add_parser("doctor", help="Check system and R dependencies (does not install)")
+    parser_doctor.add_argument("--skip-pandoc", action="store_true", help="Skip pandoc check")
     
     args = parser.parse_args()
 
@@ -602,6 +651,10 @@ def main():
     if args.command == "download" and not args.gse_id:
         parser_download.print_help()
         log("Example: python illumeta.py download GSE12345 -o /path/to/project")
+        return
+
+    if args.command == "doctor":
+        run_doctor(args)
         return
     
     check_r_installation()

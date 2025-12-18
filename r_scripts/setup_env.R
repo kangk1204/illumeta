@@ -1,7 +1,15 @@
-# Prefer a project-local library unless the caller overrides R_LIBS_USER
-lib_dir <- Sys.getenv("R_LIBS_USER")
-if (lib_dir == "") {
-    lib_dir <- file.path(getwd(), ".r-lib")
+# Prefer a project-local library by default for reproducibility.
+# To respect an externally-set R_LIBS_USER, set ILLUMETA_RESPECT_R_LIBS_USER=1.
+respect_existing <- Sys.getenv("ILLUMETA_RESPECT_R_LIBS_USER", unset = "") == "1"
+existing_lib <- Sys.getenv("R_LIBS_USER")
+lib_dir <- file.path(getwd(), ".r-lib")
+if (respect_existing && nzchar(existing_lib)) {
+    lib_dir <- existing_lib
+} else {
+    if (nzchar(existing_lib) && existing_lib != lib_dir && !respect_existing) {
+        message(paste("Overriding R_LIBS_USER:", existing_lib, "->", lib_dir, "(set ILLUMETA_RESPECT_R_LIBS_USER=1 to keep)"))
+    }
+    Sys.setenv(R_LIBS_USER = lib_dir)
 }
 if (!dir.exists(lib_dir)) {
     dir.create(lib_dir, recursive = TRUE, showWarnings = FALSE)
@@ -10,10 +18,31 @@ if (!dir.exists(lib_dir)) {
 .libPaths(c(lib_dir, .libPaths()))
 message(paste("Using R library:", .libPaths()[1]))
 
-# Warn early if a conda toolchain is forced via ~/.Renviron or CC/CXX envs
+# Prefer HTTPS CRAN (some environments block plain HTTP)
+cran_repo <- Sys.getenv("ILLUMETA_CRAN_REPO", unset = "https://cloud.r-project.org")
+options(repos = c(CRAN = cran_repo))
+
+# Warn early if a conda toolchain is forced while R is NOT from conda.
+# This mismatch is a common cause of "C compiler cannot create executables" and link errors.
 toolchain <- c(Sys.getenv("CC"), Sys.getenv("CXX"), Sys.getenv("CXX11"), Sys.getenv("CXX14"), Sys.getenv("CXX17"), Sys.getenv("CXX20"))
-if (any(grepl("conda", toolchain, ignore.case = TRUE))) {
-    stop("CC/CXX point to a conda toolchain. Disable those overrides (e.g., `export R_ENVIRON_USER=/dev/null && unset CC CXX CXX11 CXX14 CXX17 CXX20 FC F77`) and rerun.")
+conda_prefix <- Sys.getenv("CONDA_PREFIX", unset = "")
+rp <- function(x) {
+    tryCatch(normalizePath(x, winslash = "/", mustWork = FALSE), error = function(e) x)
+}
+r_home <- rp(R.home())
+conda_prefix_norm <- rp(conda_prefix)
+conda_toolchain <- any(grepl("conda", toolchain, ignore.case = TRUE))
+r_in_conda <- nzchar(conda_prefix_norm) && startsWith(r_home, conda_prefix_norm)
+if (conda_toolchain && !r_in_conda) {
+    stop(
+        "Detected a conda compiler toolchain (CC/CXX contains 'conda') but R is not from conda.\n",
+        "This mixed setup often breaks package compilation.\n",
+        "Fix options:\n",
+        "  (1) Use the conda environment that provides R (recommended): conda env create -f environment.yml\n",
+        "  (2) Or deactivate conda / unset compiler overrides:\n",
+        "      conda deactivate\n",
+        "      export R_ENVIRON_USER=/dev/null && unset CC CXX CXX11 CXX14 CXX17 CXX20 FC F77\n"
+    )
 }
 
 ensure_writable_lib <- function() {
@@ -85,17 +114,17 @@ if (nzchar(conda_prefix)) {
 
 suppressPackageStartupMessages({
   if (!require("optparse", quietly = TRUE)) {
-    install.packages("optparse", repos = "http://cran.us.r-project.org", lib = .libPaths()[1])
+    install.packages("optparse", repos = cran_repo, lib = .libPaths()[1])
     library(optparse)
   }
   if (!require("remotes", quietly = TRUE)) {
-    install.packages("remotes", repos = "http://cran.us.r-project.org", lib = .libPaths()[1])
+    install.packages("remotes", repos = cran_repo, lib = .libPaths()[1])
     library(remotes)
   }
 })
 
 if (!require("BiocManager", quietly = TRUE))
-    install.packages("BiocManager", repos = "http://cran.us.r-project.org")
+    install.packages("BiocManager", repos = cran_repo)
 
 # Core BioC packages
 bioc_pkgs <- c(
@@ -169,7 +198,7 @@ install_cran_safe <- function(pkgs) {
     if (length(miss) == 0) return(invisible())
     message(paste("Installing CRAN packages:", paste(miss, collapse = ", ")))
     tryCatch({
-        install.packages(miss, repos = "http://cran.us.r-project.org", lib = .libPaths()[1])
+        install.packages(miss, repos = cran_repo, lib = .libPaths()[1])
     }, error = function(e) {
         message("Warning: install.packages failed for: ", paste(miss, collapse = ", "))
         message("  Detail: ", conditionMessage(e))
@@ -210,8 +239,8 @@ ensure_min_version <- function(pkg, min_ver, installer_fn, lib = .libPaths()[1])
 }
 
 # Refresh packages implicated in variancePartition/reformulas changes
-ensure_min_version("reformulas", "0.3.0", function(p, lib) install.packages(p, repos = "http://cran.us.r-project.org", lib = lib))
-ensure_min_version("lme4", "1.1-35", function(p, lib) install.packages(p, repos = "http://cran.us.r-project.org", lib = lib))
+ensure_min_version("reformulas", "0.3.0", function(p, lib) install.packages(p, repos = cran_repo, lib = lib))
+ensure_min_version("lme4", "1.1-35", function(p, lib) install.packages(p, repos = cran_repo, lib = lib))
 ensure_min_version("variancePartition", "1.30.0", function(p, lib) BiocManager::install(p, update = TRUE, ask = FALSE, lib = lib))
 
 # Install dmrff from GitHub
@@ -327,7 +356,10 @@ tryCatch({
 # --- Verify required packages load ---
 required_pkgs <- c(
   "xml2", "XML",
+  "lme4", "reformulas", "illuminaio",
   "minfi", "sesame", "limma", "dmrff", "GEOquery",
+  "Biobase",
+  "methylclock", "methylclockData", "planet",
   "IlluminaHumanMethylation450kmanifest",
   "IlluminaHumanMethylationEPICmanifest",
   "IlluminaHumanMethylationEPICv2manifest",

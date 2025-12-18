@@ -1,0 +1,25 @@
+name: illumeta
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - r-base=4.3
+  - pandoc
+  - cmake
+  - make
+  - pkg-config
+  - c-compiler
+  - cxx-compiler
+  - fortran-compiler
+  - libcurl
+  - openssl
+  - libxml2
+  - icu
+  - freetype
+  - libpng
+  - libtiff
+  - jpeg
+  - webp
+  - pip:
+      - -r requirements.txt

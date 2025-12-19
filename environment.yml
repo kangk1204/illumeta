@@ -19,7 +19,7 @@ dependencies:
   - freetype
   - libpng
   - libtiff
-  - jpeg
-  - webp
+  - libjpeg-turbo
+  - libwebp
   - pip:
       - -r requirements.txt

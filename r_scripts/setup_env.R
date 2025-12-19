@@ -207,24 +207,23 @@ install_cran_safe <- function(pkgs) {
 
 # Ensure archived versions of devtools and tidyverse are installed to avoid dependency conflicts
 # (e.g., ragg/pkgdown issues with latest versions)
-if (!requireNamespace("devtools", quietly = TRUE)) {
-    message("Installing archived devtools (2.4.3) to avoid pkgdown/ragg issues...")
+install_archived_safe <- function(pkg, version) {
+    if (requireNamespace(pkg, quietly = TRUE)) return(invisible(TRUE))
+    message(paste0("Installing archived ", pkg, " (", version, ") to avoid pkgdown/ragg issues..."))
     tryCatch({
-        install.packages('https://cran.r-project.org/src/contrib/Archive/devtools/devtools_2.4.3.tar.gz', repos=NULL, type="source", lib = .libPaths()[1])
+        remotes::install_version(pkg, version = version, repos = cran_repo, dependencies = NA, upgrade = "never", lib = .libPaths()[1])
     }, error = function(e) {
-        message("Warning: Failed to install archived devtools. Trying latest CRAN version.")
-        install_cran_safe("devtools")
+        message("Warning: Failed to install archived ", pkg, ".")
+        message("  Detail: ", conditionMessage(e))
     })
+    if (!requireNamespace(pkg, quietly = TRUE)) {
+        message("Warning: Falling back to latest CRAN version of ", pkg, ".")
+        install_cran_safe(pkg)
+    }
 }
-if (!requireNamespace("tidyverse", quietly = TRUE)) {
-    message("Installing archived tidyverse (1.3.2) to avoid ragg issues...")
-    tryCatch({
-        install.packages('https://cran.r-project.org/src/contrib/Archive/tidyverse/tidyverse_1.3.2.tar.gz', repos=NULL, type="source", lib = .libPaths()[1])
-    }, error = function(e) {
-        message("Warning: Failed to install archived tidyverse. Trying latest CRAN version.")
-        install_cran_safe("tidyverse")
-    })
-}
+
+install_archived_safe("devtools", "2.4.3")
+install_archived_safe("tidyverse", "1.3.2")
 
 install_bioc_safe(bioc_pkgs)
 install_cran_safe(cran_pkgs)

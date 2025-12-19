@@ -11,16 +11,197 @@ IlluMeta (Illuminating Methylation Analytics) is an end-to-end pipeline to go fr
 
 ## Installation
 
-### 0) Install prerequisites (Git + Conda)
 IlluMeta is easiest to install with **conda**. If you are on **Windows**, we strongly recommend using **WSL2 (Ubuntu)** for the most reliable R package installation.
 
-#### Windows 11 (recommended: WSL2 + Ubuntu)
+Choose your OS section below and follow steps 0-4. The commands are intentionally repeated for clarity.
+
+### Ubuntu (native or WSL2)
+
+#### 0) Install prerequisites (Git + Conda)
+```bash
+sudo apt-get update
+sudo apt-get install -y git curl
+```
+
+Install **Miniforge (conda)**:
+```bash
+curl -L -o Miniforge3.sh \
+  https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
+bash Miniforge3.sh -b -p "$HOME/miniforge3"
+"$HOME/miniforge3/bin/conda" init bash
+source ~/.bashrc
+conda --version
+```
+If your Ubuntu is ARM64, use `Miniforge3-Linux-aarch64.sh` instead.
+
+#### 1) Clone the repository
+```bash
+git clone https://github.com/kangk1204/illumeta.git
+cd illumeta
+```
+
+#### 2) Create an environment (choose one)
+
+##### Option A: Conda (recommended for beginners)
+This uses conda to provide R/Python plus the system libraries needed by many R packages.
+```bash
+conda env create -f environment.yml
+conda activate illumeta
+```
+If conda solve fails, try:
+```bash
+conda env create -f environment.yml --solver=classic
+```
+Optional sanity check (conda):
+```bash
+which R
+R -q -e 'cat(R.home(), "\n")'
+```
+`which R` should point inside the `illumeta` conda env.
+
+##### Option B: venv + system R
+###### Prerequisites
+- **Python** 3.8+
+- **R** 4.2+ (install from CRAN or your OS package manager)
+- **pandoc** (required for self-contained HTML reports via `htmlwidgets`)
+- **System libraries** (for compiling common R packages)
+
+Install system libraries:
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+  build-essential cmake git pandoc pkg-config \
+  libcurl4-openssl-dev libssl-dev libxml2-dev libicu-dev \
+  libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev libwebp-dev
+```
+
+###### Python environment
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+#### 3) Install R dependencies (first run / CI / reproducible setup)
+This installs required R/Bioconductor packages into the repo-local library (`.r-lib/`) and may take ~10-30 minutes.
+```bash
+# Ensure your environment is activated first:
+# - Conda: conda activate illumeta
+# - venv:  source .venv/bin/activate
+
+ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
+```
+If you see errors about archived `devtools`/`tidyverse` dependencies being unavailable, pull the latest repo and rerun the command above (the installer now resolves those dependencies from CRAN).
+If you see errors like `libxml-2.0` or `xml2` not found:
+- Conda: `conda install -c conda-forge libxml2 pkg-config`
+- System R (Ubuntu/WSL): `sudo apt-get install -y libxml2-dev pkg-config`
+Then rerun the setup command.
+
+#### 4) Check your environment (recommended)
+```bash
+python3 illumeta.py doctor
+```
+
+### macOS (Apple Silicon M1-M4)
+
+#### 0) Install prerequisites (Git + Conda)
+Install Xcode Command Line Tools (includes git and compilers):
+```bash
+xcode-select --install
+```
+
+Install Homebrew (if you do not already have it):
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+Install **Miniforge (conda)**:
+```bash
+curl -L -o Miniforge3.sh \
+  https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-arm64.sh
+bash Miniforge3.sh -b -p "$HOME/miniforge3"
+"$HOME/miniforge3/bin/conda" init zsh
+source ~/.zshrc
+conda --version
+```
+If you use bash, replace `zsh` with `bash` and source `~/.bashrc` instead.
+
+#### 1) Clone the repository
+```bash
+git clone https://github.com/kangk1204/illumeta.git
+cd illumeta
+```
+
+#### 2) Create an environment (choose one)
+
+##### Option A: Conda (recommended for beginners)
+This uses conda to provide R/Python plus the system libraries needed by many R packages.
+```bash
+conda env create -f environment.yml
+conda activate illumeta
+```
+If conda solve fails, try:
+```bash
+conda env create -f environment.yml --solver=classic
+```
+Optional sanity check (conda):
+```bash
+which R
+R -q -e 'cat(R.home(), "\n")'
+```
+`which R` should point inside the `illumeta` conda env.
+
+##### Option B: venv + system R
+###### Prerequisites
+- **Python** 3.8+
+- **R** 4.2+ (install from CRAN or `brew install r`)
+- **pandoc** (required for self-contained HTML reports via `htmlwidgets`)
+- **System libraries** (for compiling common R packages)
+
+Install system libraries:
+```bash
+brew install cmake git pandoc pkg-config openssl@3 libxml2 freetype libpng libtiff jpeg webp
+```
+
+###### Python environment
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+#### 3) Install R dependencies (first run / CI / reproducible setup)
+This installs required R/Bioconductor packages into the repo-local library (`.r-lib/`) and may take ~10-30 minutes.
+```bash
+# Ensure your environment is activated first:
+# - Conda: conda activate illumeta
+# - venv:  source .venv/bin/activate
+
+ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
+```
+If you see errors about archived `devtools`/`tidyverse` dependencies being unavailable, pull the latest repo and rerun the command above (the installer now resolves those dependencies from CRAN).
+If you see errors like `libxml-2.0` or `xml2` not found:
+- Conda: `conda install -c conda-forge libxml2 pkg-config`
+- System R (macOS): `brew install libxml2 pkg-config`
+Then rerun the setup command.
+
+#### 4) Check your environment (recommended)
+```bash
+python3 illumeta.py doctor
+```
+
+### Windows 11 (WSL2 + Ubuntu)
+
+#### 0) Install prerequisites (WSL2 + Git + Conda)
 In **PowerShell (Admin)**:
 ```powershell
 wsl --install -d Ubuntu
 ```
+Reboot if prompted, then open **Ubuntu (WSL2)**.
 
-Then open **Ubuntu** and install Git + curl:
+In the Ubuntu terminal, install Git + curl:
 ```bash
 sudo apt-get update
 sudo apt-get install -y git curl
@@ -36,57 +217,48 @@ source ~/.bashrc
 conda --version
 ```
 
-#### Git (if not installed yet)
-- Ubuntu/WSL: `sudo apt-get install -y git`
-- macOS: `xcode-select --install` (or `brew install git`)
-- Windows (native): https://git-scm.com/download/win
-
-#### Conda (if not installed yet)
-- Recommended: **Miniforge** (conda-forge): https://github.com/conda-forge/miniforge
-  - Linux/WSL (x86_64): `Miniforge3-Linux-x86_64.sh`
-  - macOS (Apple Silicon): `Miniforge3-MacOSX-arm64.sh`
-  - macOS (Intel): `Miniforge3-MacOSX-x86_64.sh`
-  - Windows: `Miniforge3-Windows-x86_64.exe`
-- After installation, open a new terminal and confirm: `conda --version`
-
-### 1) Clone the repository
+#### 1) Clone the repository
 ```bash
 git clone https://github.com/kangk1204/illumeta.git
 cd illumeta
 ```
 
-### 2) Create an environment (choose one)
+#### 2) Create an environment (choose one)
 
-#### Option A: Conda (recommended for beginners)
+##### Option A: Conda (recommended for beginners)
 This uses conda to provide R/Python plus the system libraries needed by many R packages.
 ```bash
 conda env create -f environment.yml
 conda activate illumeta
 ```
+If conda solve fails, try:
+```bash
+conda env create -f environment.yml --solver=classic
+```
+Optional sanity check (conda):
+```bash
+which R
+R -q -e 'cat(R.home(), "\n")'
+```
+`which R` should point inside the `illumeta` conda env.
 
-#### Option B: venv + system R
-##### Prerequisites
+##### Option B: venv + system R
+###### Prerequisites
 - **Python** 3.8+
-- **R** 4.2+
+- **R** 4.2+ (install from CRAN or your OS package manager)
 - **pandoc** (required for self-contained HTML reports via `htmlwidgets`)
-- **Git**
 - **System libraries** (for compiling common R packages)
 
-Ubuntu/WSL:
+Install system libraries:
 ```bash
 sudo apt-get update
 sudo apt-get install -y \
-  build-essential cmake git pandoc \
+  build-essential cmake git pandoc pkg-config \
   libcurl4-openssl-dev libssl-dev libxml2-dev libicu-dev \
   libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev libwebp-dev
 ```
 
-macOS (Homebrew):
-```bash
-brew install cmake git pandoc openssl@3 libxml2 freetype libpng libtiff jpeg webp
-```
-
-##### Python environment
+###### Python environment
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -94,8 +266,8 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 3) Install R dependencies (first run / CI / reproducible setup)
-This installs required R/Bioconductor packages into the repo-local library (`.r-lib/`) and may take ~10–30 minutes.
+#### 3) Install R dependencies (first run / CI / reproducible setup)
+This installs required R/Bioconductor packages into the repo-local library (`.r-lib/`) and may take ~10-30 minutes.
 ```bash
 # Ensure your environment is activated first:
 # - Conda: conda activate illumeta
@@ -103,8 +275,13 @@ This installs required R/Bioconductor packages into the repo-local library (`.r-
 
 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
 ```
+If you see errors about archived `devtools`/`tidyverse` dependencies being unavailable, pull the latest repo and rerun the command above (the installer now resolves those dependencies from CRAN).
+If you see errors like `libxml-2.0` or `xml2` not found:
+- Conda: `conda install -c conda-forge libxml2 pkg-config`
+- System R (Ubuntu/WSL): `sudo apt-get install -y libxml2-dev pkg-config`
+Then rerun the setup command.
 
-### 4) Check your environment (recommended)
+#### 4) Check your environment (recommended)
 ```bash
 python3 illumeta.py doctor
 ```
@@ -210,6 +387,7 @@ python3 illumeta.py doctor
 
 Common issues:
 - **Missing system libraries** (R packages fail to compile): install the OS prerequisites above, then rerun `ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.
+- **`xml2` / `libxml-2.0` errors**: install `libxml2` + `pkg-config` (conda: `conda install -c conda-forge libxml2 pkg-config`; Ubuntu/WSL: `sudo apt-get install -y libxml2-dev pkg-config`; macOS: `brew install libxml2 pkg-config`), then rerun setup.
 - **`pandoc: command not found`**: install `pandoc` (Ubuntu: `sudo apt-get install pandoc`, macOS: `brew install pandoc`).
 - **Too few samples after QC**: IlluMeta stops if total n is too small for reliable stats; inspect `QC_Summary.csv` and consider adjusting `--qc-intensity-threshold` (or disable by setting `--qc-intensity-threshold 0`).
 - **Mixed array sizes**: by default, IlluMeta drops samples that deviate from the modal array size; use `--force-idat` only when appropriate.

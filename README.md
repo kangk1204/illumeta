@@ -120,6 +120,7 @@ Optional toggles:
 - `ILLUMETA_INSTALL_DEVTOOLS=1` (requires `libgit2` + `pkg-config`; conda: `conda install -c conda-forge libgit2`)
 - `ILLUMETA_INSTALL_CLOCKS=1` (methylclock/planet/wateRmelon)
 - `ILLUMETA_CLEAN_MISMATCHED_RLIB=1` (use after switching R versions)
+- `ILLUMETA_DOWNLOAD_RETRIES=2` (retry big downloads if they fail; increase to 3+ on flaky networks)
 
 If you see errors like `libxml-2.0` or `xml2` not found:
 - Conda: `conda install -c conda-forge libxml2 pkg-config`
@@ -225,6 +226,7 @@ Optional toggles:
 - `ILLUMETA_INSTALL_DEVTOOLS=1` (requires `libgit2` + `pkg-config`; conda: `conda install -c conda-forge libgit2`)
 - `ILLUMETA_INSTALL_CLOCKS=1` (methylclock/planet/wateRmelon)
 - `ILLUMETA_CLEAN_MISMATCHED_RLIB=1` (use after switching R versions)
+- `ILLUMETA_DOWNLOAD_RETRIES=2` (retry big downloads if they fail; increase to 3+ on flaky networks)
 
 If you see errors like `libxml-2.0` or `xml2` not found:
 - Conda: `conda install -c conda-forge libxml2 pkg-config`
@@ -336,6 +338,7 @@ Optional toggles:
 - `ILLUMETA_INSTALL_DEVTOOLS=1` (requires `libgit2` + `pkg-config`; conda: `conda install -c conda-forge libgit2`)
 - `ILLUMETA_INSTALL_CLOCKS=1` (methylclock/planet/wateRmelon)
 - `ILLUMETA_CLEAN_MISMATCHED_RLIB=1` (use after switching R versions)
+- `ILLUMETA_DOWNLOAD_RETRIES=2` (retry big downloads if they fail; increase to 3+ on flaky networks)
 
 If you see errors like `libxml-2.0` or `xml2` not found:
 - Conda: `conda install -c conda-forge libxml2 pkg-config`

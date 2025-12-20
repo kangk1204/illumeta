@@ -62,7 +62,7 @@ R -q -e 'cat(R.home(), "\n")'
 ##### Option B: venv + system R
 ###### Prerequisites
 - **Python** 3.8+
-- **R** 4.2+ (install from CRAN or your OS package manager)
+- **R** 4.4+ recommended (required for EPIC v2; R 4.3 works for 450k/EPIC only)
 - **pandoc** (required for self-contained HTML reports via `htmlwidgets`)
 - **System libraries** (for compiling common R packages)
 
@@ -70,9 +70,10 @@ Install system libraries:
 ```bash
 sudo apt-get update
 sudo apt-get install -y \
-  build-essential cmake git pandoc pkg-config \
+  build-essential cmake git pandoc pkg-config gfortran \
   libcurl4-openssl-dev libssl-dev libxml2-dev libicu-dev \
-  libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev libwebp-dev
+  libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev libwebp-dev \
+  libgit2-dev
 ```
 
 ###### Python environment
@@ -92,7 +93,15 @@ This installs required R/Bioconductor packages into the repo-local library (`.r-
 
 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
 ```
-If you see errors about archived `devtools`/`tidyverse` dependencies being unavailable, pull the latest repo and rerun the command above (the installer now resolves those dependencies from CRAN).
+Full install (no skips; devtools + clocks + EPIC v2):
+```bash
+ILLUMETA_FORCE_SETUP=1 ILLUMETA_INSTALL_DEVTOOLS=1 ILLUMETA_INSTALL_CLOCKS=1 ILLUMETA_REQUIRE_EPICV2=1 Rscript r_scripts/setup_env.R
+```
+Note: EPIC v2 support requires R 4.4+ / Bioconductor 3.19+. On older R versions, setup will skip EPIC v2 packages.
+To require EPIC v2, set `ILLUMETA_REQUIRE_EPICV2=1` and rerun the setup command.
+Note: `devtools`/`tidyverse` are skipped by default to avoid heavy compile dependencies. If you need them, rerun with `ILLUMETA_INSTALL_DEVTOOLS=1` (requires `libgit2` + `pkg-config`).
+Conda users can add libgit2 with: `conda install -c conda-forge libgit2`.
+Optional clock packages (methylclock/planet/wateRmelon) are skipped by default; install with `ILLUMETA_INSTALL_CLOCKS=1` if needed.
 If you see errors like `libxml-2.0` or `xml2` not found:
 - Conda: `conda install -c conda-forge libxml2 pkg-config`
 - System R (Ubuntu/WSL): `sudo apt-get install -y libxml2-dev pkg-config`
@@ -155,13 +164,13 @@ R -q -e 'cat(R.home(), "\n")'
 ##### Option B: venv + system R
 ###### Prerequisites
 - **Python** 3.8+
-- **R** 4.2+ (install from CRAN or `brew install r`)
+- **R** 4.4+ recommended (required for EPIC v2; R 4.3 works for 450k/EPIC only)
 - **pandoc** (required for self-contained HTML reports via `htmlwidgets`)
 - **System libraries** (for compiling common R packages)
 
 Install system libraries:
 ```bash
-brew install cmake git pandoc pkg-config openssl@3 libxml2 freetype libpng libtiff jpeg webp
+brew install cmake git pandoc pkg-config openssl@3 libxml2 freetype libpng libtiff jpeg webp libgit2 libomp gcc
 ```
 
 ###### Python environment
@@ -181,7 +190,15 @@ This installs required R/Bioconductor packages into the repo-local library (`.r-
 
 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
 ```
-If you see errors about archived `devtools`/`tidyverse` dependencies being unavailable, pull the latest repo and rerun the command above (the installer now resolves those dependencies from CRAN).
+Full install (no skips; devtools + clocks + EPIC v2):
+```bash
+ILLUMETA_FORCE_SETUP=1 ILLUMETA_INSTALL_DEVTOOLS=1 ILLUMETA_INSTALL_CLOCKS=1 ILLUMETA_REQUIRE_EPICV2=1 Rscript r_scripts/setup_env.R
+```
+Note: EPIC v2 support requires R 4.4+ / Bioconductor 3.19+. On older R versions, setup will skip EPIC v2 packages.
+To require EPIC v2, set `ILLUMETA_REQUIRE_EPICV2=1` and rerun the setup command.
+Note: `devtools`/`tidyverse` are skipped by default to avoid heavy compile dependencies. If you need them, rerun with `ILLUMETA_INSTALL_DEVTOOLS=1` (requires `libgit2` + `pkg-config`).
+Conda users can add libgit2 with: `conda install -c conda-forge libgit2`.
+Optional clock packages (methylclock/planet/wateRmelon) are skipped by default; install with `ILLUMETA_INSTALL_CLOCKS=1` if needed.
 If you see errors like `libxml-2.0` or `xml2` not found:
 - Conda: `conda install -c conda-forge libxml2 pkg-config`
 - System R (macOS): `brew install libxml2 pkg-config`
@@ -245,7 +262,7 @@ R -q -e 'cat(R.home(), "\n")'
 ##### Option B: venv + system R
 ###### Prerequisites
 - **Python** 3.8+
-- **R** 4.2+ (install from CRAN or your OS package manager)
+- **R** 4.4+ recommended (required for EPIC v2; R 4.3 works for 450k/EPIC only)
 - **pandoc** (required for self-contained HTML reports via `htmlwidgets`)
 - **System libraries** (for compiling common R packages)
 
@@ -253,9 +270,10 @@ Install system libraries:
 ```bash
 sudo apt-get update
 sudo apt-get install -y \
-  build-essential cmake git pandoc pkg-config \
+  build-essential cmake git pandoc pkg-config gfortran \
   libcurl4-openssl-dev libssl-dev libxml2-dev libicu-dev \
-  libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev libwebp-dev
+  libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev libwebp-dev \
+  libgit2-dev
 ```
 
 ###### Python environment
@@ -275,7 +293,15 @@ This installs required R/Bioconductor packages into the repo-local library (`.r-
 
 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
 ```
-If you see errors about archived `devtools`/`tidyverse` dependencies being unavailable, pull the latest repo and rerun the command above (the installer now resolves those dependencies from CRAN).
+Full install (no skips; devtools + clocks + EPIC v2):
+```bash
+ILLUMETA_FORCE_SETUP=1 ILLUMETA_INSTALL_DEVTOOLS=1 ILLUMETA_INSTALL_CLOCKS=1 ILLUMETA_REQUIRE_EPICV2=1 Rscript r_scripts/setup_env.R
+```
+Note: EPIC v2 support requires R 4.4+ / Bioconductor 3.19+. On older R versions, setup will skip EPIC v2 packages.
+To require EPIC v2, set `ILLUMETA_REQUIRE_EPICV2=1` and rerun the setup command.
+Note: `devtools`/`tidyverse` are skipped by default to avoid heavy compile dependencies. If you need them, rerun with `ILLUMETA_INSTALL_DEVTOOLS=1` (requires `libgit2` + `pkg-config`).
+Conda users can add libgit2 with: `conda install -c conda-forge libgit2`.
+Optional clock packages (methylclock/planet/wateRmelon) are skipped by default; install with `ILLUMETA_INSTALL_CLOCKS=1` if needed.
 If you see errors like `libxml-2.0` or `xml2` not found:
 - Conda: `conda install -c conda-forge libxml2 pkg-config`
 - System R (Ubuntu/WSL): `sudo apt-get install -y libxml2-dev pkg-config`
@@ -289,6 +315,8 @@ python3 illumeta.py doctor
 Notes on R libraries:
 - IlluMeta **defaults to a repo-local** `R_LIBS_USER=.r-lib/` for reproducibility.
 - To keep an externally-set `R_LIBS_USER`, run with `ILLUMETA_RESPECT_R_LIBS_USER=1`.
+- On macOS, if the project is on an external volume (e.g. `/Volumes/...`), IlluMeta installs to `~/.illumeta/r-lib` to avoid I/O errors. Set `ILLUMETA_ALLOW_EXTERNAL_LIB=1` to force `.r-lib` on the external drive.
+- If you are using a conda R and need conda system libs, set `ILLUMETA_USE_CONDA_LIBS=1`.
 
 ## Quick start
 
@@ -388,6 +416,9 @@ python3 illumeta.py doctor
 Common issues:
 - **Missing system libraries** (R packages fail to compile): install the OS prerequisites above, then rerun `ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.
 - **`xml2` / `libxml-2.0` errors**: install `libxml2` + `pkg-config` (conda: `conda install -c conda-forge libxml2 pkg-config`; Ubuntu/WSL: `sudo apt-get install -y libxml2-dev pkg-config`; macOS: `brew install libxml2 pkg-config`), then rerun setup.
+- **`gert` / `git2.h` / `libgit2` errors** (devtools install): install `libgit2` + `pkg-config` (conda: `conda install -c conda-forge libgit2 pkg-config`; Ubuntu/WSL: `sudo apt-get install -y libgit2-dev pkg-config`; macOS: `brew install libgit2 pkg-config`), then rerun setup.
+- **`gfortran` / Fortran errors**: install a Fortran compiler (Ubuntu/WSL: `sudo apt-get install -y gfortran`; macOS: `brew install gcc`; conda: `conda install -c conda-forge gfortran`), then rerun setup.
+- **OpenMP / `libomp` errors** (macOS): install `libomp` (`brew install libomp`) and rerun setup.
 - **`pandoc: command not found`**: install `pandoc` (Ubuntu: `sudo apt-get install pandoc`, macOS: `brew install pandoc`).
 - **Too few samples after QC**: IlluMeta stops if total n is too small for reliable stats; inspect `QC_Summary.csv` and consider adjusting `--qc-intensity-threshold` (or disable by setting `--qc-intensity-threshold 0`).
 - **Mixed array sizes**: by default, IlluMeta drops samples that deviate from the modal array size; use `--force-idat` only when appropriate.

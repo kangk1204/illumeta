@@ -42,9 +42,15 @@ message(paste("Using R library:", .libPaths()[1]))
 # Prefer HTTPS CRAN (some environments block plain HTTP)
 cran_repo <- Sys.getenv("ILLUMETA_CRAN_REPO", unset = "https://cloud.r-project.org")
 options(repos = c(CRAN = cran_repo))
+if (capabilities("libcurl")) {
+    options(download.file.method = "libcurl")
+}
+options(timeout = max(600, getOption("timeout", 60)))
 require_epicv2 <- Sys.getenv("ILLUMETA_REQUIRE_EPICV2", unset = "") == "1"
 install_devtools <- Sys.getenv("ILLUMETA_INSTALL_DEVTOOLS", unset = "") == "1"
 install_clocks <- Sys.getenv("ILLUMETA_INSTALL_CLOCKS", unset = "") == "1"
+download_retries <- suppressWarnings(as.integer(Sys.getenv("ILLUMETA_DOWNLOAD_RETRIES", unset = "2")))
+if (is.na(download_retries) || download_retries < 0) download_retries <- 2
 
 # Warn early if a conda toolchain is forced while R is NOT from conda.
 # This mismatch is a common cause of "C compiler cannot create executables" and link errors.
@@ -516,6 +522,18 @@ is_bioc_available <- function(pkg) {
 
 bioc_version <- tryCatch(as.character(BiocManager::version()), error = function(e) "unknown")
 
+clean_downloaded_packages <- function() {
+    dl_dir <- file.path(tempdir(), "downloaded_packages")
+    if (!dir.exists(dl_dir)) return(invisible(FALSE))
+    tryCatch({
+        unlink(dl_dir, recursive = TRUE, force = TRUE)
+        message("Cleared temporary downloaded_packages: ", dl_dir)
+    }, error = function(e) {
+        message("  Warning: could not clear downloaded_packages (", conditionMessage(e), ")")
+    })
+    return(invisible(TRUE))
+}
+
 is_loadable <- function(pkg) {
     if (is_pkg_mismatch(pkg)) return(FALSE)
     ok <- tryCatch(requireNamespace(pkg, quietly = TRUE), error = function(e) FALSE)
@@ -539,6 +557,22 @@ install_bioc_safe <- function(pkgs) {
         message("Warning: BiocManager::install failed for: ", paste(miss, collapse = ", "))
         message("  Detail: ", conditionMessage(e))
     })
+    miss_after <- miss[!vapply(miss, is_loadable, logical(1))]
+    if (length(miss_after) > 0 && download_retries > 0) {
+        for (i in seq_len(download_retries)) {
+            clean_downloaded_packages()
+            message("Retrying Bioconductor packages (attempt ", i, "/", download_retries, "): ",
+                    paste(miss_after, collapse = ", "))
+            tryCatch({
+                BiocManager::install(miss_after, update = FALSE, ask = FALSE, lib = .libPaths()[1])
+            }, error = function(e) {
+                message("Warning: BiocManager::install retry failed for: ", paste(miss_after, collapse = ", "))
+                message("  Detail: ", conditionMessage(e))
+            })
+            miss_after <- miss_after[!vapply(miss_after, is_loadable, logical(1))]
+            if (length(miss_after) == 0) break
+        }
+    }
 }
 
 install_cran_safe <- function(pkgs) {
@@ -552,6 +586,22 @@ install_cran_safe <- function(pkgs) {
         message("Warning: install.packages failed for: ", paste(miss, collapse = ", "))
         message("  Detail: ", conditionMessage(e))
     })
+    miss_after <- miss[!vapply(miss, is_loadable, logical(1))]
+    if (length(miss_after) > 0 && download_retries > 0) {
+        for (i in seq_len(download_retries)) {
+            clean_downloaded_packages()
+            message("Retrying CRAN packages (attempt ", i, "/", download_retries, "): ",
+                    paste(miss_after, collapse = ", "))
+            tryCatch({
+                install.packages(miss_after, repos = cran_repo, lib = .libPaths()[1])
+            }, error = function(e) {
+                message("Warning: install.packages retry failed for: ", paste(miss_after, collapse = ", "))
+                message("  Detail: ", conditionMessage(e))
+            })
+            miss_after <- miss_after[!vapply(miss_after, is_loadable, logical(1))]
+            if (length(miss_after) == 0) break
+        }
+    }
 }
 
 install_archived_safe <- function(pkg, version) {

@@ -84,6 +84,7 @@ sudo apt-get install -y \
   build-essential cmake git pandoc pkg-config gfortran \
   libcurl4-openssl-dev libssl-dev libxml2-dev libicu-dev \
   libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev libwebp-dev \
+  libharfbuzz-dev libfribidi-dev libfontconfig1-dev \
   libgit2-dev
 ```
 
@@ -98,8 +99,8 @@ pip install -r requirements.txt
 #### 3) Install R dependencies (first run / CI / reproducible setup)
 This installs required R/Bioconductor packages into the repo-local library (`.r-lib/R-<major.minor>`) and may take ~10-30 minutes.
 
-Recommended (Beginner, full features):
-- Requires R 4.4+ for EPIC v2. If you have R 4.3, update R or use the minimal install below.
+Recommended (Beginner, core features):
+- Works on R 4.3+ (EPIC v2 is optional).
 ```bash
 # Ensure your environment is activated first:
 # - Conda: conda activate illumeta
@@ -107,18 +108,22 @@ Recommended (Beginner, full features):
 
 ILLUMETA_CLEAN_MISMATCHED_RLIB=1 \
 ILLUMETA_DOWNLOAD_RETRIES=3 \
+ILLUMETA_FORCE_SETUP=1 \
+Rscript r_scripts/setup_env.R
+```
+
+Full install (all optional features, including EPIC v2, devtools, and clocks):
+- Requires R 4.4+ for EPIC v2 and extra system libraries for devtools/tidyverse.
+```bash
+ILLUMETA_CLEAN_MISMATCHED_RLIB=1 \
+ILLUMETA_DOWNLOAD_RETRIES=3 \
 ILLUMETA_FORCE_SETUP=1 ILLUMETA_INSTALL_DEVTOOLS=1 ILLUMETA_INSTALL_CLOCKS=1 ILLUMETA_REQUIRE_EPICV2=1 \
 Rscript r_scripts/setup_env.R
 ```
 
-Minimal install (fewer dependencies, no clocks/devtools):
-```bash
-ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
-```
-
 Optional toggles:
 - `ILLUMETA_REQUIRE_EPICV2=1` (requires R 4.4+ / Bioconductor 3.19+)
-- `ILLUMETA_INSTALL_DEVTOOLS=1` (requires `libgit2` + `pkg-config`; conda: `conda install -c conda-forge libgit2`)
+- `ILLUMETA_INSTALL_DEVTOOLS=1` (devtools/tidyverse; requires `libgit2` + `pkg-config` and harfbuzz/fribidi for textshaping/ragg; conda: `conda install -c conda-forge libgit2 harfbuzz fribidi`)
 - `ILLUMETA_INSTALL_CLOCKS=1` (methylclock/planet/wateRmelon)
 - `ILLUMETA_CLEAN_MISMATCHED_RLIB=1` (use after switching R versions)
 - `ILLUMETA_DOWNLOAD_RETRIES=2` (retry big downloads if they fail; increase to 3+ on flaky networks)
@@ -191,7 +196,7 @@ R -q -e 'cat(R.home(), "\n")'
 
 Install system libraries:
 ```bash
-brew install cmake git pandoc pkg-config openssl@3 libxml2 freetype libpng libtiff jpeg webp libgit2 libomp gcc
+brew install cmake git pandoc pkg-config openssl@3 libxml2 freetype libpng libtiff jpeg webp harfbuzz fribidi libgit2 libomp gcc
 ```
 
 ###### Python environment
@@ -205,8 +210,8 @@ pip install -r requirements.txt
 #### 3) Install R dependencies (first run / CI / reproducible setup)
 This installs required R/Bioconductor packages into the repo-local library (`.r-lib/R-<major.minor>`) and may take ~10-30 minutes.
 
-Recommended (Beginner, full features):
-- Requires R 4.4+ for EPIC v2. If you have R 4.3, update R or use the minimal install below.
+Recommended (Beginner, core features):
+- Works on R 4.3+ (EPIC v2 is optional).
 ```bash
 # Ensure your environment is activated first:
 # - Conda: conda activate illumeta
@@ -214,18 +219,22 @@ Recommended (Beginner, full features):
 
 ILLUMETA_CLEAN_MISMATCHED_RLIB=1 \
 ILLUMETA_DOWNLOAD_RETRIES=3 \
+ILLUMETA_FORCE_SETUP=1 \
+Rscript r_scripts/setup_env.R
+```
+
+Full install (all optional features, including EPIC v2, devtools, and clocks):
+- Requires R 4.4+ for EPIC v2 and extra system libraries for devtools/tidyverse.
+```bash
+ILLUMETA_CLEAN_MISMATCHED_RLIB=1 \
+ILLUMETA_DOWNLOAD_RETRIES=3 \
 ILLUMETA_FORCE_SETUP=1 ILLUMETA_INSTALL_DEVTOOLS=1 ILLUMETA_INSTALL_CLOCKS=1 ILLUMETA_REQUIRE_EPICV2=1 \
 Rscript r_scripts/setup_env.R
 ```
 
-Minimal install (fewer dependencies, no clocks/devtools):
-```bash
-ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
-```
-
 Optional toggles:
 - `ILLUMETA_REQUIRE_EPICV2=1` (requires R 4.4+ / Bioconductor 3.19+)
-- `ILLUMETA_INSTALL_DEVTOOLS=1` (requires `libgit2` + `pkg-config`; conda: `conda install -c conda-forge libgit2`)
+- `ILLUMETA_INSTALL_DEVTOOLS=1` (devtools/tidyverse; requires `libgit2` + `pkg-config` and harfbuzz/fribidi for textshaping/ragg; conda: `conda install -c conda-forge libgit2 harfbuzz fribidi`)
 - `ILLUMETA_INSTALL_CLOCKS=1` (methylclock/planet/wateRmelon)
 - `ILLUMETA_CLEAN_MISMATCHED_RLIB=1` (use after switching R versions)
 - `ILLUMETA_DOWNLOAD_RETRIES=2` (retry big downloads if they fail; increase to 3+ on flaky networks)
@@ -304,6 +313,7 @@ sudo apt-get install -y \
   build-essential cmake git pandoc pkg-config gfortran \
   libcurl4-openssl-dev libssl-dev libxml2-dev libicu-dev \
   libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev libwebp-dev \
+  libharfbuzz-dev libfribidi-dev libfontconfig1-dev \
   libgit2-dev
 ```
 
@@ -318,8 +328,8 @@ pip install -r requirements.txt
 #### 3) Install R dependencies (first run / CI / reproducible setup)
 This installs required R/Bioconductor packages into the repo-local library (`.r-lib/R-<major.minor>`) and may take ~10-30 minutes.
 
-Recommended (Beginner, full features):
-- Requires R 4.4+ for EPIC v2. If you have R 4.3, update R or use the minimal install below.
+Recommended (Beginner, core features):
+- Works on R 4.3+ (EPIC v2 is optional).
 ```bash
 # Ensure your environment is activated first:
 # - Conda: conda activate illumeta
@@ -327,18 +337,22 @@ Recommended (Beginner, full features):
 
 ILLUMETA_CLEAN_MISMATCHED_RLIB=1 \
 ILLUMETA_DOWNLOAD_RETRIES=3 \
+ILLUMETA_FORCE_SETUP=1 \
+Rscript r_scripts/setup_env.R
+```
+
+Full install (all optional features, including EPIC v2, devtools, and clocks):
+- Requires R 4.4+ for EPIC v2 and extra system libraries for devtools/tidyverse.
+```bash
+ILLUMETA_CLEAN_MISMATCHED_RLIB=1 \
+ILLUMETA_DOWNLOAD_RETRIES=3 \
 ILLUMETA_FORCE_SETUP=1 ILLUMETA_INSTALL_DEVTOOLS=1 ILLUMETA_INSTALL_CLOCKS=1 ILLUMETA_REQUIRE_EPICV2=1 \
 Rscript r_scripts/setup_env.R
 ```
 
-Minimal install (fewer dependencies, no clocks/devtools):
-```bash
-ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
-```
-
 Optional toggles:
 - `ILLUMETA_REQUIRE_EPICV2=1` (requires R 4.4+ / Bioconductor 3.19+)
-- `ILLUMETA_INSTALL_DEVTOOLS=1` (requires `libgit2` + `pkg-config`; conda: `conda install -c conda-forge libgit2`)
+- `ILLUMETA_INSTALL_DEVTOOLS=1` (devtools/tidyverse; requires `libgit2` + `pkg-config` and harfbuzz/fribidi for textshaping/ragg; conda: `conda install -c conda-forge libgit2 harfbuzz fribidi`)
 - `ILLUMETA_INSTALL_CLOCKS=1` (methylclock/planet/wateRmelon)
 - `ILLUMETA_CLEAN_MISMATCHED_RLIB=1` (use after switching R versions)
 - `ILLUMETA_DOWNLOAD_RETRIES=2` (retry big downloads if they fail; increase to 3+ on flaky networks)
@@ -461,6 +475,7 @@ Common issues:
 - **Missing system libraries** (R packages fail to compile): install the OS prerequisites above, then rerun `ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.
 - **`xml2` / `libxml-2.0` errors**: install `libxml2` + `pkg-config` (conda: `conda install -c conda-forge libxml2 pkg-config`; Ubuntu/WSL: `sudo apt-get install -y libxml2-dev pkg-config`; macOS: `brew install libxml2 pkg-config`), then rerun setup.
 - **`gert` / `git2.h` / `libgit2` errors** (devtools install): install `libgit2` + `pkg-config` (conda: `conda install -c conda-forge libgit2 pkg-config`; Ubuntu/WSL: `sudo apt-get install -y libgit2-dev pkg-config`; macOS: `brew install libgit2 pkg-config`), then rerun setup.
+- **`textshaping` / `ragg` errors** (devtools/tidyverse): install harfbuzz + fribidi (conda: `conda install -c conda-forge harfbuzz fribidi`; Ubuntu/WSL: `sudo apt-get install -y libharfbuzz-dev libfribidi-dev`; macOS: `brew install harfbuzz fribidi`), then rerun setup.
 - **`gfortran` / Fortran errors**: install a Fortran compiler (Ubuntu/WSL: `sudo apt-get install -y gfortran`; macOS: `brew install gcc`; conda: `conda install -c conda-forge gfortran`), then rerun setup.
 - **OpenMP / `libomp` errors** (macOS): install `libomp` (`brew install libomp`) and rerun setup.
 - **`C17 standard requested but CC17 is not defined`**: update to the latest IlluMeta and rerun setup. If it persists, reinstall compilers (macOS: `xcode-select --install`, conda: `conda install -c conda-forge c-compiler cxx-compiler`).

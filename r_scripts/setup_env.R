@@ -38,6 +38,11 @@ if (!dir.exists(lib_dir)) {
 base_libs <- unique(c(.Library, .Library.site))
 .libPaths(unique(c(lib_dir, base_libs)))
 message(paste("Using R library:", .libPaths()[1]))
+tryCatch({
+    writeLines(lib_dir, con = file.path(getwd(), ".illumeta_r_lib_path"))
+}, error = function(e) {
+    message("Warning: could not write .illumeta_r_lib_path (", conditionMessage(e), ")")
+})
 
 # Prefer HTTPS CRAN (some environments block plain HTTP)
 cran_repo <- Sys.getenv("ILLUMETA_CRAN_REPO", unset = "https://cloud.r-project.org")

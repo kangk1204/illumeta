@@ -5,6 +5,7 @@ import os
 import sys
 import csv
 import json
+import re
 from datetime import datetime
 
 __version__ = "1.0.0"
@@ -31,11 +32,28 @@ def detect_r_major_minor(env=None):
             env=env,
         )
     except FileNotFoundError:
+        res = None
+    if res and res.returncode == 0:
+        version = res.stdout.strip()
+        if version:
+            return version
+    try:
+        res = subprocess.run(
+            ["R", "--version"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+    except FileNotFoundError:
         return None
     if res.returncode != 0:
         return None
-    version = res.stdout.strip()
-    return version or None
+    match = re.search(r"R version (\\d+)\\.(\\d+)", res.stdout)
+    if not match:
+        return None
+    return f"{match.group(1)}.{match.group(2)}"
 
 def default_r_lib_base(base_dir: str, env=None) -> str:
     allow_external = (env or {}).get("ILLUMETA_ALLOW_EXTERNAL_LIB") == "1" or (
@@ -51,6 +69,17 @@ def default_r_lib(base_dir: str, env=None) -> str:
     if r_version:
         return os.path.join(lib_root, f"R-{r_version}")
     return lib_root
+
+def read_recorded_r_lib(base_dir: str):
+    record_path = os.path.join(base_dir, ".illumeta_r_lib_path")
+    if not os.path.isfile(record_path):
+        return None
+    try:
+        with open(record_path, "r", encoding="utf-8") as handle:
+            value = handle.read().strip()
+    except OSError:
+        return None
+    return value or None
 R_SCRIPTS_DIR = os.path.join(BASE_DIR, "r_scripts")
 DOWNLOAD_SCRIPT = os.path.join(R_SCRIPTS_DIR, "download.R")
 ANALYZE_SCRIPT = os.path.join(R_SCRIPTS_DIR, "analyze.R")
@@ -154,17 +183,13 @@ def check_pandoc_installation():
         log_err("  - Windows: choco install pandoc")
         sys.exit(1)
 
-def missing_r_packages(pkgs):
-    """Returns a list of missing R packages using requireNamespace checks."""
-    if not pkgs:
-        return []
-    pkg_str = '", "'.join(pkgs)
+def check_r_package(pkg, env):
     expr = (
-        f'pkgs <- c("{pkg_str}"); '
-        'missing <- pkgs[!sapply(pkgs, function(p) requireNamespace(p, quietly=TRUE))]; '
-        'if (length(missing) > 0) { cat(paste(missing, collapse=",")); quit(status=1) }'
+        'lib <- Sys.getenv("R_LIBS_USER"); '
+        'if (nzchar(lib)) .libPaths(c(lib, .Library, .Library.site)); '
+        f'ok <- requireNamespace("{pkg}", quietly=TRUE); '
+        'cat(if (isTRUE(ok)) "OK" else "MISSING")'
     )
-    env = ensure_r_lib_env(os.environ.copy())
     try:
         res = subprocess.run(
             ["Rscript", "-e", expr],
@@ -175,14 +200,41 @@ def missing_r_packages(pkgs):
             env=env,
         )
     except FileNotFoundError:
-        # R not found; handled separately in check_r_installation
-        return []
-    if res.returncode == 0:
-        return []
-    output = (res.stdout + res.stderr).strip()
-    if not output:
-        return pkgs
-    return [p.strip() for p in output.replace("\n", " ").split(",") if p.strip()]
+        return False, "Rscript not found"
+    if res.returncode == 0 and "OK" in res.stdout:
+        return True, ""
+    err = (res.stderr + res.stdout).strip()
+    return False, err
+
+def check_r_packages(pkgs, env=None):
+    if not pkgs:
+        return [], {}
+    if env is None:
+        env = ensure_r_lib_env(os.environ.copy())
+        env = add_conda_paths(env)
+    missing = []
+    errors = {}
+    for pkg in pkgs:
+        ok, err = check_r_package(pkg, env)
+        if not ok:
+            missing.append(pkg)
+            if err:
+                errors[pkg] = err
+    return missing, errors
+
+def missing_r_packages(pkgs, env=None):
+    """Returns a list of missing or unloadable R packages."""
+    missing, _ = check_r_packages(pkgs, env=env)
+    return missing
+
+def format_r_error(err: str) -> str:
+    if not err:
+        return ""
+    lower = err.lower()
+    if "segfault" in lower:
+        return "R crashed while loading this package (segfault)"
+    line = err.splitlines()[0].strip()
+    return line[:200]
 
 def ensure_r_lib_env(env):
     """
@@ -196,8 +248,11 @@ def ensure_r_lib_env(env):
     if respect_existing and existing:
         return env
 
+    recorded_lib = read_recorded_r_lib(BASE_DIR)
     default_lib_root = default_r_lib_base(BASE_DIR, env)
-    default_lib = default_r_lib(BASE_DIR, env)
+    default_lib = recorded_lib or default_r_lib(BASE_DIR, env)
+    if recorded_lib:
+        default_lib_root = os.path.dirname(recorded_lib.rstrip(os.sep))
     if existing and existing != default_lib and not respect_existing:
         log(f"[*] Overriding R_LIBS_USER={existing} -> {default_lib} (set ILLUMETA_RESPECT_R_LIBS_USER=1 to keep)")
 
@@ -232,8 +287,8 @@ def ensure_r_dependencies():
             marker_ok = False
     core_pkgs = CORE_R_PACKAGES + (EPICV2_R_PACKAGES if require_epicv2 else [])
     optional_pkgs = OPTIONAL_R_PACKAGES + ([] if require_epicv2 else EPICV2_R_PACKAGES)
-    missing_core = missing_r_packages(core_pkgs) if marker_ok else []
-    missing_optional = missing_r_packages(optional_pkgs) if marker_ok else []
+    missing_core = missing_r_packages(core_pkgs, env=env) if marker_ok else []
+    missing_optional = missing_r_packages(optional_pkgs, env=env) if marker_ok else []
     if marker_ok and not force_setup and not missing_core:
         if missing_optional:
             log(f"[*] Optional R packages missing (analysis will skip related features): {', '.join(missing_optional)}")
@@ -250,7 +305,7 @@ def ensure_r_dependencies():
         with open(SETUP_MARKER, "w") as f:
             f.write(f"setup completed at {datetime.now().isoformat()}\n")
             f.write(f"epicv2_required={1 if require_epicv2 else 0}\n")
-        missing_optional_after = missing_r_packages(optional_pkgs)
+        missing_optional_after = missing_r_packages(optional_pkgs, env=env)
         if missing_optional_after:
             log(f"[*] Optional R packages missing (features will be skipped): {', '.join(missing_optional_after)}")
             if any(pkg in EPICV2_R_PACKAGES for pkg in missing_optional_after):
@@ -280,19 +335,32 @@ def run_doctor(args):
     require_epicv2 = os.environ.get("ILLUMETA_REQUIRE_EPICV2") == "1"
     core_pkgs = CORE_R_PACKAGES + (EPICV2_R_PACKAGES if require_epicv2 else [])
     optional_pkgs = OPTIONAL_R_PACKAGES + ([] if require_epicv2 else EPICV2_R_PACKAGES)
-    missing_core = missing_r_packages(core_pkgs)
-    missing_optional = missing_r_packages(optional_pkgs)
+    missing_core, core_errors = check_r_packages(core_pkgs, env=env)
+    missing_optional, optional_errors = check_r_packages(optional_pkgs, env=env)
 
     if missing_core:
         log_err("[!] Missing required R packages:")
+        saw_segfault = False
         for pkg in missing_core:
-            log_err(f"  - {pkg}")
+            err = format_r_error(core_errors.get(pkg, ""))
+            if "segfault" in err.lower():
+                saw_segfault = True
+            if err:
+                log_err(f"  - {pkg}: {err}")
+            else:
+                log_err(f"  - {pkg}")
+        if saw_segfault:
+            log_err("    Hint: A package crashed R while loading. Rerun setup with `ILLUMETA_CLEAN_MISMATCHED_RLIB=1`.")
         log_err("    Fix: run `ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R` (or run any IlluMeta command once).")
         sys.exit(1)
 
     log("[*] Core R packages: OK")
     if missing_optional:
         log("[*] Optional R packages missing (features will be skipped): " + ", ".join(missing_optional))
+        for pkg in missing_optional:
+            err = format_r_error(optional_errors.get(pkg, ""))
+            if err:
+                log(f"[*]   - {pkg}: {err}")
         if any(pkg in EPICV2_R_PACKAGES for pkg in missing_optional):
             log("[*] EPIC v2 support is not installed. Use R 4.4+ and set ILLUMETA_REQUIRE_EPICV2=1 to require it.")
     else:

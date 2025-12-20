@@ -106,6 +106,7 @@ Recommended (Beginner, full features):
 # - venv:  source .venv/bin/activate
 
 ILLUMETA_CLEAN_MISMATCHED_RLIB=1 \
+ILLUMETA_DOWNLOAD_RETRIES=3 \
 ILLUMETA_FORCE_SETUP=1 ILLUMETA_INSTALL_DEVTOOLS=1 ILLUMETA_INSTALL_CLOCKS=1 ILLUMETA_REQUIRE_EPICV2=1 \
 Rscript r_scripts/setup_env.R
 ```
@@ -212,6 +213,7 @@ Recommended (Beginner, full features):
 # - venv:  source .venv/bin/activate
 
 ILLUMETA_CLEAN_MISMATCHED_RLIB=1 \
+ILLUMETA_DOWNLOAD_RETRIES=3 \
 ILLUMETA_FORCE_SETUP=1 ILLUMETA_INSTALL_DEVTOOLS=1 ILLUMETA_INSTALL_CLOCKS=1 ILLUMETA_REQUIRE_EPICV2=1 \
 Rscript r_scripts/setup_env.R
 ```
@@ -324,6 +326,7 @@ Recommended (Beginner, full features):
 # - venv:  source .venv/bin/activate
 
 ILLUMETA_CLEAN_MISMATCHED_RLIB=1 \
+ILLUMETA_DOWNLOAD_RETRIES=3 \
 ILLUMETA_FORCE_SETUP=1 ILLUMETA_INSTALL_DEVTOOLS=1 ILLUMETA_INSTALL_CLOCKS=1 ILLUMETA_REQUIRE_EPICV2=1 \
 Rscript r_scripts/setup_env.R
 ```
@@ -463,6 +466,8 @@ Common issues:
 - **`C17 standard requested but CC17 is not defined`**: update to the latest IlluMeta and rerun setup. If it persists, reinstall compilers (macOS: `xcode-select --install`, conda: `conda install -c conda-forge c-compiler cxx-compiler`).
 - **Bioconductor version mismatch** (e.g., R 4.4 but Bioc 3.22): rerun with an explicit Bioc version:
   `ILLUMETA_BIOC_VERSION=3.20 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.
+- **`lzma decoding result 10` / “read error from connection”** (large annotation downloads corrupted): rerun with retries:
+  `ILLUMETA_DOWNLOAD_RETRIES=3 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.
 - **Segfaults or “package built under R x.y” warnings**: you likely switched R versions. Rerun setup and, if needed, clean mismatched packages:
   `ILLUMETA_CLEAN_MISMATCHED_RLIB=1 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.
 - **`pandoc: command not found`**: install `pandoc` (Ubuntu: `sudo apt-get install pandoc`, macOS: `brew install pandoc`).

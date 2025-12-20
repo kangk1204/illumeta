@@ -85,7 +85,7 @@ pip install -r requirements.txt
 ```
 
 #### 3) Install R dependencies (first run / CI / reproducible setup)
-This installs required R/Bioconductor packages into the repo-local library (`.r-lib/`) and may take ~10-30 minutes.
+This installs required R/Bioconductor packages into the repo-local library (`.r-lib/R-<major.minor>`) and may take ~10-30 minutes.
 ```bash
 # Ensure your environment is activated first:
 # - Conda: conda activate illumeta
@@ -182,7 +182,7 @@ pip install -r requirements.txt
 ```
 
 #### 3) Install R dependencies (first run / CI / reproducible setup)
-This installs required R/Bioconductor packages into the repo-local library (`.r-lib/`) and may take ~10-30 minutes.
+This installs required R/Bioconductor packages into the repo-local library (`.r-lib/R-<major.minor>`) and may take ~10-30 minutes.
 ```bash
 # Ensure your environment is activated first:
 # - Conda: conda activate illumeta
@@ -285,7 +285,7 @@ pip install -r requirements.txt
 ```
 
 #### 3) Install R dependencies (first run / CI / reproducible setup)
-This installs required R/Bioconductor packages into the repo-local library (`.r-lib/`) and may take ~10-30 minutes.
+This installs required R/Bioconductor packages into the repo-local library (`.r-lib/R-<major.minor>`) and may take ~10-30 minutes.
 ```bash
 # Ensure your environment is activated first:
 # - Conda: conda activate illumeta
@@ -313,9 +313,10 @@ python3 illumeta.py doctor
 ```
 
 Notes on R libraries:
-- IlluMeta **defaults to a repo-local** `R_LIBS_USER=.r-lib/` for reproducibility.
+- IlluMeta stores packages in per-R-version subfolders (e.g., `.r-lib/R-4.4` or `~/.illumeta/r-lib/R-4.4`) to avoid mixing binaries across R versions. Switching R versions will create a new folder; rerun setup (you can delete old folders to reclaim space).
+- IlluMeta **defaults to a repo-local** R library under `.r-lib/R-<major.minor>` for reproducibility.
 - To keep an externally-set `R_LIBS_USER`, run with `ILLUMETA_RESPECT_R_LIBS_USER=1`.
-- On macOS, if the project is on an external volume (e.g. `/Volumes/...`), IlluMeta installs to `~/.illumeta/r-lib` to avoid I/O errors. Set `ILLUMETA_ALLOW_EXTERNAL_LIB=1` to force `.r-lib` on the external drive.
+- On macOS, if the project is on an external volume (e.g. `/Volumes/...`), IlluMeta installs to `~/.illumeta/r-lib/R-<major.minor>` to avoid I/O errors. Set `ILLUMETA_ALLOW_EXTERNAL_LIB=1` to force `.r-lib` on the external drive.
 - If you are using a conda R and need conda system libs, set `ILLUMETA_USE_CONDA_LIBS=1`.
 
 ## Quick start

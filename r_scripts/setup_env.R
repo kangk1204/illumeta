@@ -223,6 +223,25 @@ r_cmd_config <- function(key) {
     trimws(out[1])
 }
 
+append_makevars_lines <- function(lines) {
+    if (length(lines) == 0) return(invisible(FALSE))
+    makevars_path <- Sys.getenv("R_MAKEVARS_USER", unset = "")
+    if (!nzchar(makevars_path)) {
+        makevars_path <- file.path(tempdir(), "Makevars.illumeta")
+        Sys.setenv(R_MAKEVARS_USER = makevars_path)
+    }
+    existing <- character(0)
+    if (file.exists(makevars_path)) {
+        existing <- tryCatch(readLines(makevars_path, warn = FALSE), error = function(e) character(0))
+    }
+    new_lines <- lines[!lines %in% existing]
+    if (length(new_lines) > 0) {
+        cat(paste0(new_lines, "\n"), file = makevars_path, append = TRUE)
+        message("Updated Makevars for compiler settings: ", makevars_path)
+    }
+    return(invisible(TRUE))
+}
+
 ensure_c17_compiler <- function() {
     if (nzchar(Sys.getenv("CC17", unset = ""))) return(invisible(TRUE))
     cc <- Sys.getenv("CC", unset = "")
@@ -241,6 +260,10 @@ ensure_c17_compiler <- function() {
         c17flags <- paste(c17flags, "-std=gnu17")
     }
     Sys.setenv(C17FLAGS = trimws(c17flags))
+    append_makevars_lines(c(
+        paste0("CC17=", cc),
+        paste0("C17FLAGS=", trimws(c17flags))
+    ))
     message("Configured CC17/C17FLAGS for C17 packages.")
     return(invisible(TRUE))
 }
@@ -263,6 +286,10 @@ ensure_cxx17_compiler <- function() {
         cxx17flags <- paste(cxx17flags, "-std=gnu++17")
     }
     Sys.setenv(CXX17FLAGS = trimws(cxx17flags))
+    append_makevars_lines(c(
+        paste0("CXX17=", cxx),
+        paste0("CXX17FLAGS=", trimws(cxx17flags))
+    ))
     message("Configured CXX17/CXX17FLAGS for C++17 packages.")
     return(invisible(TRUE))
 }

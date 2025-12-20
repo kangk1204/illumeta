@@ -97,24 +97,30 @@ pip install -r requirements.txt
 
 #### 3) Install R dependencies (first run / CI / reproducible setup)
 This installs required R/Bioconductor packages into the repo-local library (`.r-lib/R-<major.minor>`) and may take ~10-30 minutes.
+
+Recommended (Beginner, full features):
+- Requires R 4.4+ for EPIC v2. If you have R 4.3, update R or use the minimal install below.
 ```bash
 # Ensure your environment is activated first:
 # - Conda: conda activate illumeta
 # - venv:  source .venv/bin/activate
 
-ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
-```
-Beginner clean install (recommended; no skips, cleans mismatched R binaries):
-```bash
 ILLUMETA_CLEAN_MISMATCHED_RLIB=1 \
 ILLUMETA_FORCE_SETUP=1 ILLUMETA_INSTALL_DEVTOOLS=1 ILLUMETA_INSTALL_CLOCKS=1 ILLUMETA_REQUIRE_EPICV2=1 \
 Rscript r_scripts/setup_env.R
 ```
-Note: EPIC v2 support requires R 4.4+ / Bioconductor 3.19+. On older R versions, setup will skip EPIC v2 packages.
-To require EPIC v2, set `ILLUMETA_REQUIRE_EPICV2=1` and rerun the setup command.
-Note: `devtools`/`tidyverse` are skipped by default to avoid heavy compile dependencies. If you need them, rerun with `ILLUMETA_INSTALL_DEVTOOLS=1` (requires `libgit2` + `pkg-config`).
-Conda users can add libgit2 with: `conda install -c conda-forge libgit2`.
-Optional clock packages (methylclock/planet/wateRmelon) are skipped by default; install with `ILLUMETA_INSTALL_CLOCKS=1` if needed.
+
+Minimal install (fewer dependencies, no clocks/devtools):
+```bash
+ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
+```
+
+Optional toggles:
+- `ILLUMETA_REQUIRE_EPICV2=1` (requires R 4.4+ / Bioconductor 3.19+)
+- `ILLUMETA_INSTALL_DEVTOOLS=1` (requires `libgit2` + `pkg-config`; conda: `conda install -c conda-forge libgit2`)
+- `ILLUMETA_INSTALL_CLOCKS=1` (methylclock/planet/wateRmelon)
+- `ILLUMETA_CLEAN_MISMATCHED_RLIB=1` (use after switching R versions)
+
 If you see errors like `libxml-2.0` or `xml2` not found:
 - Conda: `conda install -c conda-forge libxml2 pkg-config`
 - System R (Ubuntu/WSL): `sudo apt-get install -y libxml2-dev pkg-config`
@@ -196,24 +202,30 @@ pip install -r requirements.txt
 
 #### 3) Install R dependencies (first run / CI / reproducible setup)
 This installs required R/Bioconductor packages into the repo-local library (`.r-lib/R-<major.minor>`) and may take ~10-30 minutes.
+
+Recommended (Beginner, full features):
+- Requires R 4.4+ for EPIC v2. If you have R 4.3, update R or use the minimal install below.
 ```bash
 # Ensure your environment is activated first:
 # - Conda: conda activate illumeta
 # - venv:  source .venv/bin/activate
 
-ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
-```
-Beginner clean install (recommended; no skips, cleans mismatched R binaries):
-```bash
 ILLUMETA_CLEAN_MISMATCHED_RLIB=1 \
 ILLUMETA_FORCE_SETUP=1 ILLUMETA_INSTALL_DEVTOOLS=1 ILLUMETA_INSTALL_CLOCKS=1 ILLUMETA_REQUIRE_EPICV2=1 \
 Rscript r_scripts/setup_env.R
 ```
-Note: EPIC v2 support requires R 4.4+ / Bioconductor 3.19+. On older R versions, setup will skip EPIC v2 packages.
-To require EPIC v2, set `ILLUMETA_REQUIRE_EPICV2=1` and rerun the setup command.
-Note: `devtools`/`tidyverse` are skipped by default to avoid heavy compile dependencies. If you need them, rerun with `ILLUMETA_INSTALL_DEVTOOLS=1` (requires `libgit2` + `pkg-config`).
-Conda users can add libgit2 with: `conda install -c conda-forge libgit2`.
-Optional clock packages (methylclock/planet/wateRmelon) are skipped by default; install with `ILLUMETA_INSTALL_CLOCKS=1` if needed.
+
+Minimal install (fewer dependencies, no clocks/devtools):
+```bash
+ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
+```
+
+Optional toggles:
+- `ILLUMETA_REQUIRE_EPICV2=1` (requires R 4.4+ / Bioconductor 3.19+)
+- `ILLUMETA_INSTALL_DEVTOOLS=1` (requires `libgit2` + `pkg-config`; conda: `conda install -c conda-forge libgit2`)
+- `ILLUMETA_INSTALL_CLOCKS=1` (methylclock/planet/wateRmelon)
+- `ILLUMETA_CLEAN_MISMATCHED_RLIB=1` (use after switching R versions)
+
 If you see errors like `libxml-2.0` or `xml2` not found:
 - Conda: `conda install -c conda-forge libxml2 pkg-config`
 - System R (macOS): `brew install libxml2 pkg-config`
@@ -301,24 +313,30 @@ pip install -r requirements.txt
 
 #### 3) Install R dependencies (first run / CI / reproducible setup)
 This installs required R/Bioconductor packages into the repo-local library (`.r-lib/R-<major.minor>`) and may take ~10-30 minutes.
+
+Recommended (Beginner, full features):
+- Requires R 4.4+ for EPIC v2. If you have R 4.3, update R or use the minimal install below.
 ```bash
 # Ensure your environment is activated first:
 # - Conda: conda activate illumeta
 # - venv:  source .venv/bin/activate
 
-ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
-```
-Beginner clean install (recommended; no skips, cleans mismatched R binaries):
-```bash
 ILLUMETA_CLEAN_MISMATCHED_RLIB=1 \
 ILLUMETA_FORCE_SETUP=1 ILLUMETA_INSTALL_DEVTOOLS=1 ILLUMETA_INSTALL_CLOCKS=1 ILLUMETA_REQUIRE_EPICV2=1 \
 Rscript r_scripts/setup_env.R
 ```
-Note: EPIC v2 support requires R 4.4+ / Bioconductor 3.19+. On older R versions, setup will skip EPIC v2 packages.
-To require EPIC v2, set `ILLUMETA_REQUIRE_EPICV2=1` and rerun the setup command.
-Note: `devtools`/`tidyverse` are skipped by default to avoid heavy compile dependencies. If you need them, rerun with `ILLUMETA_INSTALL_DEVTOOLS=1` (requires `libgit2` + `pkg-config`).
-Conda users can add libgit2 with: `conda install -c conda-forge libgit2`.
-Optional clock packages (methylclock/planet/wateRmelon) are skipped by default; install with `ILLUMETA_INSTALL_CLOCKS=1` if needed.
+
+Minimal install (fewer dependencies, no clocks/devtools):
+```bash
+ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
+```
+
+Optional toggles:
+- `ILLUMETA_REQUIRE_EPICV2=1` (requires R 4.4+ / Bioconductor 3.19+)
+- `ILLUMETA_INSTALL_DEVTOOLS=1` (requires `libgit2` + `pkg-config`; conda: `conda install -c conda-forge libgit2`)
+- `ILLUMETA_INSTALL_CLOCKS=1` (methylclock/planet/wateRmelon)
+- `ILLUMETA_CLEAN_MISMATCHED_RLIB=1` (use after switching R versions)
+
 If you see errors like `libxml-2.0` or `xml2` not found:
 - Conda: `conda install -c conda-forge libxml2 pkg-config`
 - System R (Ubuntu/WSL): `sudo apt-get install -y libxml2-dev pkg-config`

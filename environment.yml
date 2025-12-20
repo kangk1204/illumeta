@@ -4,7 +4,7 @@ channels:
 dependencies:
   - python=3.11
   - pip
-  - r-base=4.3
+  - r-base=4.4
   - pandoc
   - cmake
   - make

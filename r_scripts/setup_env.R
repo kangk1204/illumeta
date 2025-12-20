@@ -1,8 +1,23 @@
 # Prefer a project-local library by default for reproducibility.
 # To respect an externally-set R_LIBS_USER, set ILLUMETA_RESPECT_R_LIBS_USER=1.
+rp <- function(x) {
+    tryCatch(normalizePath(x, winslash = "/", mustWork = FALSE), error = function(e) x)
+}
+
 respect_existing <- Sys.getenv("ILLUMETA_RESPECT_R_LIBS_USER", unset = "") == "1"
+allow_external_lib <- Sys.getenv("ILLUMETA_ALLOW_EXTERNAL_LIB", unset = "") == "1"
 existing_lib <- Sys.getenv("R_LIBS_USER")
 lib_dir <- file.path(getwd(), ".r-lib")
+if (!respect_existing) {
+    is_macos <- Sys.info()[["sysname"]] == "Darwin"
+    proj_path <- rp(getwd())
+    project_on_external <- is_macos && grepl("^/Volumes/", proj_path)
+    if (project_on_external && !allow_external_lib) {
+        lib_dir <- file.path(Sys.getenv("HOME"), ".illumeta", "r-lib")
+        message(paste("Project is on external volume; using local R library:", lib_dir,
+                      "(set ILLUMETA_ALLOW_EXTERNAL_LIB=1 to use .r-lib)"))
+    }
+}
 if (respect_existing && nzchar(existing_lib)) {
     lib_dir <- existing_lib
 } else {
@@ -15,20 +30,22 @@ if (!dir.exists(lib_dir)) {
     dir.create(lib_dir, recursive = TRUE, showWarnings = FALSE)
     message(paste("Created project library directory:", lib_dir))
 }
-.libPaths(c(lib_dir, .libPaths()))
+base_libs <- unique(c(.Library, .Library.site))
+.libPaths(unique(c(lib_dir, base_libs)))
 message(paste("Using R library:", .libPaths()[1]))
 
 # Prefer HTTPS CRAN (some environments block plain HTTP)
 cran_repo <- Sys.getenv("ILLUMETA_CRAN_REPO", unset = "https://cloud.r-project.org")
 options(repos = c(CRAN = cran_repo))
+require_epicv2 <- Sys.getenv("ILLUMETA_REQUIRE_EPICV2", unset = "") == "1"
+install_devtools <- Sys.getenv("ILLUMETA_INSTALL_DEVTOOLS", unset = "") == "1"
+install_clocks <- Sys.getenv("ILLUMETA_INSTALL_CLOCKS", unset = "") == "1"
+r_version <- getRversion()
 
 # Warn early if a conda toolchain is forced while R is NOT from conda.
 # This mismatch is a common cause of "C compiler cannot create executables" and link errors.
 toolchain <- c(Sys.getenv("CC"), Sys.getenv("CXX"), Sys.getenv("CXX11"), Sys.getenv("CXX14"), Sys.getenv("CXX17"), Sys.getenv("CXX20"))
 conda_prefix <- Sys.getenv("CONDA_PREFIX", unset = "")
-rp <- function(x) {
-    tryCatch(normalizePath(x, winslash = "/", mustWork = FALSE), error = function(e) x)
-}
 r_home <- rp(R.home())
 conda_prefix_norm <- rp(conda_prefix)
 conda_toolchain <- any(grepl("conda", toolchain, ignore.case = TRUE))
@@ -83,15 +100,87 @@ ensure_cmake_available <- function() {
     quit(status = 1)
 }
 
+ensure_fortran_available <- function() {
+    fc <- Sys.which("gfortran")
+    if (fc != "") return(invisible(fc))
+    sysname <- Sys.info()[["sysname"]]
+    message("Warning: 'gfortran' not found in PATH. Some packages (e.g., quadprog, lme4) may fail to compile.")
+    if (identical(sysname, "Darwin")) {
+        message("  - macOS (Homebrew): brew install gcc")
+        message("  - Conda: conda install -c conda-forge gfortran")
+    } else if (identical(sysname, "Linux")) {
+        message("  - Ubuntu/WSL: sudo apt-get install -y gfortran")
+    }
+    return(invisible(FALSE))
+}
+
 ensure_writable_lib()
 cleanup_stale_locks()
 ensure_cmake_available()
+ensure_fortran_available()
+
+ensure_openmp_flags <- function() {
+    if (Sys.info()[["sysname"]] != "Darwin") return(invisible(FALSE))
+    libomp_inc <- "/opt/homebrew/opt/libomp/include"
+    libomp_lib <- "/opt/homebrew/opt/libomp/lib"
+    if (!dir.exists(libomp_inc) || !dir.exists(libomp_lib)) {
+        message("Warning: libomp not found. Some Bioconductor packages (e.g., SparseArray) may fail to compile.")
+        message("  - macOS (Homebrew): brew install libomp")
+        return(invisible(FALSE))
+    }
+    cflags <- Sys.getenv("PKG_CFLAGS", unset = "")
+    cppflags <- Sys.getenv("CPPFLAGS", unset = "")
+    cflags_global <- Sys.getenv("CFLAGS", unset = "")
+    libs <- Sys.getenv("PKG_LIBS", unset = "")
+    ldflags <- Sys.getenv("LDFLAGS", unset = "")
+    openmp_cflags <- paste("-Xclang -fopenmp", paste0("-I", libomp_inc))
+    openmp_libs <- paste(paste0("-L", libomp_lib), "-lomp")
+    shlib_openmp <- paste(openmp_cflags, openmp_libs)
+    if (!grepl("-fopenmp", cflags, fixed = TRUE)) {
+        cflags <- paste(cflags, openmp_cflags)
+    }
+    if (!grepl("-fopenmp", cppflags, fixed = TRUE)) {
+        cppflags <- paste(cppflags, openmp_cflags)
+    }
+    if (!grepl("-fopenmp", cflags_global, fixed = TRUE)) {
+        cflags_global <- paste(cflags_global, openmp_cflags)
+    }
+    if (!grepl("-lomp", libs, fixed = TRUE)) {
+        libs <- paste(libs, openmp_libs)
+    }
+    if (!grepl("-lomp", ldflags, fixed = TRUE)) {
+        ldflags <- paste(ldflags, openmp_libs)
+    }
+    Sys.setenv(PKG_CFLAGS = trimws(cflags))
+    Sys.setenv(CPPFLAGS = trimws(cppflags))
+    Sys.setenv(CFLAGS = trimws(cflags_global))
+    Sys.setenv(PKG_LIBS = trimws(libs))
+    Sys.setenv(LDFLAGS = trimws(ldflags))
+    Sys.setenv(SHLIB_OPENMP_CFLAGS = trimws(shlib_openmp))
+    Sys.setenv(SHLIB_OPENMP_CXXFLAGS = trimws(shlib_openmp))
+    Sys.setenv(SHLIB_OPENMP_FCFLAGS = trimws(shlib_openmp))
+    Sys.setenv(SHLIB_OPENMP_LDFLAGS = trimws(openmp_libs))
+    makevars_path <- file.path(tempdir(), "Makevars.illumeta")
+    writeLines(c(
+        paste0("SHLIB_OPENMP_CFLAGS=", trimws(shlib_openmp)),
+        paste0("SHLIB_OPENMP_CXXFLAGS=", trimws(shlib_openmp)),
+        paste0("SHLIB_OPENMP_FCFLAGS=", trimws(shlib_openmp)),
+        paste0("SHLIB_OPENMP_LDFLAGS=", trimws(openmp_libs))
+    ), con = makevars_path)
+    Sys.setenv(R_MAKEVARS_USER = makevars_path)
+    message("Using custom Makevars for OpenMP: ", makevars_path)
+    message("Configured OpenMP flags for macOS (libomp).")
+    return(invisible(TRUE))
+}
+
+ensure_openmp_flags()
 
 # Prefer conda/system libxml2/icu/curl if available (for xml2/XML builds)
 conda_prefix <- Sys.getenv("CONDA_PREFIX", unset = "")
 if (!nzchar(conda_prefix) || !dir.exists(conda_prefix)) {
     conda_prefix <- ""
 }
+use_conda_libs <- Sys.getenv("ILLUMETA_USE_CONDA_LIBS", unset = "") == "1"
 conda_lib <- file.path(conda_prefix, "lib")
 conda_pkgconfig <- file.path(conda_lib, "pkgconfig")
 add_path <- function(var, path) {
@@ -103,13 +192,16 @@ add_path <- function(var, path) {
     do.call(Sys.setenv, setNames(list(new_val), var))
     return(TRUE)
 }
-if (nzchar(conda_prefix)) {
+if (nzchar(conda_prefix) && (use_conda_libs || r_in_conda)) {
     if (add_path("LD_LIBRARY_PATH", conda_lib)) {
         message(paste("Added to LD_LIBRARY_PATH:", conda_lib))
     }
     if (add_path("PKG_CONFIG_PATH", conda_pkgconfig)) {
         message(paste("Added to PKG_CONFIG_PATH:", conda_pkgconfig))
     }
+} else if (nzchar(conda_prefix) && !r_in_conda) {
+    message("Note: CONDA_PREFIX is set but R is not from conda; skipping conda libs.",
+            " Set ILLUMETA_USE_CONDA_LIBS=1 to override.")
 }
 
 suppressPackageStartupMessages({
@@ -123,8 +215,60 @@ suppressPackageStartupMessages({
   }
 })
 
-if (!require("BiocManager", quietly = TRUE))
-    install.packages("BiocManager", repos = cran_repo)
+if (!requireNamespace("BiocManager", quietly = TRUE)) {
+    install.packages("BiocManager", repos = cran_repo, lib = .libPaths()[1])
+}
+if (!requireNamespace("BiocManager", quietly = TRUE)) {
+    message("ERROR: Failed to install BiocManager. Cannot install Bioconductor packages.")
+    quit(status = 1)
+}
+
+infer_bioc_version <- function() {
+    if (r_version >= "4.5") return("3.22")
+    if (r_version >= "4.4") return("3.20")
+    if (r_version >= "4.3") return("3.18")
+    return("")
+}
+
+ensure_bioc_version <- function() {
+    target <- Sys.getenv("ILLUMETA_BIOC_VERSION", unset = "")
+    if (!nzchar(target)) {
+        target <- infer_bioc_version()
+    }
+    if (!nzchar(target)) return(invisible(FALSE))
+
+    current <- tryCatch(as.character(BiocManager::version()), error = function(e) "")
+    if (!nzchar(current) || current != target) {
+        message(paste("Setting Bioconductor version to", target, "for R", as.character(r_version)))
+        tryCatch({
+            BiocManager::install(version = target, ask = FALSE, update = FALSE)
+        }, error = function(e) {
+            message("Warning: Failed to set Bioconductor version automatically.")
+            message("  Detail: ", conditionMessage(e))
+        })
+    }
+    options(BiocManager.version = target)
+    current_after <- tryCatch(as.character(BiocManager::version()), error = function(e) "")
+    if (nzchar(current_after) && current_after != target) {
+        message("Warning: Bioconductor version is still ", current_after, "; expected ", target, ".")
+    }
+    return(invisible(TRUE))
+}
+
+configure_bioc_repos <- function() {
+    repos <- tryCatch(BiocManager::repositories(), error = function(e) NULL)
+    if (is.null(repos) || length(repos) == 0) {
+        message("Warning: Failed to configure Bioconductor repositories; using CRAN only.")
+        message("  Hint: set ILLUMETA_BIOC_VERSION (e.g., 3.22 for R 4.5) and rerun.")
+        return(invisible(FALSE))
+    }
+    repos["CRAN"] <- cran_repo
+    options(repos = repos)
+    message(paste("Using Bioconductor repositories (Bioc", as.character(BiocManager::version()), ") + CRAN:", cran_repo))
+    return(invisible(TRUE))
+}
+ensure_bioc_version()
+configure_bioc_repos()
 
 # Core BioC packages
 bioc_pkgs <- c(
@@ -133,9 +277,9 @@ bioc_pkgs <- c(
     "limma", 
     "GEOquery", 
     "Biobase",
+    "illuminaio",
     "IlluminaHumanMethylation450kmanifest",
     "IlluminaHumanMethylationEPICmanifest",
-    "IlluminaHumanMethylationEPICv2manifest", # EPIC v2 manifest required
     "IlluminaHumanMethylation450kanno.ilmn12.hg19",
     "IlluminaHumanMethylationEPICanno.ilm10b4.hg19",
     "sesameData", # Required for Sesame annotation caching
@@ -143,24 +287,28 @@ bioc_pkgs <- c(
     "variancePartition",
     "pvca",
     "FlowSorted.Blood.EPIC",   # Cell type reference (EPIC/EPICv2)
-    "FlowSorted.Blood.450k",   # Cell type reference (450k)
-    "wateRmelon",              # Epigenetic clocks (Horvath/Hannum/PhenoAge)
-    "EpiDISH",                 # Reference-free cell type estimation
-    "planet",                  # Placental DNA methylation clocks
-    "methylclock",             # General epigenetic clocks
-    "methylclockData"          # Data for methylclock
+    "FlowSorted.Blood.450k"   # Cell type reference (450k)
 )
 
-# EPIC v2 annotation names (accept any)
-epicv2_annos <- c(
-    "IlluminaHumanMethylationEPICv2anno.20a1.hg38", # Bioc name
-    "IlluminaHumanMethylationEPICv2anno.ilm10b5.hg38", # alt Bioc name seen before
-    "IlluminaHumanMethylationEPICanno.ilm10b5.hg38" # GitHub legacy name
+clock_pkgs <- c(
+    "wateRmelon",        # Epigenetic clocks (Horvath/Hannum/PhenoAge)
+    "planet",            # Placental DNA methylation clocks
+    "methylclock",       # General epigenetic clocks
+    "methylclockData"    # Data for methylclock
 )
 
 # CRAN packages
 cran_pkgs <- c(
     "optparse", 
+    "xml2",
+    "XML",
+    "rlang",
+    "stringi",
+    "glue",
+    "digest",
+    "matrixStats",
+    "fs",
+    "quadprog",
     "dplyr", 
     "stringr", 
     "ggplot2", 
@@ -181,9 +329,43 @@ cran_pkgs <- c(
     "forcats"
 )
 
+bioc_available_cache <- NULL
+get_bioc_available <- function() {
+    if (!is.null(bioc_available_cache)) return(bioc_available_cache)
+    bioc_available_cache <<- tryCatch(BiocManager::available(), error = function(e) {
+        message("Warning: Could not fetch Bioconductor package index: ", conditionMessage(e))
+        NULL
+    })
+    bioc_available_cache
+}
+
+is_bioc_available <- function(pkg) {
+    avail <- get_bioc_available()
+    if (is.null(avail)) return(NA)
+    pkg %in% avail
+}
+
+bioc_version <- tryCatch(as.character(BiocManager::version()), error = function(e) "unknown")
+
+is_loadable <- function(pkg) {
+    ok <- tryCatch(requireNamespace(pkg, quietly = TRUE), error = function(e) FALSE)
+    isTRUE(ok)
+}
+
+remove_broken_pkg <- function(pkg, lib = .libPaths()[1]) {
+    pkg_path <- file.path(lib, pkg)
+    if (dir.exists(pkg_path)) {
+        message("Removing broken package:", pkg)
+        tryCatch(unlink(pkg_path, recursive = TRUE, force = TRUE), error = function(e) {
+            message("  Warning: could not remove ", pkg, " (", conditionMessage(e), ")")
+        })
+    }
+}
+
 install_bioc_safe <- function(pkgs) {
-    miss <- setdiff(pkgs, rownames(installed.packages()))
+    miss <- pkgs[!vapply(pkgs, is_loadable, logical(1))]
     if (length(miss) == 0) return(invisible())
+    for (pkg in miss) remove_broken_pkg(pkg)
     message(paste("Installing Bioconductor packages:", paste(miss, collapse = ", ")))
     tryCatch({
         BiocManager::install(miss, update = FALSE, ask = FALSE, lib = .libPaths()[1])
@@ -194,8 +376,9 @@ install_bioc_safe <- function(pkgs) {
 }
 
 install_cran_safe <- function(pkgs) {
-    miss <- setdiff(pkgs, rownames(installed.packages()))
+    miss <- pkgs[!vapply(pkgs, is_loadable, logical(1))]
     if (length(miss) == 0) return(invisible())
+    for (pkg in miss) remove_broken_pkg(pkg)
     message(paste("Installing CRAN packages:", paste(miss, collapse = ", ")))
     tryCatch({
         install.packages(miss, repos = cran_repo, lib = .libPaths()[1])
@@ -205,8 +388,6 @@ install_cran_safe <- function(pkgs) {
     })
 }
 
-# Ensure archived versions of devtools and tidyverse are installed to avoid dependency conflicts
-# (e.g., ragg/pkgdown issues with latest versions)
 install_archived_safe <- function(pkg, version) {
     if (requireNamespace(pkg, quietly = TRUE)) return(invisible(TRUE))
     message(paste0("Installing archived ", pkg, " (", version, ") to avoid pkgdown/ragg issues..."))
@@ -222,11 +403,21 @@ install_archived_safe <- function(pkg, version) {
     }
 }
 
-install_archived_safe("devtools", "2.4.3")
-install_archived_safe("tidyverse", "1.3.2")
+install_cran_safe(cran_pkgs)
+if (install_devtools) {
+    install_archived_safe("devtools", "2.4.3")
+    install_archived_safe("tidyverse", "1.3.2")
+} else {
+    message("Skipping devtools/tidyverse install (set ILLUMETA_INSTALL_DEVTOOLS=1 to enable).")
+}
 
 install_bioc_safe(bioc_pkgs)
-install_cran_safe(cran_pkgs)
+if (install_clocks) {
+    message("Installing optional clock packages (set ILLUMETA_INSTALL_CLOCKS=0 to skip)...")
+    install_bioc_safe(clock_pkgs)
+} else {
+    message("Skipping optional clock packages (set ILLUMETA_INSTALL_CLOCKS=1 to install).")
+}
 
 ensure_min_version <- function(pkg, min_ver, installer_fn, lib = .libPaths()[1]) {
     cur_ver <- tryCatch(packageVersion(pkg), error = function(e) NULL)
@@ -266,30 +457,52 @@ if (!requireNamespace("RefFreeEWAS", quietly = TRUE)) {
 
 install_epicv2_manifest <- function() {
   if (requireNamespace("IlluminaHumanMethylationEPICv2manifest", quietly = TRUE)) return(invisible(TRUE))
-  message("Attempting EPIC v2 manifest from Bioconductor...")
+  avail <- is_bioc_available("IlluminaHumanMethylationEPICv2manifest")
+  if (identical(avail, FALSE)) {
+      message(paste("Note: EPIC v2 manifest is not available for Bioconductor", bioc_version, "(R", r_version, ")."))
+      message("To enable EPIC v2 support, use R 4.4+ with Bioconductor 3.19+ (see README).")
+      if (require_epicv2) {
+          message("ERROR: EPIC v2 manifest required but not available for this R/Bioconductor version.")
+          quit(status = 1)
+      }
+      return(invisible(FALSE))
+  }
+  message("Installing EPIC v2 manifest (IlluminaHumanMethylationEPICv2manifest)...")
   install_bioc_safe("IlluminaHumanMethylationEPICv2manifest")
   if (requireNamespace("IlluminaHumanMethylationEPICv2manifest", quietly = TRUE)) return(invisible(TRUE))
-  # Try GitHub variants
-  manifest_repos <- c("achilleasNP/IlluminaHumanMethylationEPICv2manifest",
-                      "achilleasNP/IlluminaHumanMethylationEPICmanifest")
-  for (repo in manifest_repos) {
-    message(paste("Attempting EPIC v2 manifest from GitHub:", repo))
-    tryCatch({
-      remotes::install_github(repo, upgrade = "never", lib = .libPaths()[1])
-      if (requireNamespace("IlluminaHumanMethylationEPICv2manifest", quietly = TRUE)) return(invisible(TRUE))
-    }, error = function(e) {
-      message("Warning: Failed to install EPIC v2 manifest from GitHub.")
-      message(paste("Error details:", e$message))
-    })
+  if (require_epicv2) {
+      message("ERROR: EPIC v2 manifest failed to install. Check Bioconductor configuration.")
+      quit(status = 1)
   }
+  message("Warning: EPIC v2 manifest not installed. EPIC v2 arrays will be unsupported.")
+  return(invisible(FALSE))
 }
 
 install_epicv2_annos <- function() {
   # Install the official Bioconductor annotation package for EPIC v2
   if (!requireNamespace("IlluminaHumanMethylationEPICv2anno.20a1.hg38", quietly = TRUE)) {
+      avail <- is_bioc_available("IlluminaHumanMethylationEPICv2anno.20a1.hg38")
+      if (identical(avail, FALSE)) {
+          message(paste("Note: EPIC v2 annotation is not available for Bioconductor", bioc_version, "(R", r_version, ")."))
+          message("To enable EPIC v2 support, use R 4.4+ with Bioconductor 3.19+ (see README).")
+          if (require_epicv2) {
+              message("ERROR: EPIC v2 annotation required but not available for this R/Bioconductor version.")
+              quit(status = 1)
+          }
+          return(invisible(FALSE))
+      }
       message("Installing EPIC v2 annotation (IlluminaHumanMethylationEPICv2anno.20a1.hg38)...")
       install_bioc_safe("IlluminaHumanMethylationEPICv2anno.20a1.hg38")
   }
+  if (!requireNamespace("IlluminaHumanMethylationEPICv2anno.20a1.hg38", quietly = TRUE)) {
+      if (require_epicv2) {
+          message("ERROR: EPIC v2 annotation failed to install. Check Bioconductor configuration.")
+          quit(status = 1)
+      }
+      message("Warning: EPIC v2 annotation not installed. EPIC v2 arrays will be unsupported.")
+      return(invisible(FALSE))
+  }
+  return(invisible(TRUE))
 }
 
 install_epicv2_manifest()
@@ -353,31 +566,46 @@ tryCatch({
 })
 
 # --- Verify required packages load ---
+epicv2_pkgs <- c(
+  "IlluminaHumanMethylationEPICv2manifest",
+  "IlluminaHumanMethylationEPICv2anno.20a1.hg38"
+)
 required_pkgs <- c(
   "xml2", "XML",
   "lme4", "reformulas", "illuminaio",
   "minfi", "sesame", "limma", "dmrff", "GEOquery",
   "Biobase",
-  "methylclock", "methylclockData", "planet",
   "IlluminaHumanMethylation450kmanifest",
   "IlluminaHumanMethylationEPICmanifest",
-  "IlluminaHumanMethylationEPICv2manifest",
   "IlluminaHumanMethylation450kanno.ilmn12.hg19",
   "IlluminaHumanMethylationEPICanno.ilm10b4.hg19",
   "sesameData", "sva", "variancePartition", "pvca",
   "RefFreeEWAS"
 )
+required_pkgs <- c(required_pkgs, epicv2_pkgs)
+if (!require_epicv2) {
+  required_pkgs <- setdiff(required_pkgs, epicv2_pkgs)
+}
+if (install_clocks) {
+  required_pkgs <- c(required_pkgs, clock_pkgs)
+}
 
 failed <- character(0)
-errors <- list()
+errors <- new.env(parent = emptyenv())
+installed_pkgs <- rownames(installed.packages())
 for (pkg in required_pkgs) {
   ok <- tryCatch({
     requireNamespace(pkg, quietly = TRUE)
   }, error = function(e) {
-    errors[[pkg]] <<- conditionMessage(e)
+    errors[[pkg]] <- conditionMessage(e)
     FALSE
   })
-  if (!ok) failed <- c(failed, pkg)
+  if (!ok) {
+    if (is.null(errors[[pkg]])) {
+      errors[[pkg]] <- if (pkg %in% installed_pkgs) "failed to load" else "not installed"
+    }
+    failed <- c(failed, pkg)
+  }
 }
 
 if (length(failed) > 0) {
@@ -396,11 +624,16 @@ if (length(failed) > 0) {
   message("All required dependencies installed and loadable.")
 }
 
-# EPIC v2 annotation check
-if (!requireNamespace("IlluminaHumanMethylationEPICv2anno.20a1.hg38", quietly = TRUE)) {
-  message("ERROR: EPIC v2 annotation package (IlluminaHumanMethylationEPICv2anno.20a1.hg38) not installed.")
-  message("Please ensure Bioconductor is configured correctly or install it manually.")
+epicv2_installed <- all(sapply(epicv2_pkgs, function(pkg) requireNamespace(pkg, quietly = TRUE)))
+if (epicv2_installed) {
+  message("EPIC v2 manifest/annotation available.")
+} else if (require_epicv2) {
+  message("ERROR: EPIC v2 packages are required but not installed.")
+  message("Please ensure Bioconductor is configured correctly and use R 4.4+ with Bioconductor 3.19+.")
   quit(status = 1)
+} else {
+  message("Note: EPIC v2 support is not installed; EPIC v2 arrays will be skipped.")
+  message("To enable, use R 4.4+ with Bioconductor 3.19+ and set ILLUMETA_REQUIRE_EPICV2=1.")
 }
 
-message("EPIC v2 manifest/annotation available. Setup complete.")
+message("Setup complete.")

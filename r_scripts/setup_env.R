@@ -208,11 +208,136 @@ if (nzchar(conda_prefix) && (use_conda_libs || r_in_conda)) {
             " Set ILLUMETA_USE_CONDA_LIBS=1 to override.")
 }
 
+sys_which_any <- function(candidates) {
+    for (cand in candidates) {
+        path <- Sys.which(cand)
+        if (nzchar(path)) return(path)
+    }
+    return("")
+}
+
+r_cmd_config <- function(key) {
+    cmd <- file.path(R.home("bin"), "R")
+    out <- tryCatch(system2(cmd, c("CMD", "config", key), stdout = TRUE, stderr = TRUE), error = function(e) character(0))
+    if (length(out) == 0) return("")
+    trimws(out[1])
+}
+
+ensure_c17_compiler <- function() {
+    if (nzchar(Sys.getenv("CC17", unset = ""))) return(invisible(TRUE))
+    cc <- Sys.getenv("CC", unset = "")
+    if (!nzchar(cc)) cc <- r_cmd_config("CC")
+    if (!nzchar(cc)) cc <- sys_which_any(c("clang", "gcc"))
+    if (!nzchar(cc)) {
+        message("Warning: CC17 not set and no C compiler found. C17 packages may fail to compile.")
+        return(invisible(FALSE))
+    }
+    Sys.setenv(CC17 = cc)
+
+    c17flags <- Sys.getenv("C17FLAGS", unset = "")
+    if (!nzchar(c17flags)) c17flags <- r_cmd_config("C17FLAGS")
+    if (!nzchar(c17flags)) c17flags <- Sys.getenv("CFLAGS", unset = "")
+    if (!grepl("-std=", c17flags, fixed = FALSE)) {
+        c17flags <- paste(c17flags, "-std=gnu17")
+    }
+    Sys.setenv(C17FLAGS = trimws(c17flags))
+    message("Configured CC17/C17FLAGS for C17 packages.")
+    return(invisible(TRUE))
+}
+
+ensure_cxx17_compiler <- function() {
+    if (nzchar(Sys.getenv("CXX17", unset = ""))) return(invisible(TRUE))
+    cxx <- Sys.getenv("CXX", unset = "")
+    if (!nzchar(cxx)) cxx <- r_cmd_config("CXX")
+    if (!nzchar(cxx)) cxx <- sys_which_any(c("clang++", "g++"))
+    if (!nzchar(cxx)) {
+        message("Warning: CXX17 not set and no C++ compiler found. C++17 packages may fail to compile.")
+        return(invisible(FALSE))
+    }
+    Sys.setenv(CXX17 = cxx)
+
+    cxx17flags <- Sys.getenv("CXX17FLAGS", unset = "")
+    if (!nzchar(cxx17flags)) cxx17flags <- r_cmd_config("CXX17FLAGS")
+    if (!nzchar(cxx17flags)) cxx17flags <- Sys.getenv("CXXFLAGS", unset = "")
+    if (!grepl("-std=", cxx17flags, fixed = FALSE)) {
+        cxx17flags <- paste(cxx17flags, "-std=gnu++17")
+    }
+    Sys.setenv(CXX17FLAGS = trimws(cxx17flags))
+    message("Configured CXX17/CXX17FLAGS for C++17 packages.")
+    return(invisible(TRUE))
+}
+
+ensure_c17_compiler()
+ensure_cxx17_compiler()
+
+clean_mismatched <- Sys.getenv("ILLUMETA_CLEAN_MISMATCHED_RLIB", unset = "") == "1"
+pkg_built_map <- NULL
+
+built_major_minor <- function(built) {
+    if (is.na(built) || !nzchar(built)) return(NA_character_)
+    parts <- strsplit(built, "\\.", fixed = FALSE)[[1]]
+    if (length(parts) < 2) return(NA_character_)
+    paste(parts[1], parts[2], sep = ".")
+}
+
+get_pkg_built_map <- function() {
+    if (!is.null(pkg_built_map)) return(pkg_built_map)
+    ip <- tryCatch(installed.packages(lib.loc = .libPaths()[1]), error = function(e) NULL)
+    if (is.null(ip) || !"Built" %in% colnames(ip)) {
+        pkg_built_map <<- character(0)
+        return(pkg_built_map)
+    }
+    built <- ip[, "Built"]
+    names(built) <- rownames(ip)
+    pkg_built_map <<- built
+    pkg_built_map
+}
+
+is_pkg_mismatch <- function(pkg) {
+    built_map <- get_pkg_built_map()
+    if (!pkg %in% names(built_map)) return(FALSE)
+    built_mm <- built_major_minor(built_map[[pkg]])
+    !is.na(built_mm) && built_mm != r_major_minor
+}
+
+remove_pkg_dir <- function(pkg, lib = .libPaths()[1]) {
+    pkg_path <- file.path(lib, pkg)
+    if (!dir.exists(pkg_path)) return(invisible(FALSE))
+    message("Removing package:", pkg)
+    tryCatch(unlink(pkg_path, recursive = TRUE, force = TRUE), error = function(e) {
+        message("  Warning: could not remove ", pkg, " (", conditionMessage(e), ")")
+    })
+    return(invisible(TRUE))
+}
+
+mismatch_pkgs <- function() {
+    built_map <- get_pkg_built_map()
+    if (length(built_map) == 0) return(character(0))
+    built_mm <- vapply(built_map, built_major_minor, character(1))
+    names(built_mm)[!is.na(built_mm) & built_mm != r_major_minor]
+}
+
+mismatched <- mismatch_pkgs()
+if (length(mismatched) > 0) {
+    preview <- paste(head(mismatched, 8), collapse = ", ")
+    suffix <- if (length(mismatched) > 8) " ..." else ""
+    message("Detected packages built for a different R version in ", .libPaths()[1], ": ", preview, suffix)
+    if (clean_mismatched) {
+        message("Cleaning mismatched packages (ILLUMETA_CLEAN_MISMATCHED_RLIB=1).")
+        for (pkg in mismatched) remove_pkg_dir(pkg)
+        pkg_built_map <- NULL
+    } else {
+        message("Set ILLUMETA_CLEAN_MISMATCHED_RLIB=1 to purge these and reinstall cleanly.")
+    }
+}
+
 suppressPackageStartupMessages({
+  if (is_pkg_mismatch("optparse")) remove_pkg_dir("optparse")
   if (!require("optparse", quietly = TRUE)) {
     install.packages("optparse", repos = cran_repo, lib = .libPaths()[1])
     library(optparse)
   }
+  if (is_pkg_mismatch("remotes")) remove_pkg_dir("remotes")
   if (!require("remotes", quietly = TRUE)) {
     install.packages("remotes", repos = cran_repo, lib = .libPaths()[1])
     library(remotes)
@@ -239,7 +364,7 @@ ensure_bioc_version <- function() {
     if (!nzchar(target)) {
         target <- infer_bioc_version()
     }
-    if (!nzchar(target)) return(invisible(FALSE))
+    if (!nzchar(target)) return(invisible(""))
 
     current <- tryCatch(as.character(BiocManager::version()), error = function(e) "")
     if (!nzchar(current) || current != target) {
@@ -264,14 +389,19 @@ ensure_bioc_version <- function() {
     if (nzchar(current_after) && current_after != target) {
         message("Warning: Bioconductor version is still ", current_after, "; expected ", target, ".")
     }
-    return(invisible(TRUE))
+    return(invisible(target))
 }
 
-configure_bioc_repos <- function() {
+configure_bioc_repos <- function(target = "") {
     repos <- tryCatch(BiocManager::repositories(), error = function(e) NULL)
+    if ((is.null(repos) || length(repos) == 0) && nzchar(target)) {
+        repos <- tryCatch(BiocManager::repositories(version = target), error = function(e) NULL)
+    }
     if (is.null(repos) || length(repos) == 0) {
         message("Warning: Failed to configure Bioconductor repositories; using CRAN only.")
-        message("  Hint: set ILLUMETA_BIOC_VERSION (e.g., 3.22 for R 4.5) and rerun.")
+        if (nzchar(target)) {
+            message("  Hint: set ILLUMETA_BIOC_VERSION (e.g., 3.22 for R 4.5) and rerun.")
+        }
         return(invisible(FALSE))
     }
     repos["CRAN"] <- cran_repo
@@ -279,8 +409,8 @@ configure_bioc_repos <- function() {
     message(paste("Using Bioconductor repositories (Bioc", as.character(BiocManager::version()), ") + CRAN:", cran_repo))
     return(invisible(TRUE))
 }
-ensure_bioc_version()
-configure_bioc_repos()
+bioc_target <- ensure_bioc_version()
+configure_bioc_repos(bioc_target)
 
 # Core BioC packages
 bioc_pkgs <- c(
@@ -360,17 +490,14 @@ is_bioc_available <- function(pkg) {
 bioc_version <- tryCatch(as.character(BiocManager::version()), error = function(e) "unknown")
 
 is_loadable <- function(pkg) {
+    if (is_pkg_mismatch(pkg)) return(FALSE)
     ok <- tryCatch(requireNamespace(pkg, quietly = TRUE), error = function(e) FALSE)
     isTRUE(ok)
 }
 
 remove_broken_pkg <- function(pkg, lib = .libPaths()[1]) {
-    pkg_path <- file.path(lib, pkg)
-    if (dir.exists(pkg_path)) {
-        message("Removing broken package:", pkg)
-        tryCatch(unlink(pkg_path, recursive = TRUE, force = TRUE), error = function(e) {
-            message("  Warning: could not remove ", pkg, " (", conditionMessage(e), ")")
-        })
+    if (remove_pkg_dir(pkg, lib = lib)) {
+        pkg_built_map <<- NULL
     }
 }
 

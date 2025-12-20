@@ -13,6 +13,17 @@ IlluMeta (Illuminating Methylation Analytics) is an end-to-end pipeline to go fr
 
 IlluMeta is easiest to install with **conda**. If you are on **Windows**, we strongly recommend using **WSL2 (Ubuntu)** for the most reliable R package installation.
 
+Before you start (important):
+- **Pick one environment**: conda **or** system R. Do **not** mix them.
+- If using conda, always run `conda activate illumeta` before `Rscript`.
+- If you want to use system R instead, run `conda deactivate` first.
+- Quick check (should point inside your chosen environment):
+```bash
+which R
+R -q -e 'cat(R.version.string, "\n"); cat(R.home(), "\n")'
+```
+- If you previously installed with a different R version, run the **clean install** command below (it removes mismatched packages automatically).
+
 Choose your OS section below and follow steps 0-4. The commands are intentionally repeated for clarity.
 
 ### Ubuntu (native or WSL2)
@@ -93,9 +104,11 @@ This installs required R/Bioconductor packages into the repo-local library (`.r-
 
 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
 ```
-Full install (no skips; devtools + clocks + EPIC v2):
+Beginner clean install (recommended; no skips, cleans mismatched R binaries):
 ```bash
-ILLUMETA_FORCE_SETUP=1 ILLUMETA_INSTALL_DEVTOOLS=1 ILLUMETA_INSTALL_CLOCKS=1 ILLUMETA_REQUIRE_EPICV2=1 Rscript r_scripts/setup_env.R
+ILLUMETA_CLEAN_MISMATCHED_RLIB=1 \
+ILLUMETA_FORCE_SETUP=1 ILLUMETA_INSTALL_DEVTOOLS=1 ILLUMETA_INSTALL_CLOCKS=1 ILLUMETA_REQUIRE_EPICV2=1 \
+Rscript r_scripts/setup_env.R
 ```
 Note: EPIC v2 support requires R 4.4+ / Bioconductor 3.19+. On older R versions, setup will skip EPIC v2 packages.
 To require EPIC v2, set `ILLUMETA_REQUIRE_EPICV2=1` and rerun the setup command.
@@ -190,9 +203,11 @@ This installs required R/Bioconductor packages into the repo-local library (`.r-
 
 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
 ```
-Full install (no skips; devtools + clocks + EPIC v2):
+Beginner clean install (recommended; no skips, cleans mismatched R binaries):
 ```bash
-ILLUMETA_FORCE_SETUP=1 ILLUMETA_INSTALL_DEVTOOLS=1 ILLUMETA_INSTALL_CLOCKS=1 ILLUMETA_REQUIRE_EPICV2=1 Rscript r_scripts/setup_env.R
+ILLUMETA_CLEAN_MISMATCHED_RLIB=1 \
+ILLUMETA_FORCE_SETUP=1 ILLUMETA_INSTALL_DEVTOOLS=1 ILLUMETA_INSTALL_CLOCKS=1 ILLUMETA_REQUIRE_EPICV2=1 \
+Rscript r_scripts/setup_env.R
 ```
 Note: EPIC v2 support requires R 4.4+ / Bioconductor 3.19+. On older R versions, setup will skip EPIC v2 packages.
 To require EPIC v2, set `ILLUMETA_REQUIRE_EPICV2=1` and rerun the setup command.
@@ -293,9 +308,11 @@ This installs required R/Bioconductor packages into the repo-local library (`.r-
 
 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
 ```
-Full install (no skips; devtools + clocks + EPIC v2):
+Beginner clean install (recommended; no skips, cleans mismatched R binaries):
 ```bash
-ILLUMETA_FORCE_SETUP=1 ILLUMETA_INSTALL_DEVTOOLS=1 ILLUMETA_INSTALL_CLOCKS=1 ILLUMETA_REQUIRE_EPICV2=1 Rscript r_scripts/setup_env.R
+ILLUMETA_CLEAN_MISMATCHED_RLIB=1 \
+ILLUMETA_FORCE_SETUP=1 ILLUMETA_INSTALL_DEVTOOLS=1 ILLUMETA_INSTALL_CLOCKS=1 ILLUMETA_REQUIRE_EPICV2=1 \
+Rscript r_scripts/setup_env.R
 ```
 Note: EPIC v2 support requires R 4.4+ / Bioconductor 3.19+. On older R versions, setup will skip EPIC v2 packages.
 To require EPIC v2, set `ILLUMETA_REQUIRE_EPICV2=1` and rerun the setup command.
@@ -318,6 +335,8 @@ Notes on R libraries:
 - To keep an externally-set `R_LIBS_USER`, run with `ILLUMETA_RESPECT_R_LIBS_USER=1`.
 - On macOS, if the project is on an external volume (e.g. `/Volumes/...`), IlluMeta installs to `~/.illumeta/r-lib/R-<major.minor>` to avoid I/O errors. Set `ILLUMETA_ALLOW_EXTERNAL_LIB=1` to force `.r-lib` on the external drive.
 - If you are using a conda R and need conda system libs, set `ILLUMETA_USE_CONDA_LIBS=1`.
+- To clean mismatched packages after switching R versions, run:
+  `ILLUMETA_CLEAN_MISMATCHED_RLIB=1 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.
 
 ## Quick start
 
@@ -421,6 +440,8 @@ Common issues:
 - **`gfortran` / Fortran errors**: install a Fortran compiler (Ubuntu/WSL: `sudo apt-get install -y gfortran`; macOS: `brew install gcc`; conda: `conda install -c conda-forge gfortran`), then rerun setup.
 - **OpenMP / `libomp` errors** (macOS): install `libomp` (`brew install libomp`) and rerun setup.
 - **`C17 standard requested but CC17 is not defined`**: update to the latest IlluMeta and rerun setup. If it persists, reinstall compilers (macOS: `xcode-select --install`, conda: `conda install -c conda-forge c-compiler cxx-compiler`).
+- **Bioconductor version mismatch** (e.g., R 4.4 but Bioc 3.22): rerun with an explicit Bioc version:
+  `ILLUMETA_BIOC_VERSION=3.20 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.
 - **Segfaults or “package built under R x.y” warnings**: you likely switched R versions. Rerun setup and, if needed, clean mismatched packages:
   `ILLUMETA_CLEAN_MISMATCHED_RLIB=1 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.
 - **`pandoc: command not found`**: install `pandoc` (Ubuntu: `sudo apt-get install pandoc`, macOS: `brew install pandoc`).

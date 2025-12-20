@@ -11,14 +11,22 @@ __version__ = "1.0.0"
 
 # Configuration for R script paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def default_r_lib(base_dir: str) -> str:
+    allow_external = os.environ.get("ILLUMETA_ALLOW_EXTERNAL_LIB") == "1"
+    if sys.platform == "darwin" and base_dir.startswith("/Volumes/") and not allow_external:
+        return os.path.join(os.path.expanduser("~"), ".illumeta", "r-lib")
+    return os.path.join(base_dir, ".r-lib")
 R_SCRIPTS_DIR = os.path.join(BASE_DIR, "r_scripts")
 DOWNLOAD_SCRIPT = os.path.join(R_SCRIPTS_DIR, "download.R")
 ANALYZE_SCRIPT = os.path.join(R_SCRIPTS_DIR, "analyze.R")
 SETUP_MARKER = os.path.join(BASE_DIR, ".r_setup_done")
 SETUP_SCRIPT = os.path.join(R_SCRIPTS_DIR, "setup_env.R")
-DEFAULT_R_LIB = os.path.join(BASE_DIR, ".r-lib")
+DEFAULT_R_LIB = default_r_lib(BASE_DIR)
 DEFAULT_CONDA_PREFIX = os.environ.get("CONDA_PREFIX")
 CORE_R_PACKAGES = [
+    "xml2",
+    "XML",
     "optparse",
     "GEOquery",
     "minfi",
@@ -41,23 +49,30 @@ CORE_R_PACKAGES = [
     "dplyr",
     "stringr",
     "ggrepel",
-    "methylclock",
-    "methylclockData",
-    "planet",
     "IlluminaHumanMethylation450kmanifest",
     "IlluminaHumanMethylationEPICmanifest",
-    "IlluminaHumanMethylationEPICv2manifest",
     "IlluminaHumanMethylation450kanno.ilmn12.hg19",
     "IlluminaHumanMethylationEPICanno.ilm10b4.hg19",
+]
+EPICV2_R_PACKAGES = [
+    "IlluminaHumanMethylationEPICv2manifest",
     "IlluminaHumanMethylationEPICv2anno.20a1.hg38",
 ]
 OPTIONAL_R_PACKAGES = [
     "FlowSorted.Blood.EPIC",
     "FlowSorted.Blood.450k",
     "wateRmelon",
+    "methylclock",
+    "methylclockData",
+    "planet",
 ]
 def add_conda_paths(env: dict) -> dict:
     """Ensure LD_LIBRARY_PATH/PKG_CONFIG_PATH/PATH include conda libs so xml2/xml load correctly."""
+    use_conda_libs = (env.get("ILLUMETA_USE_CONDA_LIBS") == "1") or (
+        os.environ.get("ILLUMETA_USE_CONDA_LIBS") == "1"
+    )
+    if not use_conda_libs:
+        return env
     prefix = env.get("CONDA_PREFIX") or os.environ.get("CONDA_PREFIX")
     if not prefix or not os.path.isdir(prefix):
         return env
@@ -151,6 +166,9 @@ def ensure_r_lib_env(env):
     if existing and existing != DEFAULT_R_LIB and not respect_existing:
         log(f"[*] Overriding R_LIBS_USER={existing} -> {DEFAULT_R_LIB} (set ILLUMETA_RESPECT_R_LIBS_USER=1 to keep)")
 
+    if BASE_DIR.startswith("/Volumes/") and DEFAULT_R_LIB != os.path.join(BASE_DIR, ".r-lib") and not respect_existing:
+        log(f"[*] Project is on external volume; using local R library at {DEFAULT_R_LIB} (set ILLUMETA_ALLOW_EXTERNAL_LIB=1 to use .r-lib)")
+
     env["R_LIBS_USER"] = DEFAULT_R_LIB
     if not os.path.exists(DEFAULT_R_LIB):
         os.makedirs(DEFAULT_R_LIB, exist_ok=True)
@@ -162,19 +180,30 @@ def ensure_r_dependencies():
     env = ensure_r_lib_env(os.environ.copy())
     env = add_conda_paths(env)
     force_setup = os.environ.get("ILLUMETA_FORCE_SETUP") == "1"
+    require_epicv2 = os.environ.get("ILLUMETA_REQUIRE_EPICV2") == "1"
     marker_ok = False
+    marker_epicv2_required = None
     if os.path.exists(SETUP_MARKER):
         try:
             with open(SETUP_MARKER) as f:
                 content = f.read()
-            marker_ok = "epicv2_required=1" in content
+            for line in content.splitlines():
+                if line.startswith("epicv2_required="):
+                    marker_epicv2_required = line.split("=", 1)[1].strip() == "1"
+            if marker_epicv2_required is None:
+                marker_epicv2_required = False
+            marker_ok = marker_epicv2_required == require_epicv2
         except Exception:
             marker_ok = False
-    missing_core = missing_r_packages(CORE_R_PACKAGES) if marker_ok else []
-    missing_optional = missing_r_packages(OPTIONAL_R_PACKAGES) if marker_ok else []
+    core_pkgs = CORE_R_PACKAGES + (EPICV2_R_PACKAGES if require_epicv2 else [])
+    optional_pkgs = OPTIONAL_R_PACKAGES + ([] if require_epicv2 else EPICV2_R_PACKAGES)
+    missing_core = missing_r_packages(core_pkgs) if marker_ok else []
+    missing_optional = missing_r_packages(optional_pkgs) if marker_ok else []
     if marker_ok and not force_setup and not missing_core:
         if missing_optional:
             log(f"[*] Optional R packages missing (analysis will skip related features): {', '.join(missing_optional)}")
+            if any(pkg in EPICV2_R_PACKAGES for pkg in missing_optional):
+                log("[*] EPIC v2 support is not installed. Use R 4.4+ and set ILLUMETA_REQUIRE_EPICV2=1 to require it.")
         log("[*] R dependencies already set up (skipping). Set ILLUMETA_FORCE_SETUP=1 to force reinstall.")
         return
     if marker_ok and missing_core and not force_setup:
@@ -185,10 +214,12 @@ def ensure_r_dependencies():
         subprocess.run(["Rscript", SETUP_SCRIPT], check=True, env=env)
         with open(SETUP_MARKER, "w") as f:
             f.write(f"setup completed at {datetime.now().isoformat()}\n")
-            f.write("epicv2_required=1\n")
-        missing_optional_after = missing_r_packages(OPTIONAL_R_PACKAGES)
+            f.write(f"epicv2_required={1 if require_epicv2 else 0}\n")
+        missing_optional_after = missing_r_packages(optional_pkgs)
         if missing_optional_after:
             log(f"[*] Optional R packages missing (features will be skipped): {', '.join(missing_optional_after)}")
+            if any(pkg in EPICV2_R_PACKAGES for pkg in missing_optional_after):
+                log("[*] EPIC v2 support is not installed. Use R 4.4+ and set ILLUMETA_REQUIRE_EPICV2=1 to require it.")
     except subprocess.CalledProcessError as e:
         log_err(f"[!] Error while installing R dependencies: {e}")
         log_err("    Hint: If you see 'library path not writable', set a user library first:")
@@ -211,8 +242,11 @@ def run_doctor(args):
     env = add_conda_paths(env)
 
     log("[*] Checking required R packages...")
-    missing_core = missing_r_packages(CORE_R_PACKAGES)
-    missing_optional = missing_r_packages(OPTIONAL_R_PACKAGES)
+    require_epicv2 = os.environ.get("ILLUMETA_REQUIRE_EPICV2") == "1"
+    core_pkgs = CORE_R_PACKAGES + (EPICV2_R_PACKAGES if require_epicv2 else [])
+    optional_pkgs = OPTIONAL_R_PACKAGES + ([] if require_epicv2 else EPICV2_R_PACKAGES)
+    missing_core = missing_r_packages(core_pkgs)
+    missing_optional = missing_r_packages(optional_pkgs)
 
     if missing_core:
         log_err("[!] Missing required R packages:")
@@ -224,6 +258,8 @@ def run_doctor(args):
     log("[*] Core R packages: OK")
     if missing_optional:
         log("[*] Optional R packages missing (features will be skipped): " + ", ".join(missing_optional))
+        if any(pkg in EPICV2_R_PACKAGES for pkg in missing_optional):
+            log("[*] EPIC v2 support is not installed. Use R 4.4+ and set ILLUMETA_REQUIRE_EPICV2=1 to require it.")
     else:
         log("[*] Optional R packages: OK")
 

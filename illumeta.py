@@ -12,17 +12,50 @@ __version__ = "1.0.0"
 # Configuration for R script paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-def default_r_lib(base_dir: str) -> str:
-    allow_external = os.environ.get("ILLUMETA_ALLOW_EXTERNAL_LIB") == "1"
+def detect_r_major_minor(env=None):
+    override = (env or {}).get("ILLUMETA_R_LIB_VERSION") or os.environ.get("ILLUMETA_R_LIB_VERSION")
+    if override:
+        return override
+    cmd = [
+        "Rscript",
+        "-e",
+        "cat(paste0(R.version$major, '.', sub('\\\\..*', '', R.version$minor)))",
+    ]
+    try:
+        res = subprocess.run(
+            cmd,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+    except FileNotFoundError:
+        return None
+    if res.returncode != 0:
+        return None
+    version = res.stdout.strip()
+    return version or None
+
+def default_r_lib_base(base_dir: str, env=None) -> str:
+    allow_external = (env or {}).get("ILLUMETA_ALLOW_EXTERNAL_LIB") == "1" or (
+        os.environ.get("ILLUMETA_ALLOW_EXTERNAL_LIB") == "1"
+    )
     if sys.platform == "darwin" and base_dir.startswith("/Volumes/") and not allow_external:
         return os.path.join(os.path.expanduser("~"), ".illumeta", "r-lib")
     return os.path.join(base_dir, ".r-lib")
+
+def default_r_lib(base_dir: str, env=None) -> str:
+    lib_root = default_r_lib_base(base_dir, env)
+    r_version = detect_r_major_minor(env)
+    if r_version:
+        return os.path.join(lib_root, f"R-{r_version}")
+    return lib_root
 R_SCRIPTS_DIR = os.path.join(BASE_DIR, "r_scripts")
 DOWNLOAD_SCRIPT = os.path.join(R_SCRIPTS_DIR, "download.R")
 ANALYZE_SCRIPT = os.path.join(R_SCRIPTS_DIR, "analyze.R")
 SETUP_MARKER = os.path.join(BASE_DIR, ".r_setup_done")
 SETUP_SCRIPT = os.path.join(R_SCRIPTS_DIR, "setup_env.R")
-DEFAULT_R_LIB = default_r_lib(BASE_DIR)
 DEFAULT_CONDA_PREFIX = os.environ.get("CONDA_PREFIX")
 CORE_R_PACKAGES = [
     "xml2",
@@ -163,16 +196,18 @@ def ensure_r_lib_env(env):
     if respect_existing and existing:
         return env
 
-    if existing and existing != DEFAULT_R_LIB and not respect_existing:
-        log(f"[*] Overriding R_LIBS_USER={existing} -> {DEFAULT_R_LIB} (set ILLUMETA_RESPECT_R_LIBS_USER=1 to keep)")
+    default_lib_root = default_r_lib_base(BASE_DIR, env)
+    default_lib = default_r_lib(BASE_DIR, env)
+    if existing and existing != default_lib and not respect_existing:
+        log(f"[*] Overriding R_LIBS_USER={existing} -> {default_lib} (set ILLUMETA_RESPECT_R_LIBS_USER=1 to keep)")
 
-    if BASE_DIR.startswith("/Volumes/") and DEFAULT_R_LIB != os.path.join(BASE_DIR, ".r-lib") and not respect_existing:
-        log(f"[*] Project is on external volume; using local R library at {DEFAULT_R_LIB} (set ILLUMETA_ALLOW_EXTERNAL_LIB=1 to use .r-lib)")
+    if BASE_DIR.startswith("/Volumes/") and default_lib_root != os.path.join(BASE_DIR, ".r-lib") and not respect_existing:
+        log(f"[*] Project is on external volume; using local R library at {default_lib} (set ILLUMETA_ALLOW_EXTERNAL_LIB=1 to use .r-lib)")
 
-    env["R_LIBS_USER"] = DEFAULT_R_LIB
-    if not os.path.exists(DEFAULT_R_LIB):
-        os.makedirs(DEFAULT_R_LIB, exist_ok=True)
-        log(f"[*] Created default R library at {DEFAULT_R_LIB}")
+    env["R_LIBS_USER"] = default_lib
+    if not os.path.exists(default_lib):
+        os.makedirs(default_lib, exist_ok=True)
+        log(f"[*] Created default R library at {default_lib}")
     return env
 
 def ensure_r_dependencies():

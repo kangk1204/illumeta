@@ -4,31 +4,36 @@ rp <- function(x) {
     tryCatch(normalizePath(x, winslash = "/", mustWork = FALSE), error = function(e) x)
 }
 
+r_version <- getRversion()
+r_major_minor <- paste0(R.version$major, ".", sub("\\..*$", "", R.version$minor))
+
 respect_existing <- Sys.getenv("ILLUMETA_RESPECT_R_LIBS_USER", unset = "") == "1"
 allow_external_lib <- Sys.getenv("ILLUMETA_ALLOW_EXTERNAL_LIB", unset = "") == "1"
 existing_lib <- Sys.getenv("R_LIBS_USER")
-lib_dir <- file.path(getwd(), ".r-lib")
+lib_root <- file.path(getwd(), ".r-lib")
 if (!respect_existing) {
     is_macos <- Sys.info()[["sysname"]] == "Darwin"
     proj_path <- rp(getwd())
     project_on_external <- is_macos && grepl("^/Volumes/", proj_path)
     if (project_on_external && !allow_external_lib) {
-        lib_dir <- file.path(Sys.getenv("HOME"), ".illumeta", "r-lib")
-        message(paste("Project is on external volume; using local R library:", lib_dir,
+        lib_root <- file.path(Sys.getenv("HOME"), ".illumeta", "r-lib")
+        message(paste("Project is on external volume; using local R library:", lib_root,
                       "(set ILLUMETA_ALLOW_EXTERNAL_LIB=1 to use .r-lib)"))
     }
 }
 if (respect_existing && nzchar(existing_lib)) {
     lib_dir <- existing_lib
 } else {
+    lib_dir <- file.path(lib_root, paste0("R-", r_major_minor))
     if (nzchar(existing_lib) && existing_lib != lib_dir && !respect_existing) {
-        message(paste("Overriding R_LIBS_USER:", existing_lib, "->", lib_dir, "(set ILLUMETA_RESPECT_R_LIBS_USER=1 to keep)"))
+        message(paste("Overriding R_LIBS_USER:", existing_lib, "->", lib_dir,
+                      "(set ILLUMETA_RESPECT_R_LIBS_USER=1 to keep)"))
     }
     Sys.setenv(R_LIBS_USER = lib_dir)
 }
 if (!dir.exists(lib_dir)) {
     dir.create(lib_dir, recursive = TRUE, showWarnings = FALSE)
-    message(paste("Created project library directory:", lib_dir))
+    message(paste("Created R library directory:", lib_dir))
 }
 base_libs <- unique(c(.Library, .Library.site))
 .libPaths(unique(c(lib_dir, base_libs)))
@@ -40,7 +45,6 @@ options(repos = c(CRAN = cran_repo))
 require_epicv2 <- Sys.getenv("ILLUMETA_REQUIRE_EPICV2", unset = "") == "1"
 install_devtools <- Sys.getenv("ILLUMETA_INSTALL_DEVTOOLS", unset = "") == "1"
 install_clocks <- Sys.getenv("ILLUMETA_INSTALL_CLOCKS", unset = "") == "1"
-r_version <- getRversion()
 
 # Warn early if a conda toolchain is forced while R is NOT from conda.
 # This mismatch is a common cause of "C compiler cannot create executables" and link errors.
@@ -241,7 +245,15 @@ ensure_bioc_version <- function() {
     if (!nzchar(current) || current != target) {
         message(paste("Setting Bioconductor version to", target, "for R", as.character(r_version)))
         tryCatch({
-            BiocManager::install(version = target, ask = FALSE, update = FALSE)
+            need_force <- FALSE
+            if (nzchar(current)) {
+                need_force <- tryCatch(package_version(current) > package_version(target), error = function(e) FALSE)
+            }
+            install_args <- list(version = target, ask = FALSE, update = FALSE)
+            if (need_force && "force" %in% names(formals(BiocManager::install))) {
+                install_args$force <- TRUE
+            }
+            do.call(BiocManager::install, install_args)
         }, error = function(e) {
             message("Warning: Failed to set Bioconductor version automatically.")
             message("  Detail: ", conditionMessage(e))

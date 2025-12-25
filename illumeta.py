@@ -515,42 +515,65 @@ def generate_dashboard(output_dir, group_test, group_con):
         keys = ["n_con", "n_test", "minfi_up", "minfi_down", "sesame_up", "sesame_down", "intersect_up", "intersect_down"]
         stats = {k: 0 for k in keys}
 
-    # Define files always shown for all pipelines (or for Intersection)
-    common_files_map = [
-        ("_Volcano.html", "Volcano Plot", "Visualizes significant changes (LogFC vs P-value)."),
-        ("_Manhattan.html", "Manhattan Plot", "Genomic distribution of methylation changes."),
-        ("_Top100_Heatmap.html", "Heatmap (Top 100)", "Clustering of the top 100 most significant CpGs."),
-        ("_Top_DMPs.html", "Top DMPs Table", "Searchable table of differentially methylated probes (sorted by P.Value)."),
-        ("_Consensus_DMPs.html", "Consensus DMPs Table", "CpGs significant in both Minfi and Sesame (same direction)."),
-        ("_Consensus_DMPs.csv", "Consensus DMPs CSV", "Consensus DMP list (CSV)."),
-        ("_LogFC_Concordance.html", "Pipeline Concordance", "Minfi vs Sesame logFC concordance (consensus highlighted)."),
-        ("_Significant_Overlap.html", "Pipeline Overlap", "Significant DMP counts and overlap between Minfi and Sesame."),
-        ("_DMR_Volcano.html", "DMR Volcano Plot", "Visualizes significant DMRs (Est. Diff vs P-value)."),
-        ("_DMR_Manhattan.html", "DMR Manhattan Plot", "Genomic distribution of DMRs."),
-        ("_Top_DMRs_Heatmap.html", "DMR Heatmap (Top 50)", "Average methylation levels of top 50 DMRs."),
-        ("_DMRs_Table.html", "DMRs Table", "Searchable table of differentially methylated regions."),
-        ("_PVCA.html", "PVCA (Raw)", "Variance explained by group/batch/covariates before correction."),
-        ("_AfterCorrection_PVCA.html", "PVCA (Corrected)", "Variance explained after batch correction/SVA."),
-        ("_Epigenetic_Age.html", "Epigenetic Age (wateRmelon)", "Horvath/Hannum/PhenoAge vs chronological age (if provided)."),
-        ("_Epigenetic_Age_methylclock.html", "Epigenetic Age (methylclock)", "Horvath/Hannum/PhenoAge/SkinBlood vs chronological age."),
-        ("_Epigenetic_Age_methylclock.csv", "Epigenetic Age Table", "DNAm clock predictions (methylclock)."),
-        ("_Placental_Age_planet.csv", "Placental Age (planet)", "RPC/CPC Gestational Age predictions (Placenta only).")
+    intersection_sections = [
+        ("Consensus Highlights", [
+            ("_Consensus_DMPs.html", "Consensus DMPs Table", "CpGs significant in both pipelines with consistent direction.", "TABLE"),
+            ("_Consensus_DMPs.csv", "Consensus DMPs CSV", "Consensus DMP list (CSV).", "CSV"),
+        ]),
+        ("Agreement Checks", [
+            ("_LogFC_Concordance.html", "Pipeline Concordance", "Minfi vs Sesame logFC concordance.", "PLOT"),
+            ("_Significant_Overlap.html", "Pipeline Overlap", "Significant DMP counts and overlap.", "PLOT"),
+        ]),
+        ("Visual Summary", [
+            ("_Volcano.html", "Volcano Plot", "Visualizes significant changes (LogFC vs P-value).", "PLOT"),
+            ("_Manhattan.html", "Manhattan Plot", "Genomic distribution of methylation changes.", "PLOT"),
+            ("_Top100_Heatmap.html", "Heatmap (Top 100)", "Clustering of the top 100 most significant CpGs.", "PLOT"),
+        ]),
     ]
 
-    # Define additional files for Minfi/Sesame (full pipeline)
-    full_pipeline_files_map = common_files_map + [
-        ("_PCA_Before.html", "PCA (Raw)", "Principal Component Analysis before batch correction."),
-        ("_PCA_After_Correction.html", "PCA (Corrected)", "PCA after removing detected batch effects."),
-        ("_Sample_Clustering_Distance.html", "Sample Clustering", "Euclidean distance matrix of samples."),
-        ("_QQPlot.html", "Q-Q Plot", "Check for genomic inflation and systematic bias."),
-        ("_Batch_Method_Comparison.html", "Correction Method", "Comparison of batch residual vs group signal for each method."),
-        ("_BatchMethodComparison.csv", "Correction Method (CSV)", "Batch correction scoring table (CSV)."),
-        ("_Batch_Evaluation_Before.html", "Batch Eval (Before)", "Covariate association with PCs (Raw)."),
-        ("_Batch_Evaluation_After.html", "Batch Eval (After)", "Covariate association with PCs (Corrected)."),
-        ("_AutoCovariates.csv", "Auto Covariates (CSV)", "Auto-selected covariate candidates with PC association P-values."),
-        ("_DroppedCovariates.csv", "Dropped Covariates (CSV)", "Covariates removed due to confounding/instability."),
-        ("_configure_with_clocks.tsv", "Clock-Merged Config (TSV)", "Config with clock covariates merged (if enabled).")
+    pipeline_sections_base = [
+        ("Primary Results", [
+            ("_Volcano.html", "Volcano Plot", "Visualizes significant changes (LogFC vs P-value).", "PLOT"),
+            ("_Manhattan.html", "Manhattan Plot", "Genomic distribution of methylation changes.", "PLOT"),
+            ("_Top100_Heatmap.html", "Heatmap (Top 100)", "Clustering of the top 100 most significant CpGs.", "PLOT"),
+            ("_Top_DMPs.html", "Top DMPs Table", "Searchable table of differentially methylated probes.", "TABLE"),
+        ]),
+        ("Region-Level Results", [
+            ("_DMR_Volcano.html", "DMR Volcano Plot", "Visualizes significant DMRs (Est. Diff vs P-value).", "PLOT"),
+            ("_DMR_Manhattan.html", "DMR Manhattan Plot", "Genomic distribution of DMRs.", "PLOT"),
+            ("_Top_DMRs_Heatmap.html", "DMR Heatmap (Top 50)", "Average methylation levels of top 50 DMRs.", "PLOT"),
+            ("_DMRs_Table.html", "DMRs Table", "Searchable table of differentially methylated regions.", "TABLE"),
+        ]),
+        ("Quality & Diagnostics", [
+            ("_PCA_Before.html", "PCA (Raw)", "Principal Component Analysis before correction.", "PLOT"),
+            ("_PCA_After_Correction.html", "PCA (Corrected)", "PCA after removing detected batch effects.", "PLOT"),
+            ("_Sample_Clustering_Distance.html", "Sample Clustering", "Euclidean distance matrix of samples.", "PLOT"),
+            ("_QQPlot.html", "Q-Q Plot", "Check for genomic inflation and systematic bias.", "PLOT"),
+            ("_PVCA.html", "PVCA (Raw)", "Variance explained by group/batch/covariates.", "PLOT"),
+            ("_AfterCorrection_PVCA.html", "PVCA (Corrected)", "Variance explained after correction.", "PLOT"),
+        ]),
+        ("Batch & Covariates", [
+            ("_Batch_Method_Comparison.html", "Correction Method", "Batch residual vs group signal by method.", "PLOT"),
+            ("_BatchMethodComparison.csv", "Correction Method (CSV)", "Batch correction scoring table (CSV).", "CSV"),
+            ("_Batch_Evaluation_Before.html", "Batch Eval (Before)", "Covariate association with PCs (Raw).", "PLOT"),
+            ("_Batch_Evaluation_After.html", "Batch Eval (After)", "Covariate association with PCs (Corrected).", "PLOT"),
+            ("_AutoCovariates.csv", "Auto Covariates (CSV)", "Auto-selected covariate candidates with PC association P-values.", "CSV"),
+            ("_DroppedCovariates.csv", "Dropped Covariates (CSV)", "Covariates removed due to confounding/instability.", "CSV"),
+            ("_configure_with_clocks.tsv", "Clock-Merged Config (TSV)", "Config with clock covariates merged (if enabled).", "TSV"),
+        ]),
+        ("Clocks & Age", [
+            ("_Epigenetic_Age_methylclock.html", "Epigenetic Age (methylclock)", "Clock vs chronological age (if provided).", "PLOT"),
+            ("_Epigenetic_Age_methylclock.csv", "Epigenetic Age Table", "DNAm clock predictions (methylclock).", "CSV"),
+            ("_Placental_Age_planet_scatter.html", "Placental Age Scatter", "RPC vs CPC gestational age (Placenta).", "PLOT"),
+            ("_Placental_Age_planet.csv", "Placental Age (planet)", "RPC/CPC gestational age predictions (Placenta).", "CSV"),
+        ]),
     ]
+
+    pipeline_sections = {
+        "Intersection": intersection_sections,
+        "Minfi": pipeline_sections_base,
+        "Sesame": pipeline_sections_base,
+    }
     
     def load_metrics(pipe_name):
         path = os.path.join(output_dir, f"{pipe_name}_Metrics.csv")
@@ -602,6 +625,13 @@ def generate_dashboard(output_dir, group_test, group_con):
                 pass
         return reasons
 
+    def pill_link(filename, label):
+        fpath = os.path.join(output_dir, filename)
+        if os.path.exists(fpath):
+            rel_path = f"{results_folder_name}/{filename}"
+            return f'<a class="pill" href="{rel_path}" target="_blank">{label}</a>'
+        return f'<span class="pill muted">{label}</span>'
+
     # Calculated values for Summary
     n_con = safe_int(stats.get('n_con'))
     n_test = safe_int(stats.get('n_test'))
@@ -623,51 +653,224 @@ def generate_dashboard(output_dir, group_test, group_con):
 
     # CSS Style Block (Using format to avoid curly brace hell)
     style_block = """
-        :root { --primary: #2c3e50; --secondary: #34495e; --accent: #3498db; --bg: #f4f7f6; --text: #333; --success: #27ae60; --danger: #e74c3c; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; background-color: var(--bg); color: var(--text); }
-        header { background-color: var(--primary); color: white; padding: 2rem; text-align: center; }
-        header h1 { margin: 0; font-size: 2rem; }
-        header p { margin: 0.5rem 0 0; opacity: 0.8; }
-        
-        .nav-tabs { display: flex; justify-content: center; background: white; padding: 1rem 0; box-shadow: 0 2px 5px rgba(0,0,0,0.05); position: sticky; top: 0; z-index: 100; }
-        .nav-tab { padding: 0.8rem 2rem; cursor: pointer; font-weight: 600; color: var(--secondary); border-bottom: 3px solid transparent; transition: all 0.3s; margin: 0 0.5rem; }
-        .nav-tab:hover { background-color: #f0f0f0; border-radius: 5px 5px 0 0; }
-        .nav-tab.active { border-bottom: 3px solid var(--accent); color: var(--accent); }
-        
-        .container { max-width: 1200px; margin: 2rem auto; padding: 0 20px; }
-        
-        /* Summary Section */
-        .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px; }
-        .stat-card { background: white; padding: 1.5rem; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); text-align: center; border-top: 4px solid var(--secondary); }
-        .stat-card.highlight { border-top: 4px solid var(--success); transform: scale(1.02); }
-        .stat-title { font-size: 0.9rem; color: #777; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
-        .stat-value { font-size: 2rem; font-weight: bold; color: var(--primary); }
-        .stat-sub { font-size: 0.9rem; margin-top: 5px; }
-        .up { color: var(--danger); } .down { color: var(--accent); } 
-        .section-title { font-size: 1.1rem; font-weight: 700; color: var(--secondary); margin: 1.5rem 0 0.8rem; }
-        .section-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin-bottom: 25px; }
-        
-        .tab-content { display: none; animation: fadeIn 0.5s; }
+        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+        :root {
+            --ink: #1d2628;
+            --primary: #2f6b64;
+            --accent: #2f7a7b;
+            --accent-2: #f2b45d;
+            --rose: #e07a5f;
+            --bg: #f6f1e8;
+            --card: #ffffff;
+            --line: #e4ddd2;
+            --muted: #6f7a76;
+            --shadow: 0 12px 30px rgba(27, 38, 40, 0.12);
+        }
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: "Manrope", "IBM Plex Sans", "Helvetica Neue", sans-serif;
+            margin: 0;
+            color: var(--ink);
+            background-color: var(--bg);
+            background-image:
+                radial-gradient(circle at 10% 10%, rgba(242, 180, 93, 0.12), transparent 45%),
+                radial-gradient(circle at 90% 20%, rgba(47, 122, 123, 0.12), transparent 40%),
+                radial-gradient(circle at 50% 85%, rgba(224, 122, 95, 0.08), transparent 45%);
+        }
+        h1, h2, h3 { font-family: "Space Grotesk", "Manrope", sans-serif; margin: 0; }
+        header {
+            background: linear-gradient(120deg, #1f3f3c, #2f6b64 55%, #3d8b7d);
+            color: #f7f5f0;
+            padding: 3.2rem 1.5rem 3.5rem;
+        }
+        .hero {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: minmax(260px, 1.2fr) minmax(240px, 0.8fr);
+            gap: 28px;
+            align-items: center;
+        }
+        .hero-eyebrow {
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.2em;
+            color: rgba(247, 245, 240, 0.65);
+        }
+        .hero-title { font-size: clamp(2rem, 2.8vw, 2.8rem); margin-top: 0.5rem; }
+        .hero-sub { margin-top: 0.6rem; font-size: 1rem; opacity: 0.85; }
+        .hero-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1.2rem; }
+        .tag {
+            background: rgba(255, 255, 255, 0.12);
+            padding: 0.35rem 0.75rem;
+            border-radius: 999px;
+            font-size: 0.85rem;
+        }
+        .hero-grid { display: grid; gap: 12px; }
+        .hero-card {
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 14px;
+            padding: 1rem 1.2rem;
+            backdrop-filter: blur(8px);
+        }
+        .hero-card-title { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.12em; opacity: 0.7; }
+        .hero-card-value { font-size: 1.8rem; font-weight: 700; margin-top: 0.3rem; }
+        .hero-card-sub { font-size: 0.9rem; opacity: 0.8; margin-top: 0.4rem; }
+
+        .container { max-width: 1200px; margin: -2.2rem auto 3rem; padding: 0 20px 2rem; }
+        .jump-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            padding: 0.75rem 1rem;
+            border-radius: 14px;
+            background: var(--card);
+            box-shadow: var(--shadow);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .jump-bar a {
+            text-decoration: none;
+            color: var(--ink);
+            font-weight: 600;
+            font-size: 0.9rem;
+            padding: 0.35rem 0.75rem;
+            border-radius: 999px;
+            background: #f2eee6;
+        }
+        .jump-bar a:hover { background: #e7dfd2; }
+
+        .section-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin: 2.2rem 0 0.8rem;
+        }
+        .tab-content .section-title {
+            font-size: 1.05rem;
+            color: var(--ink);
+            margin-top: 1.6rem;
+        }
+        .section-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; margin-bottom: 20px; }
+        .callout {
+            background: #fdf9f2;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 1rem 1.2rem;
+            color: var(--muted);
+            box-shadow: 0 8px 22px rgba(27, 38, 40, 0.06);
+        }
+        .callout strong { color: var(--ink); }
+
+        .step-card {
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            padding: 1.2rem 1.4rem;
+            box-shadow: var(--shadow);
+        }
+        .step-card h3 { margin-bottom: 0.4rem; }
+        .step-label {
+            font-size: 0.75rem;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: var(--accent);
+            margin-bottom: 0.4rem;
+        }
+        .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 0.8rem; }
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 0.35rem 0.7rem;
+            border-radius: 999px;
+            background: #eef4f2;
+            color: var(--primary);
+            text-decoration: none;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .pill.muted { background: #f1f0ed; color: #9aa4a1; }
+
+        .nav-tabs { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 1.5rem; }
+        .nav-tab {
+            padding: 0.6rem 1.4rem;
+            cursor: pointer;
+            font-weight: 700;
+            color: var(--primary);
+            border-radius: 999px;
+            background: #eef4f2;
+            transition: all 0.2s ease;
+        }
+        .nav-tab.active { background: var(--accent); color: #fff; }
+        .nav-tab:hover { transform: translateY(-2px); }
+
+        .tab-shell { margin-top: 1.2rem; }
+        .tab-content { display: none; animation: riseIn 0.5s ease; }
         .tab-content.active { display: block; }
-        
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 25px; }
-        .card { background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); overflow: hidden; transition: transform 0.2s, box-shadow 0.2s; display: flex; flex-direction: column; }
-        .card:hover { transform: translateY(-5px); box-shadow: 0 8px 25px rgba(0,0,0,0.1); }
-        .card-header { background: var(--primary); color: white; padding: 1rem; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
-        .card-badge { font-size: 0.7rem; background: rgba(255,255,255,0.2); padding: 2px 8px; border-radius: 10px; }
-        .card-body { padding: 1.5rem; flex-grow: 1; }
-        .card-desc { font-size: 0.9rem; color: #666; line-height: 1.5; margin-bottom: 1.5rem; }
-        .btn { display: block; width: 100%; padding: 10px 0; background-color: var(--accent); color: white; text-align: center; text-decoration: none; border-radius: 6px; font-weight: 600; transition: background 0.2s; }
-        .btn:hover { background-color: #2980b9; }
-        
-        .empty-msg { text-align: center; padding: 3rem; color: #999; font-style: italic; }
-        
-        .metrics-card { background: #fdfdfd; border: 1px solid #eee; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
-        .metrics-title { font-weight: 700; margin-bottom: 0.5rem; color: var(--secondary); }
-        .metrics-row { display: flex; justify-content: space-between; font-size: 0.95rem; padding: 4px 0; border-bottom: 1px dashed #eee; }
+
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px; }
+        .card {
+            background: var(--card);
+            border-radius: 16px;
+            border: 1px solid var(--line);
+            box-shadow: 0 10px 22px rgba(27, 38, 40, 0.08);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            animation: riseIn 0.55s ease both;
+            animation-delay: calc(var(--i, 1) * 40ms);
+        }
+        .card-header {
+            padding: 0.9rem 1rem;
+            font-weight: 700;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f7f2ea;
+        }
+        .card-badge {
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+        }
+        .badge-plot { background: rgba(47, 122, 123, 0.15); color: var(--accent); }
+        .badge-table { background: rgba(242, 180, 93, 0.2); color: #a86814; }
+        .badge-csv, .badge-tsv { background: rgba(224, 122, 95, 0.2); color: #b05643; }
+        .badge-doc { background: rgba(31, 63, 60, 0.15); color: #1f3f3c; }
+        .card-body { padding: 1.2rem 1.2rem 1.4rem; flex-grow: 1; }
+        .card-desc { font-size: 0.9rem; color: var(--muted); line-height: 1.5; margin-bottom: 1.2rem; }
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            padding: 0.65rem 0;
+            background: var(--accent);
+            color: #fff;
+            text-decoration: none;
+            border-radius: 10px;
+            font-weight: 700;
+            transition: all 0.2s ease;
+        }
+        .btn:hover { background: #256a6b; transform: translateY(-1px); }
+
+        .empty-msg { text-align: center; padding: 2rem; color: var(--muted); font-style: italic; }
+        .metrics-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 1rem 1.2rem; box-shadow: 0 8px 18px rgba(27, 38, 40, 0.06); }
+        .metrics-title { font-weight: 700; margin-bottom: 0.6rem; color: var(--primary); }
+        .metrics-row { display: flex; justify-content: space-between; gap: 12px; font-size: 0.95rem; padding: 6px 0; border-bottom: 1px dashed #eee4d8; }
         .metrics-row:last-child { border-bottom: none; }
 
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes riseIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+        @media (max-width: 900px) {
+            header { padding: 2.6rem 1.4rem 3rem; }
+            .hero { grid-template-columns: 1fr; }
+            .container { margin-top: -1.6rem; }
+        }
     """
 
     # Construct HTML using lists and joins to be cleaner
@@ -685,45 +888,69 @@ def generate_dashboard(output_dir, group_test, group_con):
 <body>
 
 <header>
-    <h1>Analysis Dashboard</h1>
-    <p>Comparison: <strong>{group_test}</strong> (Test) vs <strong>{group_con}</strong> (Control)</p>
+    <div class="hero">
+        <div>
+            <div class="hero-eyebrow">IlluMeta Analysis</div>
+            <h1 class="hero-title">Analysis Dashboard</h1>
+            <p class="hero-sub">Comparison: <strong>{group_test}</strong> (Test) vs <strong>{group_con}</strong> (Control)</p>
+            <div class="hero-tags">
+                <span class="tag">Samples: {total_samples}</span>
+                <span class="tag">Consensus DMPs: {intersect_total}</span>
+                <span class="tag">Minfi: {minfi_total} / Sesame: {sesame_total}</span>
+            </div>
+        </div>
+        <div class="hero-grid">
+            <div class="hero-card">
+                <div class="hero-card-title">Samples</div>
+                <div class="hero-card-value">{total_samples}</div>
+                <div class="hero-card-sub">Control {n_con} / Test {n_test}</div>
+            </div>
+            <div class="hero-card">
+                <div class="hero-card-title">Consensus DMPs</div>
+                <div class="hero-card-value">{intersect_total}</div>
+                <div class="hero-card-sub">Up {intersect_up} / Down {intersect_down}</div>
+            </div>
+            <div class="hero-card">
+                <div class="hero-card-title">Pipeline DMPs</div>
+                <div class="hero-card-value">{minfi_total} | {sesame_total}</div>
+                <div class="hero-card-sub">Minfi ▲ {minfi_up} ▼ {minfi_down} · Sesame ▲ {sesame_up} ▼ {sesame_down}</div>
+            </div>
+        </div>
+    </div>
 </header>
 
-<div class="nav-tabs" id="navTabs">
-    <div class="nav-tab active" onclick="switchTab('Intersection')">Intersection (Consensus)</div>
-    <div class="nav-tab" onclick="switchTab('Minfi')">Minfi (Noob)</div>
-    <div class="nav-tab" onclick="switchTab('Sesame')">Sesame</div>
-</div>
-
 <div class="container">
-
-    <!-- Summary Statistics -->
-    <div class="summary-grid">
-        <div class="stat-card">
-            <div class="stat-title">Samples</div>
-            <div class="stat-value">{total_samples}</div>
-            <div class="stat-sub">Con: {n_con}, Test: {n_test}</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-title">Minfi DMPs</div>
-            <div class="stat-value">{minfi_total}</div>
-            <div class="stat-sub"><span class="up">▲ {minfi_up}</span> <span class="down">▼ {minfi_down}</span></div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-title">Sesame DMPs</div>
-            <div class="stat-value">{sesame_total}</div>
-            <div class="stat-sub"><span class="up">▲ {sesame_up}</span> <span class="down">▼ {sesame_down}</span></div>
-        </div>
-        <div class="stat-card highlight">
-            <div class="stat-title">Intersection DMPs</div>
-            <div class="stat-value">{intersect_total}</div>
-            <div class="stat-sub"><span class="up">▲ {intersect_up}</span> <span class="down">▼ {intersect_down}</span></div>
-        </div>
+    <div class="jump-bar">
+        <a href="#start">Start Here</a>
+        <a href="#controls">Run Controls & QC</a>
+        <a href="#docs">Run Documentation</a>
+        <a href="#pipelines">Results</a>
     </div>
 """)
 
+    guide_steps = [
+        ("Step 1", "Check sample quality", "Verify QC pass/fail and signal quality before interpreting results.",
+         [("QC_Summary.csv", "QC Summary"), ("Sample_QC_DetectionP_FailFraction.html", "Detection P"), ("Sample_QC_Intensity_Medians.html", "Intensity")]),
+        ("Step 2", "Review consensus signals", "Use the intersection set for the most conservative findings.",
+         [("Intersection_Consensus_DMPs.html", "Consensus DMPs"), ("Intersection_LogFC_Concordance.html", "Concordance"), ("Intersection_Significant_Overlap.html", "Overlap")]),
+        ("Step 3", "Dive into pipelines", "Explore Minfi and Sesame for method-specific depth.",
+         [("Minfi_Volcano.html", "Minfi Volcano"), ("Sesame_Volcano.html", "Sesame Volcano"), ("Minfi_DMRs_Table.html", "Minfi DMRs")]),
+    ]
+    html_parts.append('<div id="start" class="section-title">Beginner Path</div>')
+    html_parts.append('<div class="section-grid">')
+    for idx, (label, title, desc, links) in enumerate(guide_steps, start=1):
+        link_html = " ".join([pill_link(fname, lbl) for fname, lbl in links])
+        html_parts.append(f'''<div class="step-card" style="--i:{idx};">
+            <div class="step-label">{label}</div>
+            <h3>{title}</h3>
+            <p class="card-desc">{desc}</p>
+            <div class="pill-row">{link_html}</div>
+        </div>''')
+    html_parts.append('</div>')
+    html_parts.append('<div class="callout"><strong>Beginner tip:</strong> If results look inconsistent, check QC and batch diagnostics before focusing on DMPs/DMRs.</div>')
+
     if analysis_params or qc_summary:
-        html_parts.append('<div class="section-title">Run Controls & QC</div>')
+        html_parts.append('<div id="controls" class="section-title">Run Controls & QC</div>')
         html_parts.append('<div class="section-grid">')
         if analysis_params:
             html_parts.append('        <div class="metrics-card">\n')
@@ -771,13 +998,16 @@ def generate_dashboard(output_dir, group_test, group_con):
             rel_path = f"{results_folder_name}/{fname}"
             doc_cards.append((title, desc, rel_path, badge))
     if doc_cards:
-        html_parts.append('<div class="section-title">Run Documentation</div>')
+        html_parts.append('<div id="docs" class="section-title">Run Documentation</div>')
         html_parts.append('<div class="grid">')
+        card_index = 0
         for title, desc, rel_path, badge in doc_cards:
-            card_html = f"""            <div class="card">
+            card_index += 1
+            badge_class = f"badge-{badge.lower()}"
+            card_html = f"""            <div class="card" style="--i:{card_index};">
                 <div class="card-header">
                     {title}
-                    <span class="card-badge">{badge}</span>
+                    <span class="card-badge {badge_class}">{badge}</span>
                 </div>
                 <div class="card-body">
                     <p class="card-desc">{desc}</p>
@@ -787,6 +1017,16 @@ def generate_dashboard(output_dir, group_test, group_con):
 """
             html_parts.append(card_html)
         html_parts.append('</div>')
+
+    html_parts.append('<div id="pipelines" class="section-title">Results by Pipeline</div>')
+    html_parts.append("""
+<div class="nav-tabs" id="navTabs">
+    <div class="nav-tab active" data-tab="Intersection" onclick="switchTab('Intersection')">Consensus</div>
+    <div class="nav-tab" data-tab="Minfi" onclick="switchTab('Minfi')">Minfi (Noob)</div>
+    <div class="nav-tab" data-tab="Sesame" onclick="switchTab('Sesame')">Sesame</div>
+</div>
+<div class="tab-shell">
+""")
 
     # Loop for Pipelines
     for pipe in pipelines:
@@ -818,25 +1058,23 @@ def generate_dashboard(output_dir, group_test, group_con):
                 reasons_txt = ", ".join([f"{k}:{v}" for k, v in drop_reasons.items()])
                 html_parts.append(f'            <div class="metrics-row"><span>Drop reasons</span><span>{reasons_txt}</span></div>\n')
             html_parts.append('        </div>\n')
-        html_parts.append('        <div class="grid">\n')
-        
         files_found = 0
-        current_file_map = full_pipeline_files_map if pipe != "Intersection" else common_files_map
+        card_index = 0
+        sections = pipeline_sections.get(pipe, [])
 
-        for suffix, title, desc in current_file_map:
-            filename = f"{pipe}{suffix}"
-            file_path = os.path.join(output_dir, filename)
-            rel_path = f"{results_folder_name}/{filename}"
-            
-            if os.path.exists(file_path):
-                files_found += 1
-                badge = "TABLE" if "Table" in title or "DMPs" in title else "PLOT"
-                
-                # Card HTML
-                card_html = f"""            <div class="card">
+        for section_title, section_items in sections:
+            section_cards = []
+            for suffix, title, desc, badge in section_items:
+                filename = f"{pipe}{suffix}"
+                file_path = os.path.join(output_dir, filename)
+                rel_path = f"{results_folder_name}/{filename}"
+                if os.path.exists(file_path):
+                    card_index += 1
+                    badge_class = f"badge-{badge.lower()}"
+                    card_html = f"""            <div class="card" style="--i:{card_index};">
                 <div class="card-header">
                     {title}
-                    <span class="card-badge">{badge}</span>
+                    <span class="card-badge {badge_class}">{badge}</span>
                 </div>
                 <div class="card-body">
                     <p class="card-desc">{desc}</p>
@@ -844,12 +1082,21 @@ def generate_dashboard(output_dir, group_test, group_con):
                 </div>
             </div>
 """
-                html_parts.append(card_html)
-        
+                    section_cards.append(card_html)
+
+            if section_cards:
+                files_found += len(section_cards)
+                html_parts.append(f'        <div class="section-title">{section_title}</div>\n')
+                html_parts.append('        <div class="grid">\n')
+                html_parts.extend(section_cards)
+                html_parts.append('        </div>\n')
+
         if files_found == 0:
-             html_parts.append('            <div class="empty-msg">No results found for this pipeline.</div>')
+            html_parts.append('        <div class="empty-msg">No results found for this pipeline.</div>')
              
-        html_parts.append('        </div>\n    </div>\n')
+        html_parts.append('    </div>\n')
+
+    html_parts.append('</div>\n')
 
     # Footer and Script
     html_parts.append("""
@@ -857,15 +1104,11 @@ def generate_dashboard(output_dir, group_test, group_con):
 
 <script>
     function switchTab(tabName) {
-        // Hide all contents
         document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-        // Remove active class from tabs
         document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
-        
-        // Show selected
         document.getElementById(tabName).classList.add('active');
-        // Highlight tab
-        Array.from(document.querySelectorAll('.nav-tab')).find(el => el.textContent.includes(tabName)).classList.add('active');
+        const match = Array.from(document.querySelectorAll('.nav-tab')).find(el => el.dataset.tab === tabName);
+        if (match) match.classList.add('active');
     }
 </script>
 

@@ -56,6 +56,14 @@ cd illumeta
 
 ##### Option A: Conda (recommended for beginners)
 This uses conda to provide R/Python plus the system libraries needed by many R packages.
+
+Recommended (auto-selects a fast mirror for conda-forge):
+```bash
+bash setup_env.sh
+```
+Follow the activate command printed at the end. To recreate from scratch: `FORCE=1 bash setup_env.sh`.
+
+Manual (default conda-forge):
 ```bash
 conda env create -f environment.yml
 conda activate illumeta
@@ -173,6 +181,14 @@ cd illumeta
 
 ##### Option A: Conda (recommended for beginners)
 This uses conda to provide R/Python plus the system libraries needed by many R packages.
+
+Recommended (auto-selects a fast mirror for conda-forge):
+```bash
+bash setup_env.sh
+```
+Follow the activate command printed at the end. To recreate from scratch: `FORCE=1 bash setup_env.sh`.
+
+Manual (default conda-forge):
 ```bash
 conda env create -f environment.yml
 conda activate illumeta
@@ -285,6 +301,14 @@ cd illumeta
 
 ##### Option A: Conda (recommended for beginners)
 This uses conda to provide R/Python plus the system libraries needed by many R packages.
+
+Recommended (auto-selects a fast mirror for conda-forge):
+```bash
+bash setup_env.sh
+```
+Follow the activate command printed at the end. To recreate from scratch: `FORCE=1 bash setup_env.sh`.
+
+Manual (default conda-forge):
 ```bash
 conda env create -f environment.yml
 conda activate illumeta
@@ -398,6 +422,7 @@ python3 illumeta.py analysis \
   --group_con Control \
   --group_test Case
 ```
+Note: the default output folder name is derived from the group labels. If it contains non-ASCII characters, IlluMeta normalizes it to a safe ASCII name for filesystem compatibility (the dashboard filename follows the folder name).
 
 ### 4) Open the dashboard
 Open the generated HTML:
@@ -430,6 +455,9 @@ python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_te
 
 # Provide covariates to always try (if present in configure.tsv)
 python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --include-covariates age,sex
+
+# Use epigenetic clocks as candidate covariates (auto-selected if relevant)
+python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --include-clock-covariates
 
 # Placenta clocks (planet)
 python3 illumeta.py analysis -i projects/GSE307314 --group_con control --group_test test --tissue Placenta

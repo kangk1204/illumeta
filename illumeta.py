@@ -6,12 +6,24 @@ import sys
 import csv
 import json
 import re
+import unicodedata
 from datetime import datetime
 
 __version__ = "1.0.0"
 
 # Configuration for R script paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def safe_path_component(name: str, fallback: str = "results") -> str:
+    """Return an ASCII-only path component safe across filesystems/locales."""
+    if not name:
+        return fallback
+    normalized = unicodedata.normalize("NFKD", name)
+    ascii_name = normalized.encode("ascii", "ignore").decode("ascii")
+    ascii_name = re.sub(r"\s+", "_", ascii_name)
+    ascii_name = re.sub(r"[^A-Za-z0-9._-]+", "_", ascii_name)
+    ascii_name = re.sub(r"_+", "_", ascii_name).strip("._-")
+    return ascii_name or fallback
 
 def detect_r_major_minor(env=None):
     override = (env or {}).get("ILLUMETA_R_LIB_VERSION") or os.environ.get("ILLUMETA_R_LIB_VERSION")
@@ -410,10 +422,13 @@ def run_analysis(args):
     if args.output:
         output_dir = args.output
     else:
-        # Default: test_vs_con_results
+        # Default: test_vs_con_results (sanitize for filesystem/locale safety)
         dir_base = args.input_dir if args.input_dir else os.path.dirname(os.path.abspath(config_path))
         folder_name = f"{args.group_test}_vs_{args.group_con}_results"
-        output_dir = os.path.join(dir_base, folder_name)
+        safe_folder = safe_path_component(folder_name, fallback="analysis_results")
+        if safe_folder != folder_name:
+            log(f"[*] Output folder normalized for filesystem safety: {folder_name} -> {safe_folder}")
+        output_dir = os.path.join(dir_base, safe_folder)
     
     # Ensure output directory exists
     if not os.path.exists(output_dir):
@@ -439,6 +454,8 @@ def run_analysis(args):
         cmd.append("--disable_sva")
     if args.include_covariates:
         cmd.extend(["--include_covariates", args.include_covariates])
+    if args.include_clock_covariates:
+        cmd.append("--include_clock_covariates")
     if args.tissue:
         cmd.extend(["--tissue", args.tissue])
     if args.positive_controls:
@@ -480,7 +497,7 @@ def generate_dashboard(output_dir, group_test, group_con):
     """Generates a beautiful HTML dashboard to navigate results."""
     results_folder_name = os.path.basename(os.path.normpath(output_dir))
     parent_dir = os.path.dirname(os.path.normpath(output_dir))
-    dashboard_filename = f"{group_test}_vs_{group_con}_results_index.html"
+    dashboard_filename = f"{results_folder_name}_index.html"
     dashboard_path = os.path.join(parent_dir, dashboard_filename)
     
     # Reordered: Intersection First
@@ -527,8 +544,12 @@ def generate_dashboard(output_dir, group_test, group_con):
         ("_Sample_Clustering_Distance.html", "Sample Clustering", "Euclidean distance matrix of samples."),
         ("_QQPlot.html", "Q-Q Plot", "Check for genomic inflation and systematic bias."),
         ("_Batch_Method_Comparison.html", "Correction Method", "Comparison of batch residual vs group signal for each method."),
+        ("_BatchMethodComparison.csv", "Correction Method (CSV)", "Batch correction scoring table (CSV)."),
         ("_Batch_Evaluation_Before.html", "Batch Eval (Before)", "Covariate association with PCs (Raw)."),
-        ("_Batch_Evaluation_After.html", "Batch Eval (After)", "Covariate association with PCs (Corrected).")
+        ("_Batch_Evaluation_After.html", "Batch Eval (After)", "Covariate association with PCs (Corrected)."),
+        ("_AutoCovariates.csv", "Auto Covariates (CSV)", "Auto-selected covariate candidates with PC association P-values."),
+        ("_DroppedCovariates.csv", "Dropped Covariates (CSV)", "Covariates removed due to confounding/instability."),
+        ("_configure_with_clocks.tsv", "Clock-Merged Config (TSV)", "Config with clock covariates merged (if enabled).")
     ]
     
     def load_metrics(pipe_name):
@@ -543,6 +564,43 @@ def generate_dashboard(output_dir, group_test, group_con):
             except Exception:
                 pass
         return metrics
+
+    def load_analysis_params():
+        path = os.path.join(output_dir, "analysis_parameters.json")
+        try:
+            with open(path, "r") as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return {}
+
+    def load_qc_summary():
+        path = os.path.join(output_dir, "QC_Summary.csv")
+        metrics = {}
+        if os.path.exists(path):
+            try:
+                with open(path, newline="") as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        metrics[row["metric"]] = row["value"]
+            except Exception:
+                pass
+        return metrics
+
+    def load_drop_reasons(pipe_name):
+        path = os.path.join(output_dir, f"{pipe_name}_DroppedCovariates.csv")
+        reasons = {}
+        if os.path.exists(path):
+            try:
+                with open(path, newline="") as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        reason = (row.get("Reason") or "").strip()
+                        if not reason or reason == "NA":
+                            continue
+                        reasons[reason] = reasons.get(reason, 0) + 1
+            except Exception:
+                pass
+        return reasons
 
     # Calculated values for Summary
     n_con = safe_int(stats.get('n_con'))
@@ -560,6 +618,8 @@ def generate_dashboard(output_dir, group_test, group_con):
     intersect_up = safe_int(stats.get('intersect_up'))
     intersect_down = safe_int(stats.get('intersect_down'))
     intersect_total = intersect_up + intersect_down
+    analysis_params = load_analysis_params()
+    qc_summary = load_qc_summary()
 
     # CSS Style Block (Using format to avoid curly brace hell)
     style_block = """
@@ -584,6 +644,8 @@ def generate_dashboard(output_dir, group_test, group_con):
         .stat-value { font-size: 2rem; font-weight: bold; color: var(--primary); }
         .stat-sub { font-size: 0.9rem; margin-top: 5px; }
         .up { color: var(--danger); } .down { color: var(--accent); } 
+        .section-title { font-size: 1.1rem; font-weight: 700; color: var(--secondary); margin: 1.5rem 0 0.8rem; }
+        .section-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin-bottom: 25px; }
         
         .tab-content { display: none; animation: fadeIn 0.5s; }
         .tab-content.active { display: block; }
@@ -659,7 +721,73 @@ def generate_dashboard(output_dir, group_test, group_con):
         </div>
     </div>
 """)
-    
+
+    if analysis_params or qc_summary:
+        html_parts.append('<div class="section-title">Run Controls & QC</div>')
+        html_parts.append('<div class="section-grid">')
+        if analysis_params:
+            html_parts.append('        <div class="metrics-card">\n')
+            html_parts.append('            <div class="metrics-title">Analysis Parameters</div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>FDR / |logFC|</span><span>{analysis_params.get("pval_threshold", "N/A")} / {analysis_params.get("lfc_threshold", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Auto covariates</span><span>alpha={analysis_params.get("auto_covariate_alpha", "N/A")}, max_pcs={analysis_params.get("auto_covariate_max_pcs", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>SVA</span><span>{analysis_params.get("sva_enabled", "N/A")} ({analysis_params.get("sva_inclusion_rule", "N/A")})</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Clock covariates</span><span>{analysis_params.get("clock_covariates_enabled", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>SV group filter</span><span>P<{analysis_params.get("sv_group_p_threshold", "N/A")}, Eta^2>{analysis_params.get("sv_group_eta2_threshold", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>PVCA min n</span><span>{analysis_params.get("pvca_min_samples", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>DMR (maxgap/p)</span><span>{analysis_params.get("dmr_maxgap", "N/A")} / {analysis_params.get("dmr_p_cutoff", "N/A")}</span></div>\n')
+            html_parts.append('        </div>\n')
+        if qc_summary:
+            html_parts.append('        <div class="metrics-card">\n')
+            html_parts.append('            <div class="metrics-title">QC Summary</div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Samples (pass/fail)</span><span>{qc_summary.get("Samples_passed_QC", "N/A")} / {qc_summary.get("Samples_failed_QC", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Probes final</span><span>{qc_summary.get("Probes_final", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Probes dropped (det/SNP/sex)</span><span>{qc_summary.get("Probes_failed_detection", "N/A")} / {qc_summary.get("Probes_with_SNPs", "N/A")} / {qc_summary.get("Probes_sex_chromosomes", "N/A")}</span></div>\n')
+            html_parts.append('        </div>\n')
+        html_parts.append('</div>')
+
+    run_docs = [
+        ("methods.md", "Methods Summary", "Auto-generated methods text for the run.", "DOC"),
+        ("analysis_parameters.json", "Analysis Parameters", "Run settings and thresholds (JSON).", "DOC"),
+        ("sessionInfo.txt", "R Session Info", "Full R session and package versions.", "DOC"),
+        ("code_version.txt", "Code Version", "Git commit hash when available.", "DOC"),
+        ("QC_Summary.csv", "QC Summary (CSV)", "Sample/probe QC counts.", "CSV"),
+        ("Sample_QC_Metrics.csv", "Sample QC Metrics (CSV)", "Per-sample QC metrics.", "CSV"),
+        ("cell_counts_merged.csv", "Cell Composition (CSV)", "Merged cell composition covariates (if available).", "CSV"),
+        ("Cell_Group_Association.csv", "Cell vs Group (CSV)", "Cell composition vs group association.", "CSV"),
+    ]
+    extra_cell_files = []
+    try:
+        for fname in os.listdir(output_dir):
+            if fname.startswith("cell_counts_") and fname.endswith(".csv") and fname not in {"cell_counts_merged.csv"}:
+                extra_cell_files.append(fname)
+    except Exception:
+        extra_cell_files = []
+    for fname in sorted(extra_cell_files):
+        run_docs.append((fname, f"{fname}", "Cell composition reference output (CSV).", "CSV"))
+    doc_cards = []
+    for fname, title, desc, badge in run_docs:
+        fpath = os.path.join(output_dir, fname)
+        if os.path.exists(fpath):
+            rel_path = f"{results_folder_name}/{fname}"
+            doc_cards.append((title, desc, rel_path, badge))
+    if doc_cards:
+        html_parts.append('<div class="section-title">Run Documentation</div>')
+        html_parts.append('<div class="grid">')
+        for title, desc, rel_path, badge in doc_cards:
+            card_html = f"""            <div class="card">
+                <div class="card-header">
+                    {title}
+                    <span class="card-badge">{badge}</span>
+                </div>
+                <div class="card-body">
+                    <p class="card-desc">{desc}</p>
+                    <a href="{rel_path}" target="_blank" class="btn">Open File</a>
+                </div>
+            </div>
+"""
+            html_parts.append(card_html)
+        html_parts.append('</div>')
+
     # Loop for Pipelines
     for pipe in pipelines:
         active_class = "active" if pipe == "Intersection" else ""
@@ -669,8 +797,11 @@ def generate_dashboard(output_dir, group_test, group_con):
         metrics = load_metrics(pipe)
         if metrics:
             html_parts.append('        <div class="metrics-card">\n')
-            html_parts.append('            <div class="metrics-title">QC Metrics</div>\n')
+            html_parts.append('            <div class="metrics-title">Model & Batch Summary</div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>λ (inflation)</span><span>{metrics.get("lambda", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Batch method</span><span>{metrics.get("batch_method_applied", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Samples / CpGs</span><span>{metrics.get("n_samples", "N/A")} / {metrics.get("n_cpgs", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Covariates used (n)</span><span>{metrics.get("n_covariates_used", "N/A")}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Covariates used</span><span>{metrics.get("covariates_used", "None") or "None"}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>SVs used</span><span>{metrics.get("n_sv_used", "0")}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Batch p<0.05 (Before→After)</span><span>{metrics.get("batch_sig_p_lt_0.05_before", "N/A")} → {metrics.get("batch_sig_p_lt_0.05_after", "N/A")}</span></div>\n')
@@ -682,6 +813,10 @@ def generate_dashboard(output_dir, group_test, group_con):
                 html_parts.append(f'            <div class="metrics-row"><span>VarPart primary_group</span><span>{metrics.get("vp_primary_group_mean", "N/A")}</span></div>\n')
             if metrics.get("dropped_covariates"):
                 html_parts.append(f'            <div class="metrics-row"><span>Dropped covariates</span><span>{metrics.get("dropped_covariates")}</span></div>\n')
+            drop_reasons = load_drop_reasons(pipe)
+            if drop_reasons:
+                reasons_txt = ", ".join([f"{k}:{v}" for k, v in drop_reasons.items()])
+                html_parts.append(f'            <div class="metrics-row"><span>Drop reasons</span><span>{reasons_txt}</span></div>\n')
             html_parts.append('        </div>\n')
         html_parts.append('        <div class="grid">\n')
         
@@ -768,6 +903,7 @@ def main():
     parser_analysis.add_argument("--disable-auto-covariates", action="store_true", help="Disable automatic covariate selection via PCs")
     parser_analysis.add_argument("--disable-sva", action="store_true", help="Disable surrogate variable analysis")
     parser_analysis.add_argument("--include-covariates", type=str, help="Comma-separated covariate names to always try to include (if present in configure.tsv)")
+    parser_analysis.add_argument("--include-clock-covariates", action="store_true", help="Compute epigenetic clocks and include them as candidate covariates")
     parser_analysis.add_argument("--tissue", type=str, default="Auto", help="Tissue type for cell deconvolution (default Auto = reference-free; options: Auto, Blood, CordBlood, DLPFC, Placenta)")
     parser_analysis.add_argument("--positive_controls", type=str, help="Comma-separated list of known marker genes to verify (e.g. 'AHRR,CYP1A1')")
     parser_analysis.add_argument("--permutations", type=int, default=0, help="Number of label permutations for null DMP counts (0 to skip)")

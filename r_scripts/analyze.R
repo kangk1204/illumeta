@@ -86,6 +86,8 @@ option_list <- list(
               help="Disable surrogate variable analysis"),
   make_option(c("--include_covariates"), type="character", default="",
               help="Comma-separated covariate names to always try to include (if present)"),
+  make_option(c("--include_clock_covariates"), action="store_true", default=FALSE,
+              help="Compute epigenetic clocks and add them as metadata covariates for auto selection (writes *_configure_with_clocks.tsv)."),
   make_option(c("--permutations"), type="integer", default=0,
               help="Number of label permutations for null DMP counts (0 to skip)"),
   make_option(c("--vp_top"), type="integer", default=5000,
@@ -123,6 +125,9 @@ LOGIT_OFFSET <- 1e-4
 BETA_RANGE_MIN <- 0.05
 AUTO_COVARIATE_ALPHA <- 0.01
 MAX_PCS_FOR_COVARIATE_DETECTION <- 5
+SV_GROUP_P_THRESHOLD <- 1e-6
+SV_GROUP_ETA2_THRESHOLD <- 0.5
+PVCA_MIN_SAMPLES <- 8
 DMR_MAXGAP <- 500
 DMR_P_CUTOFF <- 0.05
 BATCH_EVAL_TOP_VAR <- 20000
@@ -146,6 +151,7 @@ vp_top <- opt$vp_top
 disable_auto_cov <- opt$disable_auto_covariates
 disable_sva <- opt$disable_sva
 include_cov <- ifelse(opt$include_covariates == "", character(0), trimws(strsplit(opt$include_covariates, ",")[[1]]))
+include_clock_covariates <- opt$include_clock_covariates
 cell_covariates <- character(0)
 cell_counts_df <- NULL
 id_col_override <- opt$id_column
@@ -288,15 +294,16 @@ filter_covariates <- function(targets, covariates, group_col) {
   for (cv in covariates) {
     val <- targets[[cv]]
     uniq <- length(unique(val))
+    is_num <- is.numeric(val) || is.integer(val)
     if (uniq < 2) {
       drops <- rbind(drops, data.frame(Variable=cv, Reason="constant_or_single_level"))
       next
     }
-    if (uniq >= (n - 1)) {
+    if (!is_num && uniq >= (n - 1)) {
       drops <- rbind(drops, data.frame(Variable=cv, Reason="high_cardinality_vs_samples"))
       next
     }
-    if (is.character(val) || is.factor(val)) {
+    if (!is_num && (is.character(val) || is.factor(val))) {
       lvl_counts <- table(val)
       if (any(lvl_counts < 2)) {
         drops <- rbind(drops, data.frame(Variable=cv, Reason="rare_level"))
@@ -304,7 +311,7 @@ filter_covariates <- function(targets, covariates, group_col) {
       }
     }
     # Check confounding with group (any level exclusive to one group or strong chi-square)
-    if (is.character(val) || is.factor(val)) {
+    if (!is_num && (is.character(val) || is.factor(val))) {
       tbl <- table(val, group_vals)
       if (any(tbl == 0)) {
         drops <- rbind(drops, data.frame(Variable=cv, Reason="confounded_with_group"))
@@ -315,10 +322,90 @@ filter_covariates <- function(targets, covariates, group_col) {
         drops <- rbind(drops, data.frame(Variable=cv, Reason="confounded_with_group"))
         next
       }
+    } else if (is_num) {
+      cc <- complete.cases(val, group_vals)
+      if (sum(cc) >= 3) {
+        gv <- group_vals[cc]
+        vv <- val[cc]
+        if (length(unique(gv)) >= 2) {
+          p_grp <- tryCatch({
+            if (length(unique(gv)) == 2) {
+              t.test(vv ~ gv)$p.value
+            } else {
+              kruskal.test(vv ~ as.factor(gv))$p.value
+            }
+          }, error=function(e) NA)
+          if (!is.na(p_grp) && p_grp < 1e-6) {
+            drops <- rbind(drops, data.frame(Variable=cv, Reason="confounded_with_group"))
+            next
+          }
+        }
+      }
     }
     keep <- c(keep, cv)
   }
   list(keep = keep, dropped = drops)
+}
+
+rank_covariates <- function(targets, covariates, covar_log_df) {
+  if (length(covariates) == 0) return(covariates)
+  log_p <- numeric(0)
+  if (!is.null(covar_log_df) && nrow(covar_log_df) > 0 && all(c("Variable", "MinP") %in% colnames(covar_log_df))) {
+    log_p <- setNames(covar_log_df$MinP, covar_log_df$Variable)
+  }
+  priorities <- vapply(covariates, function(cv) {
+    if (cv %in% names(log_p)) {
+      return(-as.numeric(log_p[[cv]]))
+    }
+    val <- targets[[cv]]
+    if (is.numeric(val) || is.integer(val)) {
+      v <- stats::var(val, na.rm = TRUE)
+      return(ifelse(is.finite(v), v, 0))
+    }
+    lvls <- length(unique(val))
+    if (lvls == 0) return(0)
+    1 / lvls
+  }, numeric(1))
+  covariates[order(priorities, decreasing = TRUE)]
+}
+
+filter_sv_by_group <- function(targets, sv_cols, group_col,
+                               p_thresh = SV_GROUP_P_THRESHOLD,
+                               eta2_thresh = SV_GROUP_ETA2_THRESHOLD) {
+  drops <- data.frame(Variable=character(0), Reason=character(0), stringsAsFactors = FALSE)
+  if (length(sv_cols) == 0) {
+    return(list(keep = sv_cols, dropped = drops))
+  }
+  group_vals <- targets[[group_col]]
+  for (sv in sv_cols) {
+    if (!(sv %in% colnames(targets))) next
+    val <- targets[[sv]]
+    cc <- complete.cases(val, group_vals)
+    if (sum(cc) < 3) next
+    gv <- group_vals[cc]
+    if (length(unique(gv)) < 2) next
+    vv <- val[cc]
+    if (sd(vv, na.rm = TRUE) == 0) {
+      drops <- rbind(drops, data.frame(Variable = sv, Reason = "sv_constant"))
+      next
+    }
+    p_grp <- tryCatch({
+      if (length(unique(gv)) == 2) {
+        t.test(vv ~ gv)$p.value
+      } else {
+        kruskal.test(vv ~ as.factor(gv))$p.value
+      }
+    }, error = function(e) NA)
+    eta2 <- tryCatch({
+      fit <- stats::lm(vv ~ as.factor(gv))
+      an <- stats::anova(fit)
+      if (nrow(an) >= 2) an[1, "Sum Sq"] / sum(an[, "Sum Sq"]) else NA
+    }, error = function(e) NA)
+    if ((!is.na(p_grp) && p_grp < p_thresh) || (!is.na(eta2) && eta2 > eta2_thresh)) {
+      drops <- rbind(drops, data.frame(Variable = sv, Reason = "sv_confounded_with_group"))
+    }
+  }
+  list(keep = setdiff(sv_cols, drops$Variable), dropped = drops)
 }
 
 filter_low_range <- function(betas, min_range = BETA_RANGE_MIN) {
@@ -520,6 +607,10 @@ run_pvca_assessment <- function(betas, meta, factors, prefix, out_dir, threshold
     message("  PVCA skipped: no usable factors or insufficient levels.")
     return(NULL)
   }
+  if (nrow(pvca_meta) < PVCA_MIN_SAMPLES) {
+    message(sprintf("  PVCA skipped: sample size too small for stable estimation (n=%d).", nrow(pvca_meta)))
+    return(NULL)
+  }
   if (!is.null(sample_ids) && nrow(pvca_meta) == length(sample_ids)) {
     rownames(pvca_meta) <- sample_ids
   }
@@ -562,7 +653,7 @@ run_pvca_assessment <- function(betas, meta, factors, prefix, out_dir, threshold
   eset <- ExpressionSet(assayData = as.matrix(betas_use), phenoData = pheno)
   
   pvca_res <- tryCatch(pvcaBatchAssess(eset, colnames(pvca_meta), threshold), error = function(e) e)
-  if (inherits(pvca_res, "error") || is.null(pvca_res$dat) || is.null(pvca_res$label)) {
+  if (inherits(pvca_res, "error") || !is.list(pvca_res) || is.null(pvca_res$dat) || is.null(pvca_res$label)) {
     message("  PVCA failed: ", if (inherits(pvca_res, "error")) pvca_res$message else "invalid PVCA result")
     return(NULL)
   }
@@ -597,10 +688,43 @@ run_pvca_assessment <- function(betas, meta, factors, prefix, out_dir, threshold
   })
 }
 
-compute_epigenetic_clocks <- function(betas, meta, id_col, prefix, out_dir, tissue = "Auto") {
+planet_predict_age_safe <- function(betas, type = "RPC") {
+  ageCpGs <- NULL
+  tryCatch({
+    data("ageCpGs", package = "planet", envir = environment())
+  }, error = function(e) {
+    stop("planet ageCpGs dataset not available: ", e$message)
+  })
+  if (is.null(ageCpGs)) {
+    stop("planet ageCpGs dataset not available.")
+  }
+  if (!(type %in% c("RPC", "CPC", "RRPC"))) {
+    stop("Type must be one of \"CPC\", \"RPC\", or \"RRPC\"")
+  }
+  coef <- ageCpGs[ageCpGs[[type]] != 0, , drop = FALSE]
+  cpgs <- intersect(coef$CpGs[coef$CpGs != "(Intercept)"], rownames(betas))
+  if (length(cpgs)/(nrow(coef) - 1) < 0.5) {
+    stop("Less than 50% of predictors were found.")
+  }
+  if (length(cpgs) < (nrow(coef) - 1)) {
+    warning(paste("Only", length(cpgs), "out of", (nrow(coef) - 1), "predictors present."))
+  } else {
+    message(paste(length(cpgs), "of", (nrow(coef) - 1), "predictors present."))
+  }
+  coef_filtered <- coef[coef$CpGs %in% c("(Intercept)", cpgs), , drop = FALSE][[type]]
+  betas_sub <- as.matrix(betas[cpgs, , drop = FALSE])
+  betas_filtered <- cbind(1, t(betas_sub))
+  as.vector(betas_filtered %*% coef_filtered)
+}
+
+compute_epigenetic_clocks <- function(betas, meta, id_col, prefix, out_dir, tissue = "Auto", return_covariates = FALSE) {
   # Safe ID extractor
   safe_id <- function(x) sub("\\.idat.*$", "", basename(as.character(x)))
   sample_ids <- safe_id(colnames(betas))
+  clock_covariates <- NULL
+  if (return_covariates) {
+    clock_covariates <- data.frame(SampleID = sample_ids, stringsAsFactors = FALSE)
+  }
   
   # --- 1. methylclock (Default / General Clocks) ---
   # Prioritize methylclock as it is more robust and supports newer clocks
@@ -625,6 +749,15 @@ compute_epigenetic_clocks <- function(betas, meta, id_col, prefix, out_dir, tiss
        write.csv(mc_df, out_mc_path, row.names = FALSE)
        message("  Epigenetic clocks (methylclock) saved to ", out_mc_path)
        mc_success <- TRUE
+       
+       if (!is.null(clock_covariates)) {
+         mc_cols <- setdiff(colnames(mc_df), "Sample")
+         for (cc in mc_cols) {
+           vals <- suppressWarnings(as.numeric(mc_df[[cc]]))
+           if (all(is.na(vals))) next
+           clock_covariates[[paste0("Clock_", cc)]] <- vals
+         }
+       }
        
        # Visualization
        meta_ids <- NULL
@@ -700,12 +833,37 @@ compute_epigenetic_clocks <- function(betas, meta, id_col, prefix, out_dir, tiss
   if (tolower(tissue) == "placenta" && requireNamespace("planet", quietly = TRUE)) {
      message("  Computing placental clocks using 'planet' (Tissue=Placenta)...")
      tryCatch({
-       age_rpc <- planet::predictAge(betas, type = "RPC")
-       age_cpc <- planet::predictAge(betas, type = "CPC")
+       planet_use_fallback <- FALSE
+       planet_predict <- function(type) {
+         if (!planet_use_fallback) {
+           res <- tryCatch(planet::predictAge(betas, type = type), error = function(e) e)
+           if (!inherits(res, "error")) return(res)
+           if (grepl("ageCpGs", res$message, fixed = TRUE)) {
+             message("  planet::predictAge failed (", type, "): missing ageCpGs; switching to internal fallback.")
+             planet_use_fallback <<- TRUE
+           } else {
+             message("  planet::predictAge failed (", type, "): ", res$message, " (trying fallback)")
+           }
+         }
+         tryCatch(planet_predict_age_safe(betas, type = type), error = function(e2) {
+           message("  planet fallback failed (", type, "): ", e2$message)
+           rep(NA_real_, ncol(betas))
+         })
+       }
+       age_rpc <- planet_predict("RPC")
+       age_cpc <- planet_predict("CPC")
        
        planet_df <- data.frame(Sample = sample_ids)
        if (!all(is.na(age_rpc))) planet_df$RPC_Gestational_Age_Weeks <- as.numeric(age_rpc)
        if (!all(is.na(age_cpc))) planet_df$CPC_Gestational_Age_Weeks <- as.numeric(age_cpc)
+       if (!is.null(clock_covariates)) {
+         if ("RPC_Gestational_Age_Weeks" %in% colnames(planet_df)) {
+           clock_covariates$PlacentaClock_RPC_GA_Weeks <- planet_df$RPC_Gestational_Age_Weeks
+         }
+         if ("CPC_Gestational_Age_Weeks" %in% colnames(planet_df)) {
+           clock_covariates$PlacentaClock_CPC_GA_Weeks <- planet_df$CPC_Gestational_Age_Weeks
+         }
+       }
        
        out_planet_path <- file.path(out_dir, paste0(prefix, "_Placental_Age_planet.csv"))
        write.csv(planet_df, out_planet_path, row.names = FALSE)
@@ -736,6 +894,10 @@ compute_epigenetic_clocks <- function(betas, meta, id_col, prefix, out_dir, tiss
        message("  planet clock failed: ", e$message)
      })
   }
+  if (return_covariates) {
+    if (is.null(clock_covariates) || ncol(clock_covariates) <= 1) return(NULL)
+    return(clock_covariates)
+  }
 }
 
 select_batch_factor <- function(meta, preferred = c("Sentrix_ID", "Sentrix_Position")) {
@@ -748,6 +910,16 @@ select_batch_factor <- function(meta, preferred = c("Sentrix_ID", "Sentrix_Posit
     }
   }
   return(NULL)
+}
+
+is_batch_confounded <- function(meta, batch_col, group_col, p_thresh = 1e-6) {
+  if (is.null(batch_col) || is.null(group_col)) return(FALSE)
+  if (!(batch_col %in% colnames(meta)) || !(group_col %in% colnames(meta))) return(FALSE)
+  tbl <- table(meta[[batch_col]], meta[[group_col]])
+  if (any(tbl == 0)) return(TRUE)
+  p_chisq <- tryCatch(suppressWarnings(chisq.test(tbl)$p.value), error = function(e) NA)
+  if (!is.na(p_chisq) && p_chisq < p_thresh) return(TRUE)
+  return(FALSE)
 }
 
 eval_batch_method <- function(M_mat, meta, group_col, batch_col, covariates, method) {
@@ -809,10 +981,18 @@ eval_batch_method <- function(M_mat, meta, group_col, batch_col, covariates, met
     mod0_terms <- if (length(cov_terms) > 0) paste(cov_terms, collapse = " + ") else "1"
     mod0 <- mm_safe(paste("~", mod0_terms), meta_use)
     sva.obj <- sva(M_mat, mod, mod0)
-    mod_sva <- cbind(mod, sva.obj$sv)
-    fit <- lmFit(M_mat, mod_sva)
-    # residuals as surrogate-corrected matrix for comparison
-    M_corr <- residuals(fit, M_mat)
+    if (is.null(sva.obj$sv) || sva.obj$n.sv < 1) {
+      M_corr <- M_mat
+    } else {
+      sv_mat <- sva.obj$sv
+      if (nrow(sv_mat) != nrow(meta_use)) {
+        message("    - SVA SV rows do not match samples; skipping SVA correction for evaluation.")
+        M_corr <- M_mat
+      } else {
+        design_keep <- mm_safe(paste("~ 0 +", group_col), meta_use)
+        M_corr <- removeBatchEffect(M_mat, covariates = sv_mat, design = design_keep)
+      }
+    }
   } else {
     stop("unknown method")
   }
@@ -1388,9 +1568,12 @@ run_pipeline <- function(betas, prefix, annotation_df) {
   targets <- targets
   
   best_method <- "none"
+  batch_evaluated <- FALSE
   common_ids <- intersect(rownames(betas), rownames(annotation_df))
   betas <- betas[common_ids, , drop = FALSE]
   curr_anno <- annotation_df[common_ids, , drop = FALSE]
+  betas_full <- betas
+  clock_computed <- FALSE
   
   range_filt <- filter_low_range(betas, min_range = BETA_RANGE_MIN)
   betas <- range_filt$mat
@@ -1435,10 +1618,46 @@ run_pipeline <- function(betas, prefix, annotation_df) {
   covariates <- character(0)
   covar_log_path <- file.path(out_dir, paste0(prefix, "_AutoCovariates.csv"))
   drop_log <- data.frame(Variable=character(0), Reason=character(0))
+  covar_log_df <- data.frame(Variable = character(0), MinP = numeric(0))
+
+  if (include_clock_covariates) {
+    clock_cov <- compute_epigenetic_clocks(betas_full, targets, id_col = gsm_col, prefix = prefix,
+                                           out_dir = out_dir, tissue = opt$tissue, return_covariates = TRUE)
+    clock_computed <- TRUE
+    if (!is.null(clock_cov) && ncol(clock_cov) > 1) {
+      match_idx <- match(targets[[gsm_col]], clock_cov$SampleID)
+      added_cols <- setdiff(colnames(clock_cov), "SampleID")
+      for (cc in added_cols) {
+        targets[[cc]] <- clock_cov[[cc]][match_idx]
+      }
+      drop_clock <- character(0)
+      for (cc in added_cols) {
+        vals <- targets[[cc]]
+        if (any(!is.finite(vals))) {
+          drop_clock <- c(drop_clock, cc)
+          drop_log <- rbind(drop_log, data.frame(Variable = cc, Reason = "clock_missing_values"))
+          next
+        }
+        if (length(unique(vals)) < 2) {
+          drop_clock <- c(drop_clock, cc)
+          drop_log <- rbind(drop_log, data.frame(Variable = cc, Reason = "clock_constant"))
+        }
+      }
+      if (length(drop_clock) > 0) {
+        targets[, drop_clock] <- NULL
+      }
+      out_cfg <- file.path(out_dir, paste0(prefix, "_configure_with_clocks.tsv"))
+      write.table(targets, out_cfg, sep = "\t", row.names = FALSE, quote = FALSE)
+      message(paste("  Clock covariates merged; saved to", out_cfg))
+    } else {
+      message("  Clock covariates requested but no usable clock values were computed.")
+    }
+  }
   
   if (!disable_auto_cov) {
     covar_info <- auto_detect_covariates(targets, gsm_col, pca_res$x, alpha = AUTO_COVARIATE_ALPHA, max_pcs = MAX_PCS_FOR_COVARIATE_DETECTION)
-    if (nrow(covar_info$log) > 0) write.csv(covar_info$log, covar_log_path, row.names = FALSE)
+    covar_log_df <- covar_info$log
+    if (nrow(covar_log_df) > 0) write.csv(covar_log_df, covar_log_path, row.names = FALSE)
     covariates <- covar_info$selected
     if (length(covariates) > 0) {
       filt <- filter_covariates(targets, covariates, group_col = "primary_group")
@@ -1471,6 +1690,19 @@ run_pipeline <- function(betas, prefix, annotation_df) {
   } else {
     message("  No covariate candidates retained before design drop.")
   }
+  n_groups <- length(levels(targets$primary_group))
+  max_covars <- nrow(targets) - n_groups - 1
+  if (max_covars < 0) max_covars <- 0
+  if (length(covariates) > max_covars) {
+    ranked_covars <- rank_covariates(targets, covariates, covar_log_df)
+    keep_covars <- head(ranked_covars, max_covars)
+    drop_covars <- setdiff(covariates, keep_covars)
+    if (length(drop_covars) > 0) {
+      drop_log <- rbind(drop_log, data.frame(Variable = drop_covars, Reason = "covariate_limit_small_n"))
+      covariates <- keep_covars
+      message(paste("  Capping covariates to preserve residual df (max", max_covars, "): kept", paste(keep_covars, collapse = ", ")))
+    }
+  }
 
   # Drop samples with NA in any design variable to prevent model.matrix failures
   design_vars <- unique(c("primary_group", covariates))
@@ -1498,10 +1730,16 @@ run_pipeline <- function(betas, prefix, annotation_df) {
   # PVCA before model fitting to quantify variance explained by group/batch factors
   pvca_factors <- unique(c("primary_group", covariates))
   run_pvca_assessment(betas, targets, pvca_factors, prefix, out_dir, threshold = 0.6, max_probes = 5000, sample_ids = colnames(betas))
-  compute_epigenetic_clocks(betas, targets, id_col = gsm_col, prefix = prefix, out_dir = out_dir, tissue = opt$tissue)
+  if (!clock_computed) {
+    compute_epigenetic_clocks(betas, targets, id_col = gsm_col, prefix = prefix, out_dir = out_dir, tissue = opt$tissue)
+  }
 
   # Compare batch correction strategies (none/ComBat/removeBatchEffect/SVA)
   batch_col <- select_batch_factor(targets, preferred = c("Sentrix_ID", "Sentrix_Position"))
+  if (!is.null(batch_col) && is_batch_confounded(targets, batch_col, "primary_group")) {
+    message(paste("  WARNING: Batch factor", batch_col, "is confounded with primary_group; skipping batch correction."))
+    batch_col <- NULL
+  }
   if (!is.null(batch_col) && nrow(targets) >= 4) {
     message(paste("  Evaluating batch correction methods using batch factor:", batch_col))
     M_mat <- logit_offset(betas)
@@ -1512,6 +1750,7 @@ run_pipeline <- function(betas, prefix, annotation_df) {
     })
     batch_results <- batch_results[!vapply(batch_results, is.null, logical(1))]
     if (length(batch_results) > 0) {
+      batch_evaluated <- TRUE
       batch_df <- do.call(rbind, lapply(batch_results, function(x) {
         data.frame(method = x$method,
                    score = x$score,
@@ -1572,12 +1811,15 @@ run_pipeline <- function(betas, prefix, annotation_df) {
   colnames(design) <- make.unique(make.names(colnames(design)))
   group_cols <- make.names(levels(targets$primary_group))
   
-sv_cols <- character(0)
-
-# --- Surrogate Variable Analysis (SVA) ---
-if (!disable_sva) {
-  message("  Running SVA to detect hidden batch effects...")
-  svobj <- NULL  # reset per pipeline to avoid stale state across runs
+  sv_cols <- character(0)
+  use_sva_in_model <- !disable_sva && (!batch_evaluated || best_method == "sva")
+  
+  # --- Surrogate Variable Analysis (SVA) ---
+  if (!disable_sva && !use_sva_in_model) {
+    message(paste("  SVA skipped for modeling to avoid double correction (selected method:", best_method, ")."))
+  } else if (!disable_sva) {
+    message("  Running SVA to detect hidden batch effects...")
+    svobj <- NULL  # reset per pipeline to avoid stale state across runs
   
   f_str <- "~ primary_group"
   if (length(covariates) > 0) f_str <- paste(f_str, "+", paste(covariates, collapse = " + "))
@@ -1593,7 +1835,7 @@ if (!disable_sva) {
         return(NULL)
       }
       # Speed: estimate SVs on top-variable probes only
-      sva_mat <- betas
+      sva_mat <- logit_offset(betas)
       if (nrow(sva_mat) > BATCH_EVAL_TOP_VAR) {
         v0 <- apply(sva_mat, 1, var, na.rm = TRUE)
         top_idx <- head(order(v0, decreasing = TRUE), BATCH_EVAL_TOP_VAR)
@@ -1653,6 +1895,20 @@ if (!disable_sva) {
   } else {
     message("  SVA disabled by flag.")
   }
+  if (length(sv_cols) > 0) {
+    sv_filt <- filter_sv_by_group(targets, sv_cols, "primary_group")
+    if (nrow(sv_filt$dropped) > 0) {
+      drop_sv <- sv_filt$dropped$Variable
+      message(paste("  Dropping SVs strongly associated with primary_group:", paste(drop_sv, collapse = ", ")))
+      drop_log <- rbind(drop_log, sv_filt$dropped)
+      drop_sv <- intersect(drop_sv, colnames(design))
+      if (length(drop_sv) > 0) {
+        design <- design[, setdiff(colnames(design), drop_sv), drop = FALSE]
+      }
+      targets <- targets[, setdiff(colnames(targets), drop_sv), drop = FALSE]
+      sv_cols <- sv_filt$keep
+    }
+  }
   colnames(design) <- make.unique(colnames(design))
 
   design_ld <- drop_linear_dependencies(design, group_cols = group_cols)
@@ -1668,11 +1924,12 @@ if (!disable_sva) {
   } else {
     message("  Covariates used in design: none")
   }
-  if (length(used_covariates) > floor(nrow(targets) / 3)) {
+  covar_total <- length(used_covariates) + length(sv_cols)
+  if (covar_total > floor(nrow(targets) / 3)) {
     message("WARNING: Number of covariates is large relative to sample size.")
     message(sprintf("  Covariates: %d, Samples: %d (ratio: %.2f)",
-                    length(used_covariates), nrow(targets),
-                    length(used_covariates) / nrow(targets)))
+                    covar_total, nrow(targets),
+                    covar_total / nrow(targets)))
     message("  This may reduce statistical power. Consider manual covariate selection.")
   }
   
@@ -1696,8 +1953,9 @@ if (!disable_sva) {
     
     pca_clean <- prcomp(t(clean_betas), scale. = TRUE)
     pca_clean_df <- data.frame(PC1 = pca_clean$x[,1], PC2 = pca_clean$x[,2], Group = targets$primary_group)
+    cov_label <- if (length(sv_cols) > 0) "covariates + SVs" else "covariates"
     p_pca_clean <- ggplot(pca_clean_df, aes(x=PC1, y=PC2, color=Group)) + 
-      geom_point(size=3) + theme_minimal() + ggtitle(paste(prefix, "PCA (Corrected: covariates + SVs)"))
+      geom_point(size=3) + theme_minimal() + ggtitle(paste(prefix, "PCA (Corrected:", cov_label, ")"))
     save_interactive_plot(p_pca_clean, paste0(prefix, "_PCA_After_Correction.html"), out_dir)
     save_static_plot(p_pca_clean, paste0(prefix, "_PCA_After_Correction.png"), out_dir, width = 5, height = 4)
     
@@ -1730,7 +1988,7 @@ if (!disable_sva) {
   groups <- levels(targets$primary_group)
   if (length(groups) < 2) {
       message("Skipping stats: Not enough groups.")
-      return(NULL)
+      return(list(res = NULL, n_con = n_con_local, n_test = n_test_local, n_samples = nrow(targets)))
   }
   contrast_str <- paste0(groups[2], "-", groups[1])
   message(paste("  - Contrast:", contrast_str))
@@ -2408,97 +2666,103 @@ if (!disable_sva) {
       }
   }
   
-  return(res)
+  return(list(res = res, n_con = n_con_local, n_test = n_test_local, n_samples = nrow(targets)))
 }
 
-res_minfi <- run_pipeline(beta_minfi, "Minfi", anno_df)
-res_sesame <- run_pipeline(beta_sesame, "Sesame", anno_df)
+minfi_out <- run_pipeline(beta_minfi, "Minfi", anno_df)
+sesame_out <- run_pipeline(beta_sesame, "Sesame", anno_df)
+res_minfi <- if (!is.null(minfi_out)) minfi_out$res else NULL
+res_sesame <- if (!is.null(sesame_out)) sesame_out$res else NULL
 
 # --- Consensus (Intersection) between Minfi and Sesame ---
 # For publication-ready "double validation", we define consensus DMPs as probes that are significant
 # in BOTH pipelines with the same direction (and passing the same thresholds).
 consensus_counts <- list(up = 0, down = 0)
-tryCatch({
-  keep_cols <- intersect(
-    c("CpG", "Gene", "chr", "pos", "Region", "Island_Context", "logFC", "P.Value", "adj.P.Val"),
-    colnames(res_minfi)
-  )
-  a <- res_minfi[, keep_cols, drop = FALSE]
-  b <- res_sesame[, intersect(c("CpG", "logFC", "P.Value", "adj.P.Val"), colnames(res_sesame)), drop = FALSE]
-  concord <- merge(a, b, by = "CpG", suffixes = c(".Minfi", ".Sesame"))
-  concord <- concord[is.finite(concord$logFC.Minfi) & is.finite(concord$logFC.Sesame), , drop = FALSE]
-  
-  is_up <- concord$adj.P.Val.Minfi < pval_thresh &
-    concord$adj.P.Val.Sesame < pval_thresh &
-    concord$logFC.Minfi > lfc_thresh &
-    concord$logFC.Sesame > lfc_thresh
-  
-  is_down <- concord$adj.P.Val.Minfi < pval_thresh &
-    concord$adj.P.Val.Sesame < pval_thresh &
-    concord$logFC.Minfi < -lfc_thresh &
-    concord$logFC.Sesame < -lfc_thresh
-  
-  consensus_counts$up <- sum(is_up, na.rm = TRUE)
-  consensus_counts$down <- sum(is_down, na.rm = TRUE)
-  
-  consensus_df <- concord[is_up | is_down, , drop = FALSE]
-  if (nrow(consensus_df) > 0) {
-    consensus_df$logFC_mean <- rowMeans(consensus_df[, c("logFC.Minfi", "logFC.Sesame")], na.rm = TRUE)
-    consensus_df$P.Value <- pmax(consensus_df$P.Value.Minfi, consensus_df$P.Value.Sesame, na.rm = TRUE)
-    consensus_df$adj.P.Val <- pmax(consensus_df$adj.P.Val.Minfi, consensus_df$adj.P.Val.Sesame, na.rm = TRUE)
-    consensus_df <- consensus_df[order(consensus_df$P.Value, consensus_df$adj.P.Val), , drop = FALSE]
-    
-    out_cons_csv <- file.path(out_dir, "Intersection_Consensus_DMPs.csv")
-    write.csv(consensus_df, out_cons_csv, row.names = FALSE)
-    save_datatable(head(consensus_df, min(10000, nrow(consensus_df))), "Intersection_Consensus_DMPs.html", out_dir)
-    message(paste("Consensus DMPs saved to", out_cons_csv))
-  }
-  
-  # Concordance plot (logFC Minfi vs Sesame)
-  concord$Consensus <- (is_up | is_down)
-  plot_df <- concord
-  if (nrow(plot_df) > max_points) {
-    set.seed(12345)
-    idx <- sample(seq_len(nrow(plot_df)), max_points)
-    plot_df <- plot_df[idx, , drop = FALSE]
-  }
-  r_val <- suppressWarnings(cor(concord$logFC.Minfi, concord$logFC.Sesame, use = "complete.obs"))
-  p_conc <- ggplot(plot_df, aes(x = logFC.Minfi, y = logFC.Sesame, color = Consensus)) +
-    geom_point(alpha = 0.4, size = 1) +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
-    scale_color_manual(values = c("FALSE" = "gray70", "TRUE" = "#e74c3c")) +
-    theme_minimal() +
-    labs(
-      title = "Minfi vs Sesame logFC concordance",
-      subtitle = sprintf("Pearson r = %.3f (points subsampled to max_plots=%d for rendering)", r_val, max_points),
-      x = "log2FC (Minfi)",
-      y = "log2FC (Sesame)",
-      color = "Consensus"
+if (is.null(res_minfi) || is.null(res_sesame)) {
+  message("Warning: Consensus (Intersection) skipped because one or more pipelines produced no results.")
+} else {
+  tryCatch({
+    keep_cols <- intersect(
+      c("CpG", "Gene", "chr", "pos", "Region", "Island_Context", "logFC", "P.Value", "adj.P.Val"),
+      colnames(res_minfi)
     )
-  save_interactive_plot(p_conc, "Intersection_LogFC_Concordance.html", out_dir)
-  save_static_plot(p_conc, "Intersection_LogFC_Concordance.png", out_dir, width = 6, height = 6)
-  
-  # Overlap summary plot (counts)
-  sig_minfi <- concord$adj.P.Val.Minfi < pval_thresh & abs(concord$logFC.Minfi) > lfc_thresh
-  sig_sesame <- concord$adj.P.Val.Sesame < pval_thresh & abs(concord$logFC.Sesame) > lfc_thresh
-  n_both <- sum(is_up | is_down, na.rm = TRUE)
-  overlap_df <- data.frame(
-    Category = c("Minfi only", "Sesame only", "Both (consensus)"),
-    Count = c(sum(sig_minfi, na.rm = TRUE) - n_both, sum(sig_sesame, na.rm = TRUE) - n_both, n_both)
-  )
-  p_ov <- ggplot(overlap_df, aes(x = Category, y = Count, fill = Category, text = Count)) +
-    geom_col() +
-    scale_fill_manual(values = c("Minfi only" = "#3498db", "Sesame only" = "#2ecc71", "Both (consensus)" = "#e74c3c")) +
-    theme_minimal() +
-    theme(legend.position = "none") +
-    labs(title = "Significant DMP overlap (Minfi vs Sesame)", y = "Count", x = NULL)
-  save_interactive_plot(p_ov, "Intersection_Significant_Overlap.html", out_dir)
-  save_static_plot(p_ov, "Intersection_Significant_Overlap.png", out_dir, width = 7, height = 4)
-  
-}, error = function(e) {
-  message("Warning: Consensus (Intersection) outputs failed: ", e$message)
-})
+    a <- res_minfi[, keep_cols, drop = FALSE]
+    b <- res_sesame[, intersect(c("CpG", "logFC", "P.Value", "adj.P.Val"), colnames(res_sesame)), drop = FALSE]
+    concord <- merge(a, b, by = "CpG", suffixes = c(".Minfi", ".Sesame"))
+    concord <- concord[is.finite(concord$logFC.Minfi) & is.finite(concord$logFC.Sesame), , drop = FALSE]
+    
+    is_up <- concord$adj.P.Val.Minfi < pval_thresh &
+      concord$adj.P.Val.Sesame < pval_thresh &
+      concord$logFC.Minfi > lfc_thresh &
+      concord$logFC.Sesame > lfc_thresh
+    
+    is_down <- concord$adj.P.Val.Minfi < pval_thresh &
+      concord$adj.P.Val.Sesame < pval_thresh &
+      concord$logFC.Minfi < -lfc_thresh &
+      concord$logFC.Sesame < -lfc_thresh
+    
+    consensus_counts$up <- sum(is_up, na.rm = TRUE)
+    consensus_counts$down <- sum(is_down, na.rm = TRUE)
+    
+    consensus_df <- concord[is_up | is_down, , drop = FALSE]
+    if (nrow(consensus_df) > 0) {
+      consensus_df$logFC_mean <- rowMeans(consensus_df[, c("logFC.Minfi", "logFC.Sesame")], na.rm = TRUE)
+      consensus_df$P.Value <- pmax(consensus_df$P.Value.Minfi, consensus_df$P.Value.Sesame, na.rm = TRUE)
+      consensus_df$adj.P.Val <- pmax(consensus_df$adj.P.Val.Minfi, consensus_df$adj.P.Val.Sesame, na.rm = TRUE)
+      consensus_df <- consensus_df[order(consensus_df$P.Value, consensus_df$adj.P.Val), , drop = FALSE]
+      
+      out_cons_csv <- file.path(out_dir, "Intersection_Consensus_DMPs.csv")
+      write.csv(consensus_df, out_cons_csv, row.names = FALSE)
+      save_datatable(head(consensus_df, min(10000, nrow(consensus_df))), "Intersection_Consensus_DMPs.html", out_dir)
+      message(paste("Consensus DMPs saved to", out_cons_csv))
+    }
+    
+    # Concordance plot (logFC Minfi vs Sesame)
+    concord$Consensus <- (is_up | is_down)
+    plot_df <- concord
+    if (nrow(plot_df) > max_points) {
+      set.seed(12345)
+      idx <- sample(seq_len(nrow(plot_df)), max_points)
+      plot_df <- plot_df[idx, , drop = FALSE]
+    }
+    r_val <- suppressWarnings(cor(concord$logFC.Minfi, concord$logFC.Sesame, use = "complete.obs"))
+    p_conc <- ggplot(plot_df, aes(x = logFC.Minfi, y = logFC.Sesame, color = Consensus)) +
+      geom_point(alpha = 0.4, size = 1) +
+      geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+      geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+      scale_color_manual(values = c("FALSE" = "gray70", "TRUE" = "#e74c3c")) +
+      theme_minimal() +
+      labs(
+        title = "Minfi vs Sesame logFC concordance",
+        subtitle = sprintf("Pearson r = %.3f (points subsampled to max_plots=%d for rendering)", r_val, max_points),
+        x = "log2FC (Minfi)",
+        y = "log2FC (Sesame)",
+        color = "Consensus"
+      )
+    save_interactive_plot(p_conc, "Intersection_LogFC_Concordance.html", out_dir)
+    save_static_plot(p_conc, "Intersection_LogFC_Concordance.png", out_dir, width = 6, height = 6)
+    
+    # Overlap summary plot (counts)
+    sig_minfi <- concord$adj.P.Val.Minfi < pval_thresh & abs(concord$logFC.Minfi) > lfc_thresh
+    sig_sesame <- concord$adj.P.Val.Sesame < pval_thresh & abs(concord$logFC.Sesame) > lfc_thresh
+    n_both <- sum(is_up | is_down, na.rm = TRUE)
+    overlap_df <- data.frame(
+      Category = c("Minfi only", "Sesame only", "Both (consensus)"),
+      Count = c(sum(sig_minfi, na.rm = TRUE) - n_both, sum(sig_sesame, na.rm = TRUE) - n_both, n_both)
+    )
+    p_ov <- ggplot(overlap_df, aes(x = Category, y = Count, fill = Category, text = Count)) +
+      geom_col() +
+      scale_fill_manual(values = c("Minfi only" = "#3498db", "Sesame only" = "#2ecc71", "Both (consensus)" = "#e74c3c")) +
+      theme_minimal() +
+      theme(legend.position = "none") +
+      labs(title = "Significant DMP overlap (Minfi vs Sesame)", y = "Count", x = NULL)
+    save_interactive_plot(p_ov, "Intersection_Significant_Overlap.html", out_dir)
+    save_static_plot(p_ov, "Intersection_Significant_Overlap.png", out_dir, width = 7, height = 4)
+    
+  }, error = function(e) {
+    message("Warning: Consensus (Intersection) outputs failed: ", e$message)
+  })
+}
 
 get_sig_counts <- function(res_df) {
   if (is.null(res_df) || nrow(res_df) == 0) return(list(up = 0, down = 0))
@@ -2510,11 +2774,25 @@ get_sig_counts <- function(res_df) {
 minfi_counts <- get_sig_counts(res_minfi)
 sesame_counts <- get_sig_counts(res_sesame)
 intersect_counts <- consensus_counts
+summary_n_con <- if (!is.null(minfi_out) && !is.null(minfi_out$n_con)) {
+  minfi_out$n_con
+} else if (!is.null(sesame_out) && !is.null(sesame_out$n_con)) {
+  sesame_out$n_con
+} else {
+  n_con
+}
+summary_n_test <- if (!is.null(minfi_out) && !is.null(minfi_out$n_test)) {
+  minfi_out$n_test
+} else if (!is.null(sesame_out) && !is.null(sesame_out$n_test)) {
+  sesame_out$n_test
+} else {
+  n_test
+}
 
 tryCatch({
   summary_json <- sprintf(
     '{"n_con": %d, "n_test": %d, "minfi_up": %d, "minfi_down": %d, "sesame_up": %d, "sesame_down": %d, "intersect_up": %d, "intersect_down": %d}', 
-    n_con, n_test,
+    summary_n_con, summary_n_test,
     minfi_counts$up, minfi_counts$down,
     sesame_counts$up, sesame_counts$down,
     intersect_counts$up, intersect_counts$down
@@ -2523,11 +2801,13 @@ tryCatch({
   writeLines(summary_json, file.path(out_dir, "summary.json"))
   message("Summary statistics saved to summary.json")
   
+  sva_rule <- ifelse(disable_sva, "disabled", "best_method_or_no_batch")
   params_json <- sprintf(
-    '{"pval_threshold": %.3f, "lfc_threshold": %.2f, "snp_maf": %.3f, "qc_intensity_threshold": %.1f, "detection_p_threshold": %.3f, "auto_covariate_alpha": %.3f, "auto_covariate_max_pcs": %d, "sva_enabled": %s, "permutations": %d, "vp_top": %d, "dmr_maxgap": %d, "dmr_p_cutoff": %.3f, "logit_offset": %.6f, "seed": %d}',
+    '{"pval_threshold": %.3f, "lfc_threshold": %.2f, "snp_maf": %.3f, "qc_intensity_threshold": %.1f, "detection_p_threshold": %.3f, "auto_covariate_alpha": %.3f, "auto_covariate_max_pcs": %d, "sva_enabled": %s, "sva_inclusion_rule": "%s", "clock_covariates_enabled": %s, "sv_group_p_threshold": %.1e, "sv_group_eta2_threshold": %.2f, "pvca_min_samples": %d, "permutations": %d, "vp_top": %d, "dmr_maxgap": %d, "dmr_p_cutoff": %.3f, "logit_offset": %.6f, "seed": %d}',
     pval_thresh, lfc_thresh, SNP_MAF_THRESHOLD, QC_MEDIAN_INTENSITY_THRESHOLD,
     QC_DETECTION_P_THRESHOLD, AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION,
-    ifelse(disable_sva, "false", "true"), perm_n, vp_top, DMR_MAXGAP, DMR_P_CUTOFF, LOGIT_OFFSET, 12345
+    ifelse(disable_sva, "false", "true"), sva_rule, ifelse(include_clock_covariates, "true", "false"),
+    SV_GROUP_P_THRESHOLD, SV_GROUP_ETA2_THRESHOLD, PVCA_MIN_SAMPLES, perm_n, vp_top, DMR_MAXGAP, DMR_P_CUTOFF, LOGIT_OFFSET, 12345
   )
   writeLines(params_json, file.path(out_dir, "analysis_parameters.json"))
   message("Analysis parameters saved to analysis_parameters.json")
@@ -2567,7 +2847,7 @@ tryCatch({
     sprintf("- Generated: %s", format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
     sprintf("- Config: `%s`", config_file),
     sprintf("- Output: `%s`", out_dir),
-    sprintf("- Groups: control=`%s` (n=%s), test=`%s` (n=%s)", group_con_in, n_con, group_test_in, n_test),
+    sprintf("- Groups: control=`%s` (n=%s), test=`%s` (n=%s)", group_con_in, summary_n_con, group_test_in, summary_n_test),
     sprintf("- Tissue: `%s`", opt$tissue),
     sprintf("- Significance thresholds: BH FDR < %.3f and |log2FC| > %.2f", pval_thresh, lfc_thresh),
     "",
@@ -2594,9 +2874,11 @@ tryCatch({
     "",
     "## Covariates and batch control",
     sprintf("- Automatic covariate discovery: metadata variables associated with the top PCs (alpha=%.3f; up to %d PCs) are considered, then filtered for stability/confounding.", AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION),
+    "- Small-n safeguard: if covariate count would eliminate residual degrees of freedom, covariates are capped using PC-association/variance ranking to preserve model stability.",
     "- Cell composition: if `--tissue Auto`, reference-free deconvolution is performed via RefFreeEWAS (K=5 latent components); these components are optionally added as covariates after basic sanity checks.",
-    "- Surrogate variable analysis (SVA): enabled unless `--disable_sva`; SVs are estimated on top-variable probes for speed and appended to the design.",
-    "- Batch method comparison: if a suitable batch factor exists, multiple correction strategies are evaluated and a best method is chosen for modeling.",
+    sprintf("- Surrogate variable analysis (SVA): enabled unless `--disable_sva`; SVs are estimated on top-variable probes and included in the model only when selected as the best batch strategy or when no batch factor is evaluated (to avoid double correction). SVs strongly associated with the group (P < %.1e or Eta^2 > %.2f) are excluded to avoid over-correction.", SV_GROUP_P_THRESHOLD, SV_GROUP_ETA2_THRESHOLD),
+    "- Epigenetic clock covariates: when `--include_clock_covariates` is enabled, clock outputs are merged into metadata and considered by auto covariate selection (clocks with missing/constant values are excluded).",
+    "- Batch method comparison: if a suitable unconfounded batch factor exists, multiple correction strategies are evaluated and a best method is chosen for modeling.",
     "",
     "## Differential methylation (DMP)",
     sprintf("- Beta values are transformed to M-values with a logit offset of %.6f.", LOGIT_OFFSET),

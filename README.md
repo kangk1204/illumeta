@@ -1,6 +1,7 @@
 # IlluMeta
 
-IlluMeta (Illuminating Methylation Analytics) is an end-to-end pipeline to go from a GEO accession (or raw IDATs) to publication-ready DNA methylation results and an interactive HTML dashboard.
+IlluMeta (Illuminating Methylation Analytics) is an end-to-end pipeline that transforms a GEO accession (or raw IDAT files) into publication-ready DNA methylation results and an interactive HTML dashboard.
+In addition to array-based DNA methylation analysis, IlluMeta is designed to support sequencing-based methylation data, including methyl-capture sequencing and whole-genome bisulfite sequencing (WGBS), enabling a unified and extensible framework for comprehensive DNA methylation analysis across multiple experimental platforms.
 
 ## Highlights
 - **One-command workflow**: `download` → edit `configure.tsv` → `analysis`.

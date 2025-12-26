@@ -9,6 +9,8 @@ __pycache__/
 .venv/
 # Local R library (auto-created)
 .r-lib/
+# Local R library path marker
+.illumeta_r_lib_path
 # Local analysis outputs / scratch
 projects/
 batch_report.csv

@@ -57,13 +57,7 @@ cd illumeta
 ##### Option A: Conda (recommended for beginners)
 This uses conda to provide R/Python plus the system libraries needed by many R packages.
 
-Recommended (auto-selects a fast mirror for conda-forge):
-```bash
-bash setup_env.sh
-```
-Follow the activate command printed at the end. To recreate from scratch: `FORCE=1 bash setup_env.sh`.
-
-Manual (default conda-forge):
+Recommended (default conda-forge; `setup_env.sh` is not included in this repo):
 ```bash
 conda env create -f environment.yml
 conda activate illumeta
@@ -137,9 +131,9 @@ Optional toggles:
 - `ILLUMETA_CLEAN_MISMATCHED_RLIB=1` (use after switching R versions)
 - `ILLUMETA_DOWNLOAD_RETRIES=2` (retry big downloads if they fail; increase to 3+ on flaky networks)
 
-If you see errors like `libxml-2.0` or `xml2` not found:
-- Conda: `conda install -c conda-forge libxml2 pkg-config`
-- System R (Ubuntu/WSL): `sudo apt-get install -y libxml2-dev pkg-config`
+If you see errors like `libxml-2.0`, `xml2`, `lzma.h`, or `zlib.h` not found:
+- Conda (Linux/WSL): `conda install -c conda-forge libxml2-devel zlib xz pkg-config`
+- System R (Ubuntu/WSL): `sudo apt-get install -y libxml2-dev zlib1g-dev liblzma-dev pkg-config`
 Then rerun the setup command.
 
 #### 4) Check your environment (recommended)
@@ -182,13 +176,7 @@ cd illumeta
 ##### Option A: Conda (recommended for beginners)
 This uses conda to provide R/Python plus the system libraries needed by many R packages.
 
-Recommended (auto-selects a fast mirror for conda-forge):
-```bash
-bash setup_env.sh
-```
-Follow the activate command printed at the end. To recreate from scratch: `FORCE=1 bash setup_env.sh`.
-
-Manual (default conda-forge):
+Recommended (default conda-forge; `setup_env.sh` is not included in this repo):
 ```bash
 conda env create -f environment.yml
 conda activate illumeta
@@ -256,9 +244,9 @@ Optional toggles:
 - `ILLUMETA_CLEAN_MISMATCHED_RLIB=1` (use after switching R versions)
 - `ILLUMETA_DOWNLOAD_RETRIES=2` (retry big downloads if they fail; increase to 3+ on flaky networks)
 
-If you see errors like `libxml-2.0` or `xml2` not found:
-- Conda: `conda install -c conda-forge libxml2 pkg-config`
-- System R (macOS): `brew install libxml2 pkg-config`
+If you see errors like `libxml-2.0`, `xml2`, `lzma.h`, or `zlib.h` not found:
+- Conda (macOS): `conda install -c conda-forge libxml2 zlib xz pkg-config`
+- System R (macOS): `brew install libxml2 zlib xz pkg-config`
 Then rerun the setup command.
 
 #### 4) Check your environment (recommended)
@@ -302,13 +290,7 @@ cd illumeta
 ##### Option A: Conda (recommended for beginners)
 This uses conda to provide R/Python plus the system libraries needed by many R packages.
 
-Recommended (auto-selects a fast mirror for conda-forge):
-```bash
-bash setup_env.sh
-```
-Follow the activate command printed at the end. To recreate from scratch: `FORCE=1 bash setup_env.sh`.
-
-Manual (default conda-forge):
+Recommended (default conda-forge; `setup_env.sh` is not included in this repo):
 ```bash
 conda env create -f environment.yml
 conda activate illumeta
@@ -382,9 +364,9 @@ Optional toggles:
 - `ILLUMETA_CLEAN_MISMATCHED_RLIB=1` (use after switching R versions)
 - `ILLUMETA_DOWNLOAD_RETRIES=2` (retry big downloads if they fail; increase to 3+ on flaky networks)
 
-If you see errors like `libxml-2.0` or `xml2` not found:
-- Conda: `conda install -c conda-forge libxml2 pkg-config`
-- System R (Ubuntu/WSL): `sudo apt-get install -y libxml2-dev pkg-config`
+If you see errors like `libxml-2.0`, `xml2`, `lzma.h`, or `zlib.h` not found:
+- Conda (Linux/WSL): `conda install -c conda-forge libxml2-devel zlib xz pkg-config`
+- System R (Ubuntu/WSL): `sudo apt-get install -y libxml2-dev zlib1g-dev liblzma-dev pkg-config`
 Then rerun the setup command.
 
 #### 4) Check your environment (recommended)
@@ -502,7 +484,9 @@ python3 illumeta.py doctor
 
 Common issues:
 - **Missing system libraries** (R packages fail to compile): install the OS prerequisites above, then rerun `ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.
-- **`xml2` / `libxml-2.0` errors**: install `libxml2` + `pkg-config` (conda: `conda install -c conda-forge libxml2 pkg-config`; Ubuntu/WSL: `sudo apt-get install -y libxml2-dev pkg-config`; macOS: `brew install libxml2 pkg-config`), then rerun setup.
+- **`xml2` / `libxml-2.0` errors**: install `libxml2` + `pkg-config` (conda Linux/WSL: `conda install -c conda-forge libxml2-devel pkg-config`; conda macOS: `conda install -c conda-forge libxml2 pkg-config`; Ubuntu/WSL: `sudo apt-get install -y libxml2-dev pkg-config`; macOS: `brew install libxml2 pkg-config`), then rerun setup.
+- **`lzma.h` / `liblzma` / `Rhtslib` errors**: install xz (conda: `conda install -c conda-forge xz`; Ubuntu/WSL: `sudo apt-get install -y liblzma-dev`; macOS: `brew install xz`), then rerun setup.
+- **`zlib.h` errors**: install zlib (conda: `conda install -c conda-forge zlib`; Ubuntu/WSL: `sudo apt-get install -y zlib1g-dev`; macOS: `brew install zlib`), then rerun setup.
 - **`gert` / `git2.h` / `libgit2` errors** (devtools install): install `libgit2` + `pkg-config` (conda: `conda install -c conda-forge libgit2 pkg-config`; Ubuntu/WSL: `sudo apt-get install -y libgit2-dev pkg-config`; macOS: `brew install libgit2 pkg-config`), then rerun setup.
 - **`textshaping` / `ragg` errors** (devtools/tidyverse): install harfbuzz + fribidi (conda: `conda install -c conda-forge harfbuzz fribidi`; Ubuntu/WSL: `sudo apt-get install -y libharfbuzz-dev libfribidi-dev`; macOS: `brew install harfbuzz fribidi`), then rerun setup.
 - **`gfortran` / Fortran errors**: install a Fortran compiler (Ubuntu/WSL: `sudo apt-get install -y gfortran`; macOS: `brew install gcc`; conda: `conda install -c conda-forge gfortran`), then rerun setup.

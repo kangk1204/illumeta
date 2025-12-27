@@ -238,10 +238,14 @@ save_static_plot <- function(p, filename, dir, width = 7, height = 4, dpi = 300)
   })
 }
 
-save_datatable <- function(df, filename, dir) {
-  # Identify P.Value column index (0-based for JS)
-  p_idx <- which(colnames(df) == "P.Value") - 1
-  if (length(p_idx) == 0) p_idx <- 0 # Fallback
+save_datatable <- function(df, filename, dir, sort_col = NULL) {
+  # Identify P-value column index (0-based for JS)
+  if (is.null(sort_col) || !(sort_col %in% colnames(df))) {
+    sort_candidates <- c("P.Value", "p.value", "p.adjust", "adj.P.Val")
+    sort_col <- sort_candidates[sort_candidates %in% colnames(df)][1]
+  }
+  p_idx <- if (!is.null(sort_col)) match(sort_col, colnames(df)) - 1 else 0
+  if (length(p_idx) == 0 || is.na(p_idx)) p_idx <- 0 # Fallback
   
   dt <- datatable(df, extensions = 'Buttons', options = list(
     dom = 'Bfrtip',
@@ -2747,27 +2751,31 @@ run_pipeline <- function(betas, prefix, annotation_df) {
       
       if (nrow(dmr_res) > 0) {
           dmr_res <- annotate_dmr(dmr_res, curr_anno)
-          dmr_res <- dmr_res[order(dmr_res$p.adjust, dmr_res$p.value, na.last = TRUE), ]
+          dmr_res <- dmr_res[order(dmr_res$p.value, dmr_res$p.adjust, na.last = TRUE), ]
           message(paste("    - Found", nrow(dmr_res), "DMRs."))
           
           # Save Table
           dmr_filename <- paste0(prefix, "_DMRs_Table.html")
           save_datatable(head(dmr_res, 3000), dmr_filename, out_dir)
-          write.csv(dmr_res, file.path(out_dir, paste0(prefix, "_DMRs.csv")))
+          write.csv(dmr_res, file.path(out_dir, paste0(prefix, "_DMRs.csv")), row.names = FALSE)
           
           # 1. DMR Volcano Plot
           # dmrff returns 'estimate' (avg LogFC) and 'p.adjust'
           dmr_res$diffexpressed <- "NO"
           dmr_res$diffexpressed[dmr_res$p.adjust < DMR_P_CUTOFF & dmr_res$estimate > 0] <- "UP"
           dmr_res$diffexpressed[dmr_res$p.adjust < DMR_P_CUTOFF & dmr_res$estimate < 0] <- "DOWN"
+          dmr_res$plot_p <- pmax(dmr_res$p.value, 1e-300)
           
-          p_vol_dmr <- ggplot(dmr_res, aes(x=estimate, y=-log10(p.adjust), color=diffexpressed,
-                          text=paste("Region:", paste0(chr, ":", start, "-", end), "<br>nCpG:", n, "<br>P-adj:", p.adjust))) +
+          p_vol_dmr <- ggplot(dmr_res, aes(x=estimate, y=-log10(plot_p), color=diffexpressed,
+                          text=paste("Region:", paste0(chr, ":", start, "-", end),
+                                     "<br>nCpG:", n,
+                                     "<br>P:", signif(p.value, 3),
+                                     "<br>FDR:", signif(p.adjust, 3)))) +
               geom_point(alpha=0.6, size=2) + theme_minimal() +
               scale_color_manual(values=c("DOWN"="blue", "NO"="grey", "UP"="red")) +
               labs(title = paste(prefix, "DMR Volcano Plot"), 
                    subtitle = "dmrff analysis",
-                   x = "Mean Methylation Difference (Estimate)", y = "-log10 Adjusted P-value",
+                   x = "Mean M-value Difference (Estimate)", y = "-log10 P-value",
                    color = "Status")
           save_interactive_plot(p_vol_dmr, paste0(prefix, "_DMR_Volcano.html"), out_dir)
           save_static_plot(p_vol_dmr, paste0(prefix, "_DMR_Volcano.png"), out_dir, width = 6, height = 5)
@@ -2798,8 +2806,12 @@ run_pipeline <- function(betas, prefix, annotation_df) {
               
               chr_labels_dmr <- names(chr_vals)[match(axis_set_dmr$chr_num, chr_vals)]
               
-              p_man_dmr <- ggplot(plot_dmr_man, aes(x=pos_cum, y=-log10(p.adjust), color=as.factor(chr_num %% 2),
-                                  text=paste("Region:", paste0(chr, ":", start, "-", end), "<br>nCpG:", n))) +
+              plot_dmr_man$plot_p <- pmax(plot_dmr_man$p.value, 1e-300)
+              p_man_dmr <- ggplot(plot_dmr_man, aes(x=pos_cum, y=-log10(plot_p), color=as.factor(chr_num %% 2),
+                                  text=paste("Region:", paste0(chr, ":", start, "-", end),
+                                             "<br>nCpG:", n,
+                                             "<br>P:", signif(p.value, 3),
+                                             "<br>FDR:", signif(p.adjust, 3)))) +
                   geom_point(alpha=0.7, size=2) +
                   scale_color_manual(values=c("0"="#2c3e50", "1"="#3498db")) +
                   scale_x_continuous(label = chr_labels_dmr, breaks = axis_set_dmr$center) +
@@ -2809,6 +2821,7 @@ run_pipeline <- function(betas, prefix, annotation_df) {
                         panel.grid.minor.x = element_blank(),
                         axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5)) +
                   xlab("Chromosome") +
+                  ylab("-log10 P-value") +
                   ggtitle(paste(prefix, "DMR Manhattan Plot"))
               
               save_interactive_plot(p_man_dmr, paste0(prefix, "_DMR_Manhattan.html"), out_dir)
@@ -2816,7 +2829,7 @@ run_pipeline <- function(betas, prefix, annotation_df) {
           }
           
           # 3. DMR Heatmap (Top 50 DMRs - Average Methylation per Region)
-          top_dmrs <- head(dmr_res[order(dmr_res$p.adjust), ], 50)
+          top_dmrs <- head(dmr_res, 50)
           
           # Calculate average methylation for each top DMR across all samples
           dmr_means <- matrix(NA, nrow=nrow(top_dmrs), ncol=ncol(betas_dmr))

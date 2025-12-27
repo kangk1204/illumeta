@@ -536,16 +536,13 @@ estimate_cell_counts_safe <- function(rgSet, tissue = "Blood", out_dir = NULL) {
     return(NULL)
   }
 
-  est_fun <- NULL
-  if (exists("estimateCellCounts2", envir = asNamespace("minfi"), inherits = FALSE)) {
-    est_fun <- minfi::estimateCellCounts2
-  } else if (exists("estimateCellCounts", envir = asNamespace("minfi"), inherits = FALSE)) {
-    est_fun <- minfi::estimateCellCounts
-  }
-  
-  if (is.null(est_fun)) {
-    message("Cell composition skipped (minfi::estimateCellCounts[2] not available).")
-    return(NULL)
+  minfi_est_fun <- NULL
+  if (requireNamespace("minfi", quietly = TRUE)) {
+    if (exists("estimateCellCounts2", envir = asNamespace("minfi"), inherits = FALSE)) {
+      minfi_est_fun <- minfi::estimateCellCounts2
+    } else if (exists("estimateCellCounts", envir = asNamespace("minfi"), inherits = FALSE)) {
+      minfi_est_fun <- minfi::estimateCellCounts
+    }
   }
 
   for (ref in refs) {
@@ -562,6 +559,17 @@ estimate_cell_counts_safe <- function(rgSet, tissue = "Blood", out_dir = NULL) {
     # Determine reference platform string for minfi
     # Usually inferred by the package name, but estimateCellCounts wants 'referencePlatform' sometimes
     ref_platform <- if (grepl("EPIC", ref, ignore.case = TRUE)) "IlluminaHumanMethylationEPIC" else "IlluminaHumanMethylation450k"
+    
+    est_fun <- minfi_est_fun
+    if (ref == "FlowSorted.Blood.EPIC" &&
+        exists("estimateCellCounts2", envir = asNamespace("FlowSorted.Blood.EPIC"), inherits = FALSE)) {
+      est_fun <- FlowSorted.Blood.EPIC::estimateCellCounts2
+    }
+    
+    if (is.null(est_fun)) {
+      message("Cell composition skipped (minfi::estimateCellCounts[2] not available).")
+      return(NULL)
+    }
     
     res <- tryCatch({
       arg_list <- list(
@@ -588,6 +596,9 @@ estimate_cell_counts_safe <- function(rgSet, tissue = "Blood", out_dir = NULL) {
     
     if (is.null(res)) next
     
+    if (is.list(res) && !is.null(res$prop)) {
+      res <- res$prop
+    }
     df <- as.data.frame(res)
     colnames(df) <- paste0("Cell_", colnames(df))
     df$SampleID <- rownames(df)

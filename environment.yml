@@ -16,6 +16,10 @@ dependencies:
   - openssl
   - libxml2
   - icu
+  - libgit2
+  - fontconfig
+  - harfbuzz
+  - fribidi
   - freetype
   - libpng
   - libtiff

@@ -584,6 +584,7 @@ def run_analysis(args):
         "--max_plots", str(args.max_plots),
         "--pval", str(args.pval),
         "--lfc", str(args.lfc),
+        "--delta_beta", str(args.delta_beta),
         "--min_total_size", str(args.min_total_size),
         "--qc_intensity_threshold", str(args.qc_intensity_threshold)
     ]
@@ -1126,7 +1127,7 @@ def generate_dashboard(output_dir, group_test, group_con):
         if analysis_params:
             html_parts.append('        <div class="metrics-card">\n')
             html_parts.append('            <div class="metrics-title">Analysis Parameters</div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>FDR / |logFC|</span><span>{analysis_params.get("pval_threshold", "N/A")} / {analysis_params.get("lfc_threshold", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>FDR / |logFC| / |DeltaBeta|</span><span>{analysis_params.get("pval_threshold", "N/A")} / {analysis_params.get("lfc_threshold", "N/A")} / {analysis_params.get("delta_beta_threshold", "N/A")}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Tissue</span><span>{analysis_params.get("tissue", "N/A")} ({analysis_params.get("tissue_source", "N/A")})</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Array type</span><span>{analysis_params.get("array_type", "N/A")}</span></div>\n')
             cell_ref = analysis_params.get("cell_reference", "")
@@ -1323,6 +1324,7 @@ def main():
     parser_analysis.add_argument("--max_plots", type=int, default=10000, help="Max points for interactive plots (default: 10000)")
     parser_analysis.add_argument("--pval", type=float, default=0.05, help="Adjusted P-value threshold (default: 0.05)")
     parser_analysis.add_argument("--lfc", type=float, default=0.5, help="Log2 Fold Change threshold (default: 0.5)")
+    parser_analysis.add_argument("--delta-beta", type=float, default=0.0, help="Absolute Delta Beta threshold (default: 0; disabled)")
     parser_analysis.add_argument("--tmp-dir", type=str, help="Custom temporary directory (e.g., external drive)")
     parser_analysis.add_argument("--disable-auto-covariates", action="store_true", help="Disable automatic covariate selection via PCs")
     parser_analysis.add_argument("--disable-sva", action="store_true", help="Disable surrogate variable analysis")

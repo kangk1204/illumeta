@@ -446,6 +446,14 @@ def run_analysis(args):
         "--min_total_size", str(args.min_total_size),
         "--qc_intensity_threshold", str(args.qc_intensity_threshold)
     ]
+    if args.idat_dir:
+        idat_dir = args.idat_dir
+        if not os.path.isabs(idat_dir):
+            idat_dir = os.path.join(os.path.dirname(os.path.abspath(config_path)), idat_dir)
+        if not os.path.isdir(idat_dir):
+            log_err(f"[!] IDAT directory not found: {idat_dir}")
+            sys.exit(1)
+        cmd.extend(["--idat_dir", idat_dir])
     if args.force_idat:
         cmd.append("--force_idat")
     if args.disable_auto_covariates:
@@ -460,6 +468,8 @@ def run_analysis(args):
         cmd.extend(["--tissue", args.tissue])
     if args.positive_controls:
         cmd.extend(["--positive_controls", args.positive_controls])
+    if args.skip_sesame:
+        cmd.append("--skip-sesame")
     if args.permutations and args.permutations > 0:
         cmd.extend(["--permutations", str(args.permutations)])
     if args.vp_top:
@@ -1137,6 +1147,7 @@ def main():
     parser_analysis.add_argument("-i", "--input-dir", type=str, help="Project input directory (containing configure.tsv)")
     parser_analysis.add_argument("-c", "--config", type=str, help="Specific path to configure.tsv (overrides --input-dir)")
     parser_analysis.add_argument("-o", "--output", type=str, help="Output directory for results (default: [input-dir]/[test]_vs_[con]_results)")
+    parser_analysis.add_argument("--idat-dir", type=str, help="Path to IDAT directory (default: [config dir]/idat)")
     parser_analysis.add_argument("--group_con", type=str, required=True, help="Control group label (case-insensitive)")
     parser_analysis.add_argument("--group_test", type=str, required=True, help="Test group label (case-insensitive)")
     parser_analysis.add_argument("--max_plots", type=int, default=10000, help="Max points for interactive plots (default: 10000)")
@@ -1149,6 +1160,7 @@ def main():
     parser_analysis.add_argument("--include-clock-covariates", action="store_true", help="Compute epigenetic clocks and include them as candidate covariates")
     parser_analysis.add_argument("--tissue", type=str, default="Auto", help="Tissue type for cell deconvolution (default Auto = reference-free; options: Auto, Blood, CordBlood, DLPFC, Placenta)")
     parser_analysis.add_argument("--positive_controls", type=str, help="Comma-separated list of known marker genes to verify (e.g. 'AHRR,CYP1A1')")
+    parser_analysis.add_argument("--skip-sesame", action="store_true", help="Skip Sesame pipeline (Minfi only)")
     parser_analysis.add_argument("--permutations", type=int, default=0, help="Number of label permutations for null DMP counts (0 to skip)")
     parser_analysis.add_argument("--vp-top", type=int, default=5000, help="Top-variable CpGs for variancePartition (default: 5000)")
     parser_analysis.add_argument("--id-column", type=str, help="Column in configure.tsv to treat as sample ID (useful for non-GEO datasets)")

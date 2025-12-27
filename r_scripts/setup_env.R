@@ -219,6 +219,83 @@ if (nzchar(conda_prefix) && (use_conda_libs || r_in_conda)) {
             " Set ILLUMETA_USE_CONDA_LIBS=1 to override.")
 }
 
+pkg_config_available <- function() {
+    nzchar(Sys.which("pkg-config"))
+}
+
+pkg_config_has <- function(name) {
+    if (!pkg_config_available()) return(FALSE)
+    res <- tryCatch(suppressWarnings(system2("pkg-config", c("--exists", name))), error = function(e) 1)
+    is.numeric(res) && res == 0
+}
+
+check_libxml2_prereqs <- function() {
+    sysname <- Sys.info()[["sysname"]]
+    if (identical(sysname, "Windows")) return(invisible(TRUE))
+    have_xml2_config <- nzchar(Sys.which("xml2-config"))
+    libxml2_ok <- pkg_config_has("libxml-2.0")
+    if (!libxml2_ok && have_xml2_config) {
+        out <- tryCatch(suppressWarnings(system2("xml2-config", "--version", stdout = TRUE, stderr = TRUE)),
+                        error = function(e) character(0))
+        libxml2_ok <- length(out) > 0 && nzchar(out[1])
+    }
+    if (libxml2_ok) return(invisible(TRUE))
+
+    message("ERROR: libxml2 headers not found (needed for R packages XML/xml2).")
+    if (r_in_conda) {
+        message("  conda env update -f environment.yml --prune")
+        message("  or: conda install -c conda-forge libxml2 pkg-config")
+    } else if (identical(sysname, "Linux")) {
+        message("  sudo apt-get install -y libxml2-dev pkg-config")
+    } else if (identical(sysname, "Darwin")) {
+        message("  brew install libxml2 pkg-config")
+    }
+    return(invisible(FALSE))
+}
+
+check_devtools_prereqs <- function() {
+    if (!install_devtools) return(invisible(TRUE))
+    sysname <- Sys.info()[["sysname"]]
+    if (identical(sysname, "Windows")) return(invisible(TRUE))
+    if (!pkg_config_available()) {
+        message("Warning: pkg-config not found; devtools dependencies may fail to compile.")
+        if (r_in_conda) {
+            message("  conda env update -f environment.yml --prune")
+            message("  or: conda install -c conda-forge pkg-config")
+        } else if (identical(sysname, "Linux")) {
+            message("  sudo apt-get install -y pkg-config")
+        } else if (identical(sysname, "Darwin")) {
+            message("  brew install pkg-config")
+        }
+        return(invisible(FALSE))
+    }
+    missing <- character(0)
+    if (!pkg_config_has("libgit2")) missing <- c(missing, "libgit2")
+    if (!pkg_config_has("harfbuzz")) missing <- c(missing, "harfbuzz")
+    if (!pkg_config_has("fribidi")) missing <- c(missing, "fribidi")
+    if (!pkg_config_has("fontconfig")) missing <- c(missing, "fontconfig")
+    if (length(missing) == 0) return(invisible(TRUE))
+
+    message("Warning: missing system libraries for devtools: ", paste(missing, collapse = ", "))
+    if (r_in_conda) {
+        message("  conda env update -f environment.yml --prune")
+        message("  or: conda install -c conda-forge libgit2 harfbuzz fribidi fontconfig")
+    } else if (identical(sysname, "Linux")) {
+        message("  sudo apt-get install -y libgit2-dev libharfbuzz-dev libfribidi-dev libfontconfig1-dev")
+    } else if (identical(sysname, "Darwin")) {
+        message("  brew install libgit2 harfbuzz fribidi fontconfig")
+    }
+    return(invisible(FALSE))
+}
+
+if (!check_libxml2_prereqs()) {
+    quit(status = 1)
+}
+if (install_devtools && !check_devtools_prereqs()) {
+    message("Skipping devtools/tidyverse install due to missing system libraries.")
+    install_devtools <- FALSE
+}
+
 sys_which_any <- function(candidates) {
     for (cand in candidates) {
         path <- Sys.which(cand)

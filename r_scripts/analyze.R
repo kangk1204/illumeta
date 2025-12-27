@@ -1,5 +1,24 @@
 #!/usr/bin/env Rscript
 
+force_single_thread <- function() {
+  Sys.setenv(
+    OMP_NUM_THREADS = "1",
+    OPENBLAS_NUM_THREADS = "1",
+    MKL_NUM_THREADS = "1",
+    VECLIB_MAXIMUM_THREADS = "1",
+    RCPP_PARALLEL_NUM_THREADS = "1"
+  )
+  options(mc.cores = 1)
+  if (requireNamespace("BiocParallel", quietly = TRUE)) {
+    BiocParallel::register(BiocParallel::SerialParam(), default = TRUE)
+  }
+  if (requireNamespace("RcppParallel", quietly = TRUE)) {
+    RcppParallel::setThreadOptions(numThreads = 1)
+  }
+}
+
+force_single_thread()
+
 suppressPackageStartupMessages(library(optparse))
 suppressPackageStartupMessages(library(minfi))
 suppressPackageStartupMessages(library(sesame))
@@ -70,6 +89,10 @@ option_list <- list(
               help="Path to configure.tsv", metavar="character"),
   make_option(c("-o", "--out"), type="character", default=".", 
               help="Output directory for results", metavar="character"),
+  make_option(c("--idat_dir"), type="character", default="",
+              help="Path to IDAT directory (default: [config dir]/idat)", metavar="character"),
+  make_option(c("--skip-sesame"), action="store_true", default=FALSE,
+              help="Skip Sesame pipeline and intersection outputs (Minfi only)."),
   make_option(c("-m", "--max_plots"), type="integer", default=10000, 
               help="Max points for interactive plots (default: 10000)", metavar="integer"),
   make_option(c("-p", "--pval"), type="double", default=0.05, 
@@ -217,6 +240,35 @@ save_datatable <- function(df, filename, dir) {
     order = list(list(p_idx, 'asc'))
   ))
   saveWidget(dt, file = file.path(dir, filename), selfcontained = TRUE)
+}
+
+drop_zero_variance_cols <- function(mat, label = "PCA") {
+  if (is.null(mat) || ncol(mat) == 0) {
+    return(list(mat = mat, dropped = 0L))
+  }
+  var_vals <- apply(mat, 2, var, na.rm = TRUE)
+  keep <- is.finite(var_vals) & var_vals > 0
+  dropped <- sum(!keep)
+  if (dropped > 0) {
+    message(sprintf("  %s: dropped %d zero-variance features before PCA.", label, dropped))
+  }
+  list(mat = mat[, keep, drop = FALSE], dropped = dropped)
+}
+
+safe_prcomp <- function(mat, label = "PCA", center = TRUE, scale. = TRUE) {
+  if (is.null(mat) || nrow(mat) < 2 || ncol(mat) < 2) {
+    message(sprintf("  %s: not enough data for PCA; skipping.", label))
+    return(NULL)
+  }
+  if (scale.) {
+    res <- drop_zero_variance_cols(mat, label = label)
+    mat <- res$mat
+    if (is.null(mat) || ncol(mat) < 2) {
+      message(sprintf("  %s: fewer than 2 variable features; skipping PCA.", label))
+      return(NULL)
+    }
+  }
+  prcomp(mat, center = center, scale. = scale.)
 }
 
 # M-value transformation with a small offset to avoid log(0)
@@ -1000,15 +1052,20 @@ eval_batch_method <- function(M_mat, meta, group_col, batch_col, covariates, met
   vars <- apply(M_corr, 1, var, na.rm = TRUE)
   top_idx <- head(order(vars, decreasing = TRUE), min(BATCH_EVAL_TOP_VAR, nrow(M_corr)))
   M_top_pca <- t(M_corr[top_idx, , drop = FALSE])
-  pca <- prcomp(M_top_pca, center = TRUE, scale. = TRUE)
-  pc_df <- as.data.frame(pca$x[, 1:min(10, ncol(pca$x))])
-  pc_df$Batch <- batch
-  pvals_pc_batch <- sapply(colnames(pc_df)[grep("^PC", colnames(pc_df))], function(pc) {
-    fit <- aov(pc_df[[pc]] ~ pc_df$Batch)
-    as.numeric(summary(fit)[[1]][["Pr(>F)"]][1])
-  })
-  fdr_pc_batch <- p.adjust(pvals_pc_batch, "BH")
-  n_pc_batch_sig <- sum(fdr_pc_batch < 0.05, na.rm = TRUE)
+  pca <- safe_prcomp(M_top_pca, label = paste("Batch eval", method), center = TRUE, scale. = TRUE)
+  n_pc_batch_sig <- 0
+  if (!is.null(pca)) {
+    pc_df <- as.data.frame(pca$x[, 1:min(10, ncol(pca$x))])
+    pc_df$Batch <- batch
+    pvals_pc_batch <- sapply(colnames(pc_df)[grep("^PC", colnames(pc_df))], function(pc) {
+      fit <- aov(pc_df[[pc]] ~ pc_df$Batch)
+      as.numeric(summary(fit)[[1]][["Pr(>F)"]][1])
+    })
+    fdr_pc_batch <- p.adjust(pvals_pc_batch, "BH")
+    n_pc_batch_sig <- sum(fdr_pc_batch < 0.05, na.rm = TRUE)
+  } else {
+    message("    - Batch eval PCA skipped due to insufficient variance.")
+  }
   
   form_terms <- c(sprintf("(1|%s)", batch_col))
   for (ct in cov_terms) {
@@ -1118,7 +1175,15 @@ if (!"primary_group" %in% colnames(targets)) stop("configure.tsv missing 'primar
 targets$primary_group <- trimws(targets$primary_group) # remove whitespace
 
 project_dir <- dirname(config_file)
-idat_dir <- file.path(project_dir, "idat")
+idat_dir <- opt$idat_dir
+if (!nzchar(idat_dir)) {
+  idat_dir <- file.path(project_dir, "idat")
+} else if (!grepl("^/", idat_dir)) {
+  idat_dir <- file.path(project_dir, idat_dir)
+}
+if (!dir.exists(idat_dir)) {
+  stop(paste("IDAT directory not found:", idat_dir))
+}
 
 files <- list.files(idat_dir, pattern = "_Grn.idat", full.names = TRUE)
 basenames <- unique(sub("_Grn.idat.*", "", files))
@@ -1161,13 +1226,22 @@ find_basename_for_id <- function(sample_id, basenames) {
   return(NA_character_)
 }
 
-resolve_basename <- function(candidate, sample_id, basenames, project_dir) {
+resolve_basename <- function(candidate, sample_id, basenames, project_dir, idat_dir) {
   cand <- candidate
   if (is.na(cand) || cand == "") {
     cand <- find_basename_for_id(sample_id, basenames)
   } else {
-    # If relative path, anchor to project directory
-    if (!grepl("^/", cand)) cand <- file.path(project_dir, cand)
+    # If relative path, anchor to project directory (fallback to IDAT dir if provided)
+    if (!grepl("^/", cand)) {
+      cand_project <- file.path(project_dir, cand)
+      cand_idat <- file.path(idat_dir, cand)
+      cand <- cand_project
+      test_paths <- c(paste0(cand_project, "_Grn.idat"), paste0(cand_project, "_Grn.idat.gz"))
+      if (!any(file.exists(test_paths)) && idat_dir != project_dir) {
+        test_paths_idat <- c(paste0(cand_idat, "_Grn.idat"), paste0(cand_idat, "_Grn.idat.gz"))
+        if (any(file.exists(test_paths_idat))) cand <- cand_idat
+      }
+    }
     # If file is missing, try to fall back to discovered basenames
     test_paths <- c(paste0(cand, "_Grn.idat"), paste0(cand, "_Grn.idat.gz"))
     if (!any(file.exists(test_paths))) {
@@ -1179,7 +1253,7 @@ resolve_basename <- function(candidate, sample_id, basenames, project_dir) {
 }
 
 for (i in seq_len(nrow(targets))) {
-  targets$Basename[i] <- resolve_basename(targets$Basename[i], targets$SampleID[i], basenames, project_dir)
+  targets$Basename[i] <- resolve_basename(targets$Basename[i], targets$SampleID[i], basenames, project_dir, idat_dir)
 }
 
 missing_base <- which(is.na(targets$Basename))
@@ -1541,24 +1615,50 @@ colnames(anno_df)[colnames(anno_df) == "Relation_to_Island"] <- "Island_Context"
 
 # --- 3. Sesame Analysis ---
 message("--- Starting Sesame Analysis ---")
-ssets <- lapply(targets$Basename, function(x) readIDATpair(x))
-betas_sesame_list <- lapply(ssets, function(x) getBetas(dyeBiasCorrTypeINorm(noob(x))))
-common_probes_sesame <- Reduce(intersect, lapply(betas_sesame_list, names))
-beta_sesame <- do.call(cbind, lapply(betas_sesame_list, function(x) x[common_probes_sesame]))
-colnames(beta_sesame) <- targets[[gsm_col]]
-beta_sesame <- na.omit(beta_sesame)
-sesame_before_qc <- nrow(beta_sesame)
-# Harmonize Sesame with Minfi QC/annotation footprint
-qc_probes <- rownames(beta_minfi)
-shared_qc <- intersect(rownames(beta_sesame), qc_probes)
-if (length(shared_qc) > 0) {
-  beta_sesame <- beta_sesame[shared_qc, , drop = FALSE]
+beta_sesame <- NULL
+sesame_before_qc <- 0
+if (opt$`skip-sesame`) {
+  message("Sesame analysis skipped (--skip-sesame).")
+} else {
+  tryCatch({
+    ssets <- lapply(targets$Basename, function(x) readIDATpair(x))
+    sesame_preprocess <- function(x) {
+      sdf <- noob(x)
+      tryCatch(
+        dyeBiasCorrTypeINorm(sdf),
+        error = function(e) {
+          message("  Sesame dyeBiasCorrTypeINorm failed; falling back to dyeBiasCorr: ", e$message)
+          dyeBiasCorr(sdf)
+        }
+      )
+    }
+    betas_sesame_list <- lapply(ssets, function(x) getBetas(sesame_preprocess(x)))
+    common_probes_sesame <- Reduce(intersect, lapply(betas_sesame_list, names))
+    beta_sesame <- do.call(cbind, lapply(betas_sesame_list, function(x) x[common_probes_sesame]))
+    colnames(beta_sesame) <- targets[[gsm_col]]
+    beta_sesame <- na.omit(beta_sesame)
+    sesame_before_qc <- nrow(beta_sesame)
+    # Harmonize Sesame with Minfi QC/annotation footprint
+    qc_probes <- rownames(beta_minfi)
+    shared_qc <- intersect(rownames(beta_sesame), qc_probes)
+    if (length(shared_qc) > 0) {
+      beta_sesame <- beta_sesame[shared_qc, , drop = FALSE]
+    }
+    message(paste("Sesame processed", sesame_before_qc, "probes (after QC alignment:", nrow(beta_sesame), ")."))
+  }, error = function(e) {
+    message("Sesame analysis failed; continuing with Minfi only: ", e$message)
+    beta_sesame <<- NULL
+  })
 }
-message(paste("Sesame processed", sesame_before_qc, "probes (after QC alignment:", nrow(beta_sesame), ")."))
 
 # --- 4. Intersection ---
-common_cpgs <- intersect(rownames(beta_minfi), rownames(beta_sesame))
-message(paste("Intersection:", length(common_cpgs), "CpGs common to Minfi and Sesame."))
+if (is.null(beta_sesame)) {
+  common_cpgs <- character(0)
+  message("Intersection: skipped (Sesame not available).")
+} else {
+  common_cpgs <- intersect(rownames(beta_minfi), rownames(beta_sesame))
+  message(paste("Intersection:", length(common_cpgs), "CpGs common to Minfi and Sesame."))
+}
 
 # --- Pipeline Function ---
 
@@ -1951,13 +2051,17 @@ run_pipeline <- function(betas, prefix, annotation_df) {
     clean_betas[!is.finite(clean_betas)] <- NA
     clean_betas <- pmin(pmax(clean_betas, LOGIT_OFFSET), 1 - LOGIT_OFFSET)
     
-    pca_clean <- prcomp(t(clean_betas), scale. = TRUE)
-    pca_clean_df <- data.frame(PC1 = pca_clean$x[,1], PC2 = pca_clean$x[,2], Group = targets$primary_group)
-    cov_label <- if (length(sv_cols) > 0) "covariates + SVs" else "covariates"
-    p_pca_clean <- ggplot(pca_clean_df, aes(x=PC1, y=PC2, color=Group)) + 
-      geom_point(size=3) + theme_minimal() + ggtitle(paste(prefix, "PCA (Corrected:", cov_label, ")"))
-    save_interactive_plot(p_pca_clean, paste0(prefix, "_PCA_After_Correction.html"), out_dir)
-    save_static_plot(p_pca_clean, paste0(prefix, "_PCA_After_Correction.png"), out_dir, width = 5, height = 4)
+    pca_clean <- safe_prcomp(t(clean_betas), label = paste(prefix, "PCA corrected"), scale. = TRUE)
+    if (!is.null(pca_clean)) {
+      pca_clean_df <- data.frame(PC1 = pca_clean$x[,1], PC2 = pca_clean$x[,2], Group = targets$primary_group)
+      cov_label <- if (length(sv_cols) > 0) "covariates + SVs" else "covariates"
+      p_pca_clean <- ggplot(pca_clean_df, aes(x=PC1, y=PC2, color=Group)) + 
+        geom_point(size=3) + theme_minimal() + ggtitle(paste(prefix, "PCA (Corrected:", cov_label, ")"))
+      save_interactive_plot(p_pca_clean, paste0(prefix, "_PCA_After_Correction.html"), out_dir)
+      save_static_plot(p_pca_clean, paste0(prefix, "_PCA_After_Correction.png"), out_dir, width = 5, height = 4)
+    } else {
+      message("  PCA after correction skipped due to insufficient variance.")
+    }
     
     # PVCA after correction to quantify residual batch/group contribution
     run_pvca_assessment(clean_betas, targets, pvca_factors, paste0(prefix, "_AfterCorrection"), out_dir, threshold = 0.6, max_probes = 5000, sample_ids = colnames(clean_betas))
@@ -2428,13 +2532,6 @@ run_pipeline <- function(betas, prefix, annotation_df) {
   }
 
   evaluate_batch <- function(data_betas, meta, label, file_suffix, allowed_vars) {
-     pca <- prcomp(t(data_betas), scale.=TRUE)
-     eig <- (pca$sdev)^2
-     var_expl <- eig/sum(eig)
-     
-     n_pcs <- min(10, ncol(pca$x))
-     pcs <- pca$x[, 1:n_pcs]
-     
      allowed <- unique(c("primary_group", allowed_vars))
      allowed <- intersect(allowed, colnames(meta))
      keep_cols <- vapply(allowed, function(nm) {
@@ -2444,6 +2541,23 @@ run_pipeline <- function(betas, prefix, annotation_df) {
          return(uniq > 1 & uniq < nrow(meta))
      }, logical(1))
      test_meta <- meta[, allowed[keep_cols], drop=FALSE]
+     
+     pca <- safe_prcomp(t(data_betas), label = paste(label, "PCA"), scale. = TRUE)
+     if (is.null(pca)) {
+         empty_pvals <- matrix(NA_real_, nrow = ncol(test_meta), ncol = 1)
+         rownames(empty_pvals) <- colnames(test_meta)
+         colnames(empty_pvals) <- "PC1"
+         csv_name <- paste0(prefix, "_Batch_Evaluation_", file_suffix, "_Table.csv")
+         write.csv(empty_pvals, file.path(out_dir, csv_name))
+         p_heat <- ggplot() + theme_void() + ggtitle(paste(label, "- PCA skipped (insufficient variance)"))
+         return(list(plot = p_heat, pvals = empty_pvals))
+     }
+     
+     eig <- (pca$sdev)^2
+     var_expl <- eig/sum(eig)
+     
+     n_pcs <- min(10, ncol(pca$x))
+     pcs <- pca$x[, 1:n_pcs]
      
      pvals <- matrix(NA, nrow=ncol(test_meta), ncol=n_pcs)
      rownames(pvals) <- colnames(test_meta)
@@ -2670,7 +2784,12 @@ run_pipeline <- function(betas, prefix, annotation_df) {
 }
 
 minfi_out <- run_pipeline(beta_minfi, "Minfi", anno_df)
-sesame_out <- run_pipeline(beta_sesame, "Sesame", anno_df)
+sesame_out <- NULL
+if (!is.null(beta_sesame)) {
+  sesame_out <- run_pipeline(beta_sesame, "Sesame", anno_df)
+} else {
+  message("Sesame pipeline skipped (no Sesame betas available).")
+}
 res_minfi <- if (!is.null(minfi_out)) minfi_out$res else NULL
 res_sesame <- if (!is.null(sesame_out)) sesame_out$res else NULL
 

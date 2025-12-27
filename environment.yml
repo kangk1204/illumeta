@@ -15,6 +15,10 @@ dependencies:
   - libcurl
   - openssl
   - libxml2
+  - libxml2-devel
+  - zlib
+  - expat
+  - xz
   - icu
   - libgit2
   - fontconfig

@@ -198,6 +198,9 @@ if (!nzchar(conda_prefix) || !dir.exists(conda_prefix)) {
 use_conda_libs <- Sys.getenv("ILLUMETA_USE_CONDA_LIBS", unset = "") == "1"
 conda_lib <- file.path(conda_prefix, "lib")
 conda_pkgconfig <- file.path(conda_lib, "pkgconfig")
+conda_pkgconfig_share <- file.path(conda_prefix, "share", "pkgconfig")
+conda_bin <- file.path(conda_prefix, "bin")
+conda_include <- file.path(conda_prefix, "include")
 add_path <- function(var, path) {
     if (!dir.exists(path)) return(FALSE)
     cur <- Sys.getenv(var, unset = "")
@@ -207,6 +210,16 @@ add_path <- function(var, path) {
     do.call(Sys.setenv, setNames(list(new_val), var))
     return(TRUE)
 }
+append_flag <- function(var, flag) {
+    cur <- Sys.getenv(var, unset = "")
+    if (!nzchar(cur)) {
+        do.call(Sys.setenv, setNames(list(flag), var))
+        return(TRUE)
+    }
+    if (grepl(flag, cur, fixed = TRUE)) return(FALSE)
+    do.call(Sys.setenv, setNames(list(trimws(paste(cur, flag))), var))
+    return(TRUE)
+}
 if (nzchar(conda_prefix) && (use_conda_libs || r_in_conda)) {
     if (add_path("LD_LIBRARY_PATH", conda_lib)) {
         message(paste("Added to LD_LIBRARY_PATH:", conda_lib))
@@ -214,24 +227,99 @@ if (nzchar(conda_prefix) && (use_conda_libs || r_in_conda)) {
     if (add_path("PKG_CONFIG_PATH", conda_pkgconfig)) {
         message(paste("Added to PKG_CONFIG_PATH:", conda_pkgconfig))
     }
+    if (add_path("PKG_CONFIG_PATH", conda_pkgconfig_share)) {
+        message(paste("Added to PKG_CONFIG_PATH:", conda_pkgconfig_share))
+    }
+    if (add_path("LIBRARY_PATH", conda_lib)) {
+        message(paste("Added to LIBRARY_PATH:", conda_lib))
+    }
+    if (dir.exists(conda_include)) {
+        append_flag("CPPFLAGS", paste0("-I", conda_include))
+    }
+    if (dir.exists(conda_lib)) {
+        append_flag("LDFLAGS", paste0("-L", conda_lib))
+    }
+    conda_xml_include <- file.path(conda_include, "libxml2")
+    if (dir.exists(conda_lib) && (dir.exists(conda_xml_include) || dir.exists(conda_include))) {
+        xml_inc <- if (dir.exists(conda_xml_include)) conda_xml_include else conda_include
+        Sys.setenv(LIBXML_CPPFLAGS = paste0("-I", xml_inc))
+        Sys.setenv(LIBXML_LIBS = paste0("-L", conda_lib, " -lxml2"))
+    }
+    if (file.exists(file.path(conda_bin, "xml2-config"))) {
+        Sys.setenv(XML2_CONFIG = file.path(conda_bin, "xml2-config"))
+        Sys.setenv(XML_CONFIG = file.path(conda_bin, "xml2-config"))
+    }
+    if (file.exists(file.path(conda_bin, "pkg-config"))) {
+        Sys.setenv(PKG_CONFIG = file.path(conda_bin, "pkg-config"))
+    }
+    pkg_dirs <- c(conda_pkgconfig, conda_pkgconfig_share)
+    pkg_dirs <- pkg_dirs[dir.exists(pkg_dirs)]
+    if (length(pkg_dirs) > 0) {
+        Sys.setenv(PKG_CONFIG_LIBDIR = paste(pkg_dirs, collapse = ":"))
+    }
 } else if (nzchar(conda_prefix) && !r_in_conda) {
     message("Note: CONDA_PREFIX is set but R is not from conda; skipping conda libs.",
             " Set ILLUMETA_USE_CONDA_LIBS=1 to override.")
 }
 
+pkg_config_cmd <- function() {
+    cmd <- Sys.getenv("PKG_CONFIG", unset = "")
+    if (nzchar(cmd)) {
+        if (file.exists(cmd)) return(cmd)
+        path <- Sys.which(cmd)
+        if (nzchar(path)) return(path)
+    }
+    path <- Sys.which("pkg-config")
+    if (nzchar(path)) return(path)
+    return("")
+}
+
 pkg_config_available <- function() {
-    nzchar(Sys.which("pkg-config"))
+    nzchar(pkg_config_cmd())
 }
 
 pkg_config_has <- function(name) {
-    if (!pkg_config_available()) return(FALSE)
-    res <- tryCatch(suppressWarnings(system2("pkg-config", c("--exists", name))), error = function(e) 1)
+    cmd <- pkg_config_cmd()
+    if (!nzchar(cmd)) return(FALSE)
+    res <- tryCatch(suppressWarnings(system2(cmd, c("--exists", name))), error = function(e) 1)
     is.numeric(res) && res == 0
 }
 
 check_libxml2_prereqs <- function() {
     sysname <- Sys.info()[["sysname"]]
     if (identical(sysname, "Windows")) return(invisible(TRUE))
+    if (r_in_conda && nzchar(conda_prefix)) {
+        shared_name <- if (identical(sysname, "Darwin")) "libxml2.dylib" else "libxml2.so"
+        shared_path <- file.path(conda_lib, shared_name)
+        static_path <- file.path(conda_lib, "libxml2.a")
+        has_shared <- file.exists(shared_path)
+        has_static <- file.exists(static_path)
+        if (!has_shared && !has_static) {
+            message("ERROR: conda libxml2 development library not found in ", conda_lib)
+            message("  conda env update -f environment.yml --prune")
+            message("  or: conda install -c conda-forge libxml2-devel")
+            return(invisible(FALSE))
+        }
+        zlib_name <- if (identical(sysname, "Darwin")) "libz.dylib" else "libz.so"
+        zlib_shared <- file.path(conda_lib, zlib_name)
+        zlib_static <- file.path(conda_lib, "libz.a")
+        if (!file.exists(zlib_shared) && !file.exists(zlib_static)) {
+            message("ERROR: zlib development library not found in ", conda_lib, " (needed for xml2/XML).")
+            message("  conda env update -f environment.yml --prune")
+            message("  or: conda install -c conda-forge zlib")
+            return(invisible(FALSE))
+        }
+        pc_paths <- c(
+            file.path(conda_pkgconfig, "libxml-2.0.pc"),
+            file.path(conda_pkgconfig_share, "libxml-2.0.pc")
+        )
+        if (!any(file.exists(pc_paths))) {
+            message("ERROR: libxml2 pkg-config file not found in conda env.")
+            message("  conda env update -f environment.yml --prune")
+            message("  or: conda install -c conda-forge libxml2-devel pkg-config")
+            return(invisible(FALSE))
+        }
+    }
     have_xml2_config <- nzchar(Sys.which("xml2-config"))
     libxml2_ok <- pkg_config_has("libxml-2.0")
     if (!libxml2_ok && have_xml2_config) {
@@ -244,7 +332,7 @@ check_libxml2_prereqs <- function() {
     message("ERROR: libxml2 headers not found (needed for R packages XML/xml2).")
     if (r_in_conda) {
         message("  conda env update -f environment.yml --prune")
-        message("  or: conda install -c conda-forge libxml2 pkg-config")
+        message("  or: conda install -c conda-forge libxml2-devel pkg-config")
     } else if (identical(sysname, "Linux")) {
         message("  sudo apt-get install -y libxml2-dev pkg-config")
     } else if (identical(sysname, "Darwin")) {
@@ -274,21 +362,59 @@ check_devtools_prereqs <- function() {
     if (!pkg_config_has("harfbuzz")) missing <- c(missing, "harfbuzz")
     if (!pkg_config_has("fribidi")) missing <- c(missing, "fribidi")
     if (!pkg_config_has("fontconfig")) missing <- c(missing, "fontconfig")
+    if (!pkg_config_has("expat")) missing <- c(missing, "expat")
     if (length(missing) == 0) return(invisible(TRUE))
 
     message("Warning: missing system libraries for devtools: ", paste(missing, collapse = ", "))
     if (r_in_conda) {
         message("  conda env update -f environment.yml --prune")
-        message("  or: conda install -c conda-forge libgit2 harfbuzz fribidi fontconfig")
+        message("  or: conda install -c conda-forge libgit2 harfbuzz fribidi fontconfig expat")
     } else if (identical(sysname, "Linux")) {
-        message("  sudo apt-get install -y libgit2-dev libharfbuzz-dev libfribidi-dev libfontconfig1-dev")
+        message("  sudo apt-get install -y libgit2-dev libharfbuzz-dev libfribidi-dev libfontconfig1-dev libexpat1-dev")
     } else if (identical(sysname, "Darwin")) {
-        message("  brew install libgit2 harfbuzz fribidi fontconfig")
+        message("  brew install libgit2 harfbuzz fribidi fontconfig expat")
     }
     return(invisible(FALSE))
 }
 
+check_lzma_prereqs <- function() {
+    sysname <- Sys.info()[["sysname"]]
+    if (identical(sysname, "Windows")) return(invisible(TRUE))
+    if (r_in_conda && nzchar(conda_prefix)) {
+        shared_name <- if (identical(sysname, "Darwin")) "liblzma.dylib" else "liblzma.so"
+        shared_path <- file.path(conda_lib, shared_name)
+        static_path <- file.path(conda_lib, "liblzma.a")
+        header_path <- file.path(conda_include, "lzma.h")
+        if (!file.exists(shared_path) && !file.exists(static_path)) {
+            message("ERROR: liblzma (xz) library not found in ", conda_lib, " (needed for Rhtslib).")
+            message("  conda env update -f environment.yml --prune")
+            message("  or: conda install -c conda-forge xz")
+            return(invisible(FALSE))
+        }
+        if (!file.exists(header_path)) {
+            message("ERROR: lzma.h header not found in ", conda_include, ".")
+            message("  conda env update -f environment.yml --prune")
+            message("  or: conda install -c conda-forge xz")
+            return(invisible(FALSE))
+        }
+    } else {
+        if (!pkg_config_has("liblzma")) {
+            message("ERROR: liblzma (xz) headers not found (needed for Rhtslib).")
+            if (identical(sysname, "Linux")) {
+                message("  sudo apt-get install -y liblzma-dev")
+            } else if (identical(sysname, "Darwin")) {
+                message("  brew install xz")
+            }
+            return(invisible(FALSE))
+        }
+    }
+    return(invisible(TRUE))
+}
+
 if (!check_libxml2_prereqs()) {
+    quit(status = 1)
+}
+if (!check_lzma_prereqs()) {
     quit(status = 1)
 }
 if (install_devtools && !check_devtools_prereqs()) {

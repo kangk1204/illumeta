@@ -158,7 +158,8 @@ SV_GROUP_P_THRESHOLD <- 1e-6
 SV_GROUP_ETA2_THRESHOLD <- 0.5
 PVCA_MIN_SAMPLES <- 8
 DMR_MAXGAP <- 500
-DMR_P_CUTOFF <- 0.05
+DMR_P_CUTOFF_DEFAULT <- 0.05
+DMR_LABEL_TOP_N <- 15
 BATCH_EVAL_TOP_VAR <- 20000
 MIN_GROUP_SIZE_WARN <- 3
 MIN_TOTAL_SIZE_STOP <- NULL
@@ -191,6 +192,10 @@ id_col_override <- opt$id_column
 MIN_TOTAL_SIZE_STOP <- max(2, opt$min_total_size)
 force_idat <- opt$force_idat
 QC_MEDIAN_INTENSITY_THRESHOLD <- ifelse(opt$qc_intensity_threshold <= 0, -Inf, opt$qc_intensity_threshold)
+dmr_p_cutoff <- pval_thresh
+if (!is.finite(dmr_p_cutoff) || dmr_p_cutoff <= 0) {
+  dmr_p_cutoff <- DMR_P_CUTOFF_DEFAULT
+}
 
 if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
 
@@ -502,6 +507,66 @@ filter_low_range <- function(betas, min_range = BETA_RANGE_MIN) {
   })
   keep <- rng >= min_range
   list(mat = betas[keep, , drop = FALSE], removed = sum(!keep))
+}
+
+compute_dmr_delta_beta <- function(dmr_res, dmr_anno, mean_con, mean_test) {
+  if (nrow(dmr_res) == 0 || nrow(dmr_anno) == 0) return(dmr_res)
+  dmr_res$Mean_Beta_Con <- NA_real_
+  dmr_res$Mean_Beta_Test <- NA_real_
+  dmr_res$Delta_Beta <- NA_real_
+
+  anno_chr <- as.character(dmr_anno$chr)
+  res_chr <- as.character(dmr_res$chr)
+  common_chr <- intersect(unique(res_chr), unique(anno_chr))
+  if (length(common_chr) == 0) return(dmr_res)
+
+  for (chr in common_chr) {
+    idx_region <- which(res_chr == chr)
+    idx_cpg <- which(anno_chr == chr)
+    if (length(idx_cpg) == 0) next
+
+    pos <- dmr_anno$pos[idx_cpg]
+    keep_cpg <- is.finite(pos) & is.finite(mean_con[idx_cpg]) & is.finite(mean_test[idx_cpg])
+    if (!any(keep_cpg)) next
+    idx_cpg <- idx_cpg[keep_cpg]
+    pos <- pos[keep_cpg]
+    ord <- order(pos)
+    pos_ord <- pos[ord]
+    con_ord <- mean_con[idx_cpg][ord]
+    test_ord <- mean_test[idx_cpg][ord]
+    con_cum <- cumsum(con_ord)
+    test_cum <- cumsum(test_ord)
+
+    starts <- dmr_res$start[idx_region]
+    ends <- dmr_res$end[idx_region]
+    lo <- findInterval(starts - 1, pos_ord) + 1
+    hi <- findInterval(ends, pos_ord)
+    valid <- hi >= lo & hi > 0
+    if (!any(valid)) next
+
+    base_con <- numeric(length(lo))
+    base_test <- numeric(length(lo))
+    idx_base <- which(valid & lo > 1)
+    if (length(idx_base) > 0) {
+      base_con[idx_base] <- con_cum[lo[idx_base] - 1]
+      base_test[idx_base] <- test_cum[lo[idx_base] - 1]
+    }
+
+    con_sum <- rep(NA_real_, length(lo))
+    test_sum <- rep(NA_real_, length(lo))
+    con_sum[valid] <- con_cum[hi[valid]] - base_con[valid]
+    test_sum[valid] <- test_cum[hi[valid]] - base_test[valid]
+    n_cpg <- hi - lo + 1
+
+    con_mean <- con_sum / n_cpg
+    test_mean <- test_sum / n_cpg
+    valid_idx <- idx_region[valid]
+    dmr_res$Mean_Beta_Con[valid_idx] <- con_mean[valid]
+    dmr_res$Mean_Beta_Test[valid_idx] <- test_mean[valid]
+    dmr_res$Delta_Beta[valid_idx] <- test_mean[valid] - con_mean[valid]
+  }
+
+  dmr_res
 }
 
 normalize_tissue <- function(x) {
@@ -2712,6 +2777,8 @@ run_pipeline <- function(betas, prefix, annotation_df) {
   dmr_est <- fit2$coefficients[, 1]
   dmr_se <- fit2$stdev.unscaled[, 1] * fit2$sigma
   dmr_p <- fit2$p.value[, 1]
+  dmr_mean_con <- rowMeans(betas_dmr[, con_mask, drop = FALSE], na.rm = TRUE)
+  dmr_mean_test <- rowMeans(betas_dmr[, test_mask, drop = FALSE], na.rm = TRUE)
   
   # Annotation for dmrff
   dmr_anno <- curr_anno[match(names(dmr_est), rownames(curr_anno)), ]
@@ -2746,28 +2813,43 @@ run_pipeline <- function(betas, prefix, annotation_df) {
         chr = dmr_anno$chr,
         pos = dmr_anno$pos,
         maxgap = DMR_MAXGAP,
-        p.cutoff = DMR_P_CUTOFF
+        p.cutoff = dmr_p_cutoff
       )
       
       if (nrow(dmr_res) > 0) {
           dmr_res <- annotate_dmr(dmr_res, curr_anno)
+          dmr_res <- compute_dmr_delta_beta(dmr_res, dmr_anno, dmr_mean_con, dmr_mean_test)
           dmr_res <- dmr_res[order(dmr_res$p.value, dmr_res$p.adjust, na.last = TRUE), ]
           message(paste("    - Found", nrow(dmr_res), "DMRs."))
           
           # Save Table
           dmr_filename <- paste0(prefix, "_DMRs_Table.html")
-          save_datatable(head(dmr_res, 3000), dmr_filename, out_dir)
+          save_datatable(head(dmr_res, 3000), dmr_filename, out_dir, sort_col = "p.value")
           write.csv(dmr_res, file.path(out_dir, paste0(prefix, "_DMRs.csv")), row.names = FALSE)
           
           # 1. DMR Volcano Plot
           # dmrff returns 'estimate' (avg LogFC) and 'p.adjust'
           dmr_res$diffexpressed <- "NO"
-          dmr_res$diffexpressed[dmr_res$p.adjust < DMR_P_CUTOFF & dmr_res$estimate > 0] <- "UP"
-          dmr_res$diffexpressed[dmr_res$p.adjust < DMR_P_CUTOFF & dmr_res$estimate < 0] <- "DOWN"
+          dmr_res$diffexpressed[dmr_res$p.adjust < dmr_p_cutoff & dmr_res$estimate > 0] <- "UP"
+          dmr_res$diffexpressed[dmr_res$p.adjust < dmr_p_cutoff & dmr_res$estimate < 0] <- "DOWN"
           dmr_res$plot_p <- pmax(dmr_res$p.value, 1e-300)
+          dmr_res$label <- ifelse(!is.na(dmr_res$Genes) & nzchar(dmr_res$Genes), dmr_res$Genes, dmr_res$Regions)
+          dmr_res$label <- sub(";.*", "", ifelse(is.na(dmr_res$label), "", dmr_res$label))
+          has_delta <- any(is.finite(dmr_res$Delta_Beta))
+          if (has_delta) {
+            dmr_res$plot_effect <- ifelse(is.finite(dmr_res$Delta_Beta), dmr_res$Delta_Beta, dmr_res$estimate)
+            x_label <- "Mean Beta Difference (Delta Beta)"
+          } else {
+            dmr_res$plot_effect <- dmr_res$estimate
+            x_label <- "Mean M-value Difference (Estimate)"
+          }
+          label_df <- dmr_res[order(dmr_res$p.value), ]
+          label_df <- head(label_df, DMR_LABEL_TOP_N)
+          label_df <- label_df[nzchar(label_df$label) & is.finite(label_df$plot_p), ]
           
-          p_vol_dmr <- ggplot(dmr_res, aes(x=estimate, y=-log10(plot_p), color=diffexpressed,
+          p_vol_dmr <- ggplot(dmr_res, aes(x=plot_effect, y=-log10(plot_p), color=diffexpressed,
                           text=paste("Region:", paste0(chr, ":", start, "-", end),
+                                     "<br>Gene:", ifelse(nzchar(Genes), Genes, "NA"),
                                      "<br>nCpG:", n,
                                      "<br>P:", signif(p.value, 3),
                                      "<br>FDR:", signif(p.adjust, 3)))) +
@@ -2775,8 +2857,16 @@ run_pipeline <- function(betas, prefix, annotation_df) {
               scale_color_manual(values=c("DOWN"="blue", "NO"="grey", "UP"="red")) +
               labs(title = paste(prefix, "DMR Volcano Plot"), 
                    subtitle = "dmrff analysis",
-                   x = "Mean M-value Difference (Estimate)", y = "-log10 P-value",
+                   x = x_label, y = "-log10 P-value",
                    color = "Status")
+          if (nrow(label_df) > 0) {
+            p_vol_dmr <- p_vol_dmr + ggrepel::geom_text_repel(
+              data = label_df,
+              aes(label = label),
+              size = 3,
+              max.overlaps = DMR_LABEL_TOP_N
+            )
+          }
           save_interactive_plot(p_vol_dmr, paste0(prefix, "_DMR_Volcano.html"), out_dir)
           save_static_plot(p_vol_dmr, paste0(prefix, "_DMR_Volcano.png"), out_dir, width = 6, height = 5)
           
@@ -2785,7 +2875,8 @@ run_pipeline <- function(betas, prefix, annotation_df) {
           chr_vals <- 1:25
           names(chr_vals) <- chr_map
           
-          clean_chr_dmr <- gsub("chr", "", dmr_res$chr)
+          clean_chr_dmr <- gsub("chr", "", dmr_res$chr, ignore.case = TRUE)
+          clean_chr_dmr[clean_chr_dmr == "MT"] <- "M"
           dmr_res$chr_num <- chr_vals[clean_chr_dmr]
           dmr_res$mid_pos <- (dmr_res$start + dmr_res$end) / 2
           
@@ -2807,8 +2898,12 @@ run_pipeline <- function(betas, prefix, annotation_df) {
               chr_labels_dmr <- names(chr_vals)[match(axis_set_dmr$chr_num, chr_vals)]
               
               plot_dmr_man$plot_p <- pmax(plot_dmr_man$p.value, 1e-300)
+              label_df_man <- plot_dmr_man[order(plot_dmr_man$p.value), ]
+              label_df_man <- head(label_df_man, DMR_LABEL_TOP_N)
+              label_df_man <- label_df_man[nzchar(label_df_man$label) & is.finite(label_df_man$plot_p), ]
               p_man_dmr <- ggplot(plot_dmr_man, aes(x=pos_cum, y=-log10(plot_p), color=as.factor(chr_num %% 2),
                                   text=paste("Region:", paste0(chr, ":", start, "-", end),
+                                             "<br>Gene:", ifelse(nzchar(Genes), Genes, "NA"),
                                              "<br>nCpG:", n,
                                              "<br>P:", signif(p.value, 3),
                                              "<br>FDR:", signif(p.adjust, 3)))) +
@@ -2823,6 +2918,14 @@ run_pipeline <- function(betas, prefix, annotation_df) {
                   xlab("Chromosome") +
                   ylab("-log10 P-value") +
                   ggtitle(paste(prefix, "DMR Manhattan Plot"))
+              if (nrow(label_df_man) > 0) {
+                p_man_dmr <- p_man_dmr + ggrepel::geom_text_repel(
+                  data = label_df_man,
+                  aes(label = label),
+                  size = 3,
+                  max.overlaps = DMR_LABEL_TOP_N
+                )
+              }
               
               save_interactive_plot(p_man_dmr, paste0(prefix, "_DMR_Manhattan.html"), out_dir)
               save_static_plot(p_man_dmr, paste0(prefix, "_DMR_Manhattan.png"), out_dir, width = 8, height = 4)
@@ -3309,7 +3412,7 @@ tryCatch({
     ifelse(is.na(array_type), "", array_type), cell_reference, cell_reference_platform,
     AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION,
     OVERCORRECTION_GUARD_RATIO, UNDERCORRECTION_GUARD_MIN_SV, ifelse(disable_sva, "false", "true"), sva_rule, ifelse(include_clock_covariates, "true", "false"),
-    SV_GROUP_P_THRESHOLD, SV_GROUP_ETA2_THRESHOLD, PVCA_MIN_SAMPLES, perm_n, vp_top, DMR_MAXGAP, DMR_P_CUTOFF, LOGIT_OFFSET, 12345
+    SV_GROUP_P_THRESHOLD, SV_GROUP_ETA2_THRESHOLD, PVCA_MIN_SAMPLES, perm_n, vp_top, DMR_MAXGAP, dmr_p_cutoff, LOGIT_OFFSET, 12345
   )
   writeLines(params_json, file.path(out_dir, "analysis_parameters.json"))
   message("Analysis parameters saved to analysis_parameters.json")
@@ -3402,7 +3505,7 @@ tryCatch({
     "- Multiple testing is controlled by Benjamini–Hochberg FDR.",
     "",
     "## Differentially methylated regions (DMR)",
-    sprintf("- DMRs are called with `dmrff` (maxgap=%d; p.cutoff=%.3f).", DMR_MAXGAP, DMR_P_CUTOFF),
+    sprintf("- DMRs are called with `dmrff` (maxgap=%d; p.cutoff=%.3f).", DMR_MAXGAP, dmr_p_cutoff),
     "",
     "## Consensus (intersection) call set",
     "- Consensus DMPs are defined as CpGs significant in **both** minfi and sesame with the **same direction** under the same thresholds.",

@@ -670,7 +670,12 @@ bioc_pkgs <- c(
     "variancePartition",
     "pvca",
     "FlowSorted.Blood.EPIC",   # Cell type reference (EPIC/EPICv2)
-    "FlowSorted.Blood.450k"   # Cell type reference (450k)
+    "FlowSorted.Blood.450k",   # Cell type reference (450k)
+    "FlowSorted.CordBlood.EPIC",
+    "FlowSorted.CordBlood.450k",
+    "FlowSorted.CordBloodCombined.450k",
+    "FlowSorted.DLPFC.450k",
+    "FlowSorted.Saliva.450k"
 )
 
 clock_pkgs <- c(

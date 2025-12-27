@@ -25,6 +25,142 @@ def safe_path_component(name: str, fallback: str = "results") -> str:
     ascii_name = re.sub(r"_+", "_", ascii_name).strip("._-")
     return ascii_name or fallback
 
+def sniff_delimiter(path: str) -> str:
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            first = handle.readline()
+    except OSError:
+        return "\t"
+    return "\t" if "\t" in first else ","
+
+def load_config_rows(path: str):
+    delim = sniff_delimiter(path)
+    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+        reader = csv.DictReader(handle, delimiter=delim)
+        rows = [row for row in reader]
+    return rows, reader.fieldnames or [], delim
+
+def resolve_id_column(headers, override=None):
+    if override:
+        if override not in headers:
+            raise ValueError(f"Specified --id-column '{override}' not found in configure.tsv.")
+        return override
+    for col in headers:
+        if re.search(r"(GSM|geo_accession)", col, flags=re.IGNORECASE):
+            return col
+    if "Basename" in headers:
+        return "Basename"
+    raise ValueError("Could not identify a sample ID column. Provide --id-column or include GSM/geo_accession/Basename in configure.tsv.")
+
+def list_idat_basenames(idat_dir: str):
+    if not idat_dir or not os.path.isdir(idat_dir):
+        return []
+    basenames = []
+    for name in os.listdir(idat_dir):
+        if name.endswith("_Grn.idat") or name.endswith("_Grn.idat.gz"):
+            base = re.sub(r"_Grn\.idat(\.gz)?$", "", name)
+            basenames.append(os.path.join(idat_dir, base))
+    return basenames
+
+def find_basename_for_id(sample_id: str, basenames):
+    if not sample_id:
+        return None
+    for bn in basenames:
+        if os.path.basename(bn) == sample_id:
+            return bn
+    for bn in basenames:
+        if sample_id in os.path.basename(bn):
+            return bn
+    return None
+
+def resolve_basename(candidate: str, sample_id: str, basenames, project_dir: str, idat_dir: str):
+    cand = candidate or ""
+    if not cand:
+        return find_basename_for_id(sample_id, basenames)
+    if not os.path.isabs(cand):
+        cand_project = os.path.join(project_dir, cand)
+        cand_idat = os.path.join(idat_dir, cand)
+        cand = cand_project
+        if not has_idat_pair(cand) and idat_dir != project_dir and has_idat_pair(cand_idat):
+            cand = cand_idat
+    if not has_idat_green(cand):
+        fallback = find_basename_for_id(sample_id, basenames)
+        if fallback:
+            return fallback
+    return cand
+
+def has_idat_green(basename: str) -> bool:
+    if not basename:
+        return False
+    return os.path.exists(basename + "_Grn.idat") or os.path.exists(basename + "_Grn.idat.gz")
+
+def has_idat_red(basename: str) -> bool:
+    if not basename:
+        return False
+    return os.path.exists(basename + "_Red.idat") or os.path.exists(basename + "_Red.idat.gz")
+
+def has_idat_pair(basename: str) -> bool:
+    return has_idat_green(basename) and has_idat_red(basename)
+
+def preflight_analysis(config_path: str, idat_dir: str, group_con: str, group_test: str,
+                       min_total_size: int, id_column: str = None):
+    rows, headers, _ = load_config_rows(config_path)
+    if not headers:
+        raise ValueError("configure.tsv appears empty or unreadable.")
+    if "primary_group" not in headers:
+        raise ValueError("configure.tsv missing 'primary_group' column.")
+    id_col = resolve_id_column(headers, override=id_column)
+    project_dir = os.path.dirname(os.path.abspath(config_path))
+    idat_dir = idat_dir or os.path.join(project_dir, "idat")
+    if not os.path.isdir(idat_dir):
+        raise ValueError(f"IDAT directory not found: {idat_dir}")
+
+    basenames = list_idat_basenames(idat_dir)
+    sample_ids = []
+    missing_id = []
+    duplicate_ids = []
+    missing_pairs = []
+
+    for row in rows:
+        sample_id = (row.get(id_col) or "").strip()
+        if not sample_id:
+            missing_id.append(row)
+            continue
+        sample_ids.append(sample_id)
+        if sample_ids.count(sample_id) > 1 and sample_id not in duplicate_ids:
+            duplicate_ids.append(sample_id)
+
+        cand = (row.get("Basename") or "").strip()
+        basename = resolve_basename(cand, sample_id, basenames, project_dir, idat_dir)
+        if not has_idat_pair(basename):
+            missing_pairs.append((sample_id, basename))
+
+    if missing_id:
+        raise ValueError("Sample ID column contains missing/empty values. Please fill it before running analysis.")
+    if duplicate_ids:
+        raise ValueError(f"Duplicate sample IDs detected: {', '.join(duplicate_ids)}")
+    if missing_pairs:
+        missing_preview = ", ".join([f"{sid}" for sid, _ in missing_pairs[:10]])
+        raise ValueError(f"Missing IDAT pairs for {len(missing_pairs)} samples (e.g. {missing_preview}).")
+
+    con_lower = (group_con or "").strip().lower()
+    test_lower = (group_test or "").strip().lower()
+    group_vals = [(row.get("primary_group") or "").strip().lower() for row in rows]
+    n_con = sum(1 for g in group_vals if g == con_lower)
+    n_test = sum(1 for g in group_vals if g == test_lower)
+    n_total = n_con + n_test
+    if n_total == 0:
+        raise ValueError(f"No samples found matching groups: {group_con} or {group_test}.")
+    if min_total_size and n_total < min_total_size:
+        raise ValueError(f"Too few samples after group selection: {n_total} < min_total_size ({min_total_size}).")
+
+    return {
+        "idat_dir": idat_dir,
+        "sample_count": len(rows),
+        "group_con": n_con,
+        "group_test": n_test,
+    }
+
 def detect_r_major_minor(env=None):
     override = (env or {}).get("ILLUMETA_R_LIB_VERSION") or os.environ.get("ILLUMETA_R_LIB_VERSION")
     if override:
@@ -135,6 +271,11 @@ EPICV2_R_PACKAGES = [
 OPTIONAL_R_PACKAGES = [
     "FlowSorted.Blood.EPIC",
     "FlowSorted.Blood.450k",
+    "FlowSorted.CordBlood.EPIC",
+    "FlowSorted.CordBlood.450k",
+    "FlowSorted.CordBloodCombined.450k",
+    "FlowSorted.DLPFC.450k",
+    "FlowSorted.Saliva.450k",
     "wateRmelon",
     "methylclock",
     "methylclockData",
@@ -446,6 +587,7 @@ def run_analysis(args):
         "--min_total_size", str(args.min_total_size),
         "--qc_intensity_threshold", str(args.qc_intensity_threshold)
     ]
+    idat_dir = None
     if args.idat_dir:
         idat_dir = args.idat_dir
         if not os.path.isabs(idat_dir):
@@ -454,6 +596,21 @@ def run_analysis(args):
             log_err(f"[!] IDAT directory not found: {idat_dir}")
             sys.exit(1)
         cmd.extend(["--idat_dir", idat_dir])
+
+    try:
+        preflight = preflight_analysis(
+            config_path=config_path,
+            idat_dir=idat_dir,
+            group_con=args.group_con,
+            group_test=args.group_test,
+            min_total_size=args.min_total_size,
+            id_column=args.id_column,
+        )
+        log(f"[*] Preflight OK: samples={preflight['sample_count']}, "
+            f"{args.group_con}={preflight['group_con']}, {args.group_test}={preflight['group_test']}")
+    except ValueError as e:
+        log_err(f"[!] Preflight check failed: {e}")
+        sys.exit(1)
     if args.force_idat:
         cmd.append("--force_idat")
     if args.disable_auto_covariates:
@@ -466,6 +623,10 @@ def run_analysis(args):
         cmd.append("--include_clock_covariates")
     if args.tissue:
         cmd.extend(["--tissue", args.tissue])
+    if args.cell_reference:
+        cmd.extend(["--cell_reference", args.cell_reference])
+    if args.cell_reference_platform:
+        cmd.extend(["--cell_reference_platform", args.cell_reference_platform])
     if args.positive_controls:
         cmd.extend(["--positive_controls", args.positive_controls])
     if args.skip_sesame:
@@ -966,7 +1127,14 @@ def generate_dashboard(output_dir, group_test, group_con):
             html_parts.append('        <div class="metrics-card">\n')
             html_parts.append('            <div class="metrics-title">Analysis Parameters</div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>FDR / |logFC|</span><span>{analysis_params.get("pval_threshold", "N/A")} / {analysis_params.get("lfc_threshold", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Tissue</span><span>{analysis_params.get("tissue", "N/A")} ({analysis_params.get("tissue_source", "N/A")})</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Array type</span><span>{analysis_params.get("array_type", "N/A")}</span></div>\n')
+            cell_ref = analysis_params.get("cell_reference", "")
+            cell_ref_platform = analysis_params.get("cell_reference_platform", "")
+            cell_ref_label = "default" if not cell_ref else f"{cell_ref} ({cell_ref_platform or 'auto'})"
+            html_parts.append(f'            <div class="metrics-row"><span>Cell reference</span><span>{cell_ref_label}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Auto covariates</span><span>alpha={analysis_params.get("auto_covariate_alpha", "N/A")}, max_pcs={analysis_params.get("auto_covariate_max_pcs", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Over/Under guard</span><span>{analysis_params.get("overcorrection_guard_ratio", "N/A")} / {analysis_params.get("undercorrection_guard_min_sv", "N/A")}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>SVA</span><span>{analysis_params.get("sva_enabled", "N/A")} ({analysis_params.get("sva_inclusion_rule", "N/A")})</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Clock covariates</span><span>{analysis_params.get("clock_covariates_enabled", "N/A")}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>SV group filter</span><span>P<{analysis_params.get("sv_group_p_threshold", "N/A")}, Eta^2>{analysis_params.get("sv_group_eta2_threshold", "N/A")}</span></div>\n')
@@ -987,6 +1155,8 @@ def generate_dashboard(output_dir, group_test, group_con):
         ("analysis_parameters.json", "Analysis Parameters", "Run settings and thresholds (JSON).", "DOC"),
         ("sessionInfo.txt", "R Session Info", "Full R session and package versions.", "DOC"),
         ("code_version.txt", "Code Version", "Git commit hash when available.", "DOC"),
+        ("Preflight_Summary.csv", "Preflight Summary (CSV)", "Preflight checks and group counts.", "CSV"),
+        ("Preflight_IDAT_Pairs.csv", "Preflight IDAT Pairs (CSV)", "IDAT pair existence per sample.", "CSV"),
         ("QC_Summary.csv", "QC Summary (CSV)", "Sample/probe QC counts.", "CSV"),
         ("Sample_QC_Metrics.csv", "Sample QC Metrics (CSV)", "Per-sample QC metrics.", "CSV"),
         ("cell_counts_merged.csv", "Cell Composition (CSV)", "Merged cell composition covariates (if available).", "CSV"),
@@ -1159,6 +1329,8 @@ def main():
     parser_analysis.add_argument("--include-covariates", type=str, help="Comma-separated covariate names to always try to include (if present in configure.tsv)")
     parser_analysis.add_argument("--include-clock-covariates", action="store_true", help="Compute epigenetic clocks and include them as candidate covariates")
     parser_analysis.add_argument("--tissue", type=str, default="Auto", help="Tissue type for cell deconvolution (default Auto = reference-free; options: Auto, Blood, CordBlood, DLPFC, Placenta)")
+    parser_analysis.add_argument("--cell-reference", type=str, help="Custom cell reference (package name, package::object, or .rds/.rda path)")
+    parser_analysis.add_argument("--cell-reference-platform", type=str, help="Reference platform for cell reference (e.g. IlluminaHumanMethylationEPIC or IlluminaHumanMethylation450k)")
     parser_analysis.add_argument("--positive_controls", type=str, help="Comma-separated list of known marker genes to verify (e.g. 'AHRR,CYP1A1')")
     parser_analysis.add_argument("--skip-sesame", action="store_true", help="Skip Sesame pipeline (Minfi only)")
     parser_analysis.add_argument("--permutations", type=int, default=0, help="Number of label permutations for null DMP counts (0 to skip)")

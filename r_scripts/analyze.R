@@ -99,6 +99,8 @@ option_list <- list(
               help="Adjusted P-value threshold (default: 0.05)", metavar="double"),
   make_option(c("-l", "--lfc"), type="double", default=0.5, 
               help="LogFC threshold (default: 0.5)", metavar="double"),
+  make_option(c("--delta_beta", "--delta-beta"), type="double", default=0, 
+              help="Absolute Delta Beta threshold (default: 0; disabled)", metavar="double"),
   make_option(c("--group_con"), type="character", default=NULL, 
               help="Control group label", metavar="character"),
   make_option(c("--group_test"), type="character", default=NULL, 
@@ -174,6 +176,9 @@ out_dir <- opt$out
 max_points <- opt$max_plots
 pval_thresh <- opt$pval
 lfc_thresh <- opt$lfc
+delta_beta_thresh <- suppressWarnings(as.numeric(opt$delta_beta))
+if (!is.finite(delta_beta_thresh)) delta_beta_thresh <- 0
+delta_beta_thresh <- abs(delta_beta_thresh)
 group_con_in <- opt$group_con
 group_test_in <- opt$group_test
 perm_n <- opt$permutations
@@ -259,6 +264,13 @@ save_datatable <- function(df, filename, dir, sort_col = NULL) {
     order = list(list(p_idx, 'asc'))
   ))
   saveWidget(dt, file = file.path(dir, filename), selfcontained = TRUE)
+}
+
+delta_beta_pass <- function(x) {
+  if (!is.finite(delta_beta_thresh) || delta_beta_thresh <= 0) {
+    return(rep(TRUE, length(x)))
+  }
+  is.finite(x) & abs(x) >= delta_beta_thresh
 }
 
 drop_zero_variance_cols <- function(mat, label = "PCA") {
@@ -2596,8 +2608,9 @@ run_pipeline <- function(betas, prefix, annotation_df) {
   }
   
   plot_res$diffexpressed <- "NO"
-  plot_res$diffexpressed[plot_res$adj.P.Val < pval_thresh & plot_res$logFC > lfc_thresh] <- "UP"
-  plot_res$diffexpressed[plot_res$adj.P.Val < pval_thresh & plot_res$logFC < -lfc_thresh] <- "DOWN"
+  delta_pass <- delta_beta_pass(plot_res$Delta_Beta)
+  plot_res$diffexpressed[plot_res$adj.P.Val < pval_thresh & plot_res$logFC > lfc_thresh & delta_pass] <- "UP"
+  plot_res$diffexpressed[plot_res$adj.P.Val < pval_thresh & plot_res$logFC < -lfc_thresh & delta_pass] <- "DOWN"
   
   subtitle_str <- paste0("Control: ", group_con_in, " (n=", n_con_local, ") vs Test: ", group_test_in, " (n=", n_test_local, ")")
   
@@ -2830,8 +2843,9 @@ run_pipeline <- function(betas, prefix, annotation_df) {
           # 1. DMR Volcano Plot
           # dmrff returns 'estimate' (avg LogFC) and 'p.adjust'
           dmr_res$diffexpressed <- "NO"
-          dmr_res$diffexpressed[dmr_res$p.adjust < dmr_p_cutoff & dmr_res$estimate > 0] <- "UP"
-          dmr_res$diffexpressed[dmr_res$p.adjust < dmr_p_cutoff & dmr_res$estimate < 0] <- "DOWN"
+          delta_pass_dmr <- delta_beta_pass(dmr_res$Delta_Beta)
+          dmr_res$diffexpressed[dmr_res$p.adjust < dmr_p_cutoff & dmr_res$estimate > 0 & delta_pass_dmr] <- "UP"
+          dmr_res$diffexpressed[dmr_res$p.adjust < dmr_p_cutoff & dmr_res$estimate < 0 & delta_pass_dmr] <- "DOWN"
           dmr_res$plot_p <- pmax(dmr_res$p.value, 1e-300)
           dmr_res$label <- ifelse(!is.na(dmr_res$Genes) & nzchar(dmr_res$Genes), dmr_res$Genes, dmr_res$Regions)
           dmr_res$label <- sub(";.*", "", ifelse(is.na(dmr_res$label), "", dmr_res$label))
@@ -3141,7 +3155,20 @@ run_pipeline <- function(betas, prefix, annotation_df) {
           fitp2 <- eBayes(fitp2)
           resp <- topTable(fitp2, coef = 1, number = Inf, adjust.method = "BH")
           
-          sig <- sum(resp$adj.P.Val < pval_thresh & abs(resp$logFC) > lfc_thresh, na.rm=TRUE)
+          delta_pass_perm <- rep(TRUE, nrow(resp))
+          if (delta_beta_thresh > 0) {
+              perm_con_mask <- perm_labels == clean_con
+              perm_test_mask <- perm_labels == clean_test
+              if (sum(perm_con_mask) > 0 && sum(perm_test_mask) > 0) {
+                  perm_delta <- rowMeans(betas[top_perm, perm_test_mask, drop=FALSE], na.rm = TRUE) -
+                      rowMeans(betas[top_perm, perm_con_mask, drop=FALSE], na.rm = TRUE)
+                  perm_delta <- perm_delta[rownames(resp)]
+                  delta_pass_perm <- delta_beta_pass(perm_delta)
+              } else {
+                  delta_pass_perm <- rep(FALSE, nrow(resp))
+              }
+          }
+          sig <- sum(resp$adj.P.Val < pval_thresh & abs(resp$logFC) > lfc_thresh & delta_pass_perm, na.rm=TRUE)
           minp <- suppressWarnings(min(resp$P.Value, na.rm=TRUE))
           perm_results <- rbind(perm_results, data.frame(run = i, sig_count = sig, min_p = minp))
           
@@ -3286,23 +3313,29 @@ if (is.null(res_minfi) || is.null(res_sesame)) {
 } else {
   tryCatch({
     keep_cols <- intersect(
-      c("CpG", "Gene", "chr", "pos", "Region", "Island_Context", "logFC", "P.Value", "adj.P.Val"),
+      c("CpG", "Gene", "chr", "pos", "Region", "Island_Context", "logFC", "Delta_Beta", "P.Value", "adj.P.Val"),
       colnames(res_minfi)
     )
     a <- res_minfi[, keep_cols, drop = FALSE]
-    b <- res_sesame[, intersect(c("CpG", "logFC", "P.Value", "adj.P.Val"), colnames(res_sesame)), drop = FALSE]
+    b <- res_sesame[, intersect(c("CpG", "logFC", "Delta_Beta", "P.Value", "adj.P.Val"), colnames(res_sesame)), drop = FALSE]
     concord <- merge(a, b, by = "CpG", suffixes = c(".Minfi", ".Sesame"))
     concord <- concord[is.finite(concord$logFC.Minfi) & is.finite(concord$logFC.Sesame), , drop = FALSE]
+    delta_pass_minfi <- delta_beta_pass(concord$Delta_Beta.Minfi)
+    delta_pass_sesame <- delta_beta_pass(concord$Delta_Beta.Sesame)
     
     is_up <- concord$adj.P.Val.Minfi < pval_thresh &
       concord$adj.P.Val.Sesame < pval_thresh &
       concord$logFC.Minfi > lfc_thresh &
-      concord$logFC.Sesame > lfc_thresh
+      concord$logFC.Sesame > lfc_thresh &
+      delta_pass_minfi &
+      delta_pass_sesame
     
     is_down <- concord$adj.P.Val.Minfi < pval_thresh &
       concord$adj.P.Val.Sesame < pval_thresh &
       concord$logFC.Minfi < -lfc_thresh &
-      concord$logFC.Sesame < -lfc_thresh
+      concord$logFC.Sesame < -lfc_thresh &
+      delta_pass_minfi &
+      delta_pass_sesame
     
     consensus_counts$up <- sum(is_up, na.rm = TRUE)
     consensus_counts$down <- sum(is_down, na.rm = TRUE)
@@ -3346,8 +3379,8 @@ if (is.null(res_minfi) || is.null(res_sesame)) {
     save_static_plot(p_conc, "Intersection_LogFC_Concordance.png", out_dir, width = 6, height = 6)
     
     # Overlap summary plot (counts)
-    sig_minfi <- concord$adj.P.Val.Minfi < pval_thresh & abs(concord$logFC.Minfi) > lfc_thresh
-    sig_sesame <- concord$adj.P.Val.Sesame < pval_thresh & abs(concord$logFC.Sesame) > lfc_thresh
+    sig_minfi <- concord$adj.P.Val.Minfi < pval_thresh & abs(concord$logFC.Minfi) > lfc_thresh & delta_pass_minfi
+    sig_sesame <- concord$adj.P.Val.Sesame < pval_thresh & abs(concord$logFC.Sesame) > lfc_thresh & delta_pass_sesame
     n_both <- sum(is_up | is_down, na.rm = TRUE)
     overlap_df <- data.frame(
       Category = c("Minfi only", "Sesame only", "Both (consensus)"),
@@ -3369,8 +3402,9 @@ if (is.null(res_minfi) || is.null(res_sesame)) {
 
 get_sig_counts <- function(res_df) {
   if (is.null(res_df) || nrow(res_df) == 0) return(list(up = 0, down = 0))
-  up <- sum(res_df$adj.P.Val < pval_thresh & res_df$logFC > lfc_thresh, na.rm=TRUE)
-  down <- sum(res_df$adj.P.Val < pval_thresh & res_df$logFC < -lfc_thresh, na.rm=TRUE)
+  delta_pass <- delta_beta_pass(res_df$Delta_Beta)
+  up <- sum(res_df$adj.P.Val < pval_thresh & res_df$logFC > lfc_thresh & delta_pass, na.rm=TRUE)
+  down <- sum(res_df$adj.P.Val < pval_thresh & res_df$logFC < -lfc_thresh & delta_pass, na.rm=TRUE)
   return(list(up=up, down=down))
 }
 
@@ -3406,8 +3440,8 @@ tryCatch({
   
   sva_rule <- ifelse(disable_sva, "disabled", "best_method_or_no_batch")
   params_json <- sprintf(
-    '{"pval_threshold": %.3f, "lfc_threshold": %.2f, "snp_maf": %.3f, "qc_intensity_threshold": %.1f, "detection_p_threshold": %.3f, "tissue": "%s", "tissue_source": "%s", "array_type": "%s", "cell_reference": "%s", "cell_reference_platform": "%s", "auto_covariate_alpha": %.3f, "auto_covariate_max_pcs": %d, "overcorrection_guard_ratio": %.2f, "undercorrection_guard_min_sv": %d, "sva_enabled": %s, "sva_inclusion_rule": "%s", "clock_covariates_enabled": %s, "sv_group_p_threshold": %.1e, "sv_group_eta2_threshold": %.2f, "pvca_min_samples": %d, "permutations": %d, "vp_top": %d, "dmr_maxgap": %d, "dmr_p_cutoff": %.3f, "logit_offset": %.6f, "seed": %d}',
-    pval_thresh, lfc_thresh, SNP_MAF_THRESHOLD, QC_MEDIAN_INTENSITY_THRESHOLD,
+    '{"pval_threshold": %.3f, "lfc_threshold": %.2f, "delta_beta_threshold": %.3f, "snp_maf": %.3f, "qc_intensity_threshold": %.1f, "detection_p_threshold": %.3f, "tissue": "%s", "tissue_source": "%s", "array_type": "%s", "cell_reference": "%s", "cell_reference_platform": "%s", "auto_covariate_alpha": %.3f, "auto_covariate_max_pcs": %d, "overcorrection_guard_ratio": %.2f, "undercorrection_guard_min_sv": %d, "sva_enabled": %s, "sva_inclusion_rule": "%s", "clock_covariates_enabled": %s, "sv_group_p_threshold": %.1e, "sv_group_eta2_threshold": %.2f, "pvca_min_samples": %d, "permutations": %d, "vp_top": %d, "dmr_maxgap": %d, "dmr_p_cutoff": %.3f, "logit_offset": %.6f, "seed": %d}',
+    pval_thresh, lfc_thresh, delta_beta_thresh, SNP_MAF_THRESHOLD, QC_MEDIAN_INTENSITY_THRESHOLD,
     QC_DETECTION_P_THRESHOLD, tissue_use, tissue_source,
     ifelse(is.na(array_type), "", array_type), cell_reference, cell_reference_platform,
     AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION,
@@ -3456,6 +3490,10 @@ tryCatch({
   } else {
     "default references (fallback to RefFreeEWAS when unavailable)"
   }
+  sig_line <- sprintf("- Significance thresholds: BH FDR < %.3f and |log2FC| > %.2f", pval_thresh, lfc_thresh)
+  if (delta_beta_thresh > 0) {
+    sig_line <- paste0(sig_line, sprintf(" and |DeltaBeta| >= %.3f", delta_beta_thresh))
+  }
   methods_lines <- c(
     "# IlluMeta analysis methods (auto-generated)",
     "",
@@ -3466,7 +3504,7 @@ tryCatch({
     sprintf("- Tissue: `%s` (source: %s)", tissue_use, tissue_source),
     sprintf("- Array type detected: %s", array_type_str),
     sprintf("- Cell reference: %s", cell_ref_str),
-    sprintf("- Significance thresholds: BH FDR < %.3f and |log2FC| > %.2f", pval_thresh, lfc_thresh),
+    sig_line,
     "",
     "## Overview",
     "IlluMeta performs an end-to-end DNA methylation analysis from raw Illumina IDAT files, running two independent normalization pipelines (minfi and sesame) and reporting both per-pipeline results and a consensus (intersection) call set.",

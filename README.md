@@ -468,6 +468,23 @@ Notes on R libraries:
 - To clean mismatched packages after switching R versions, run:
   `ILLUMETA_CLEAN_MISMATCHED_RLIB=1 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.
 
+## Docker (optional)
+Build the container:
+```bash
+docker build -t illumeta .
+```
+Run a quick environment check:
+```bash
+docker run --rm -it -v "$PWD":/app illumeta doctor
+```
+Run analysis (mount your project directory):
+```bash
+docker run --rm -it -v "$PWD":/app illumeta analysis \
+  -i projects/GSE121633 \
+  --group_con Control \
+  --group_test Case
+```
+
 ## Quick start
 
 ### 1) Download a dataset from GEO
@@ -507,6 +524,7 @@ python3 illusearch.py --keywords "breast cancer" --email your_email@example.com 
 2. Create `my_project/configure.tsv` with at least:
    - `Basename` (e.g., `idat/Sample1_R01C01`)
    - `primary_group` (e.g., `Treated`, `Untreated`)
+   - Optional: `tissue` (e.g., `Blood`, `CordBlood`, `Placenta`) to auto-select reference
 3. Run:
 ```bash
 python3 illumeta.py analysis -i my_project --group_con Untreated --group_test Treated
@@ -529,6 +547,17 @@ python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_te
 # Placenta clocks (planet)
 python3 illumeta.py analysis -i projects/GSE307314 --group_con control --group_test test --tissue Placenta
 
+# Auto tissue inference from configure.tsv (falls back to RefFreeEWAS)
+python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --tissue Auto
+
+# Custom cell reference (package, package::object, or .rds/.rda)
+python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case \
+  --tissue Blood --cell-reference FlowSorted.Blood.EPIC
+
+# Custom cell reference with explicit platform string
+python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case \
+  --tissue Blood --cell-reference refs/blood_ref.rds --cell-reference-platform IlluminaHumanMethylationEPIC
+
 # Mixed-array safeguard override (only if you know what you're doing)
 python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --force-idat
 ```
@@ -544,6 +573,8 @@ IlluMeta writes results to the analysis output directory (default: `[input]/[tes
 - `code_version.txt`: git commit hash (when available).
 
 ### QC
+- `Preflight_Summary.csv`: preflight checks and group counts before processing.
+- `Preflight_IDAT_Pairs.csv`: per-sample IDAT pair existence check.
 - `QC_Summary.csv`: sample/probe QC counts.
 - `Sample_QC_Metrics.csv`: per-sample QC metrics.
 - `Sample_QC_DetectionP_FailFraction.png` and `Sample_QC_Intensity_Medians.png`: static QC figures (HTML versions are also saved).
@@ -586,6 +617,8 @@ Common issues:
 - **`pandoc: command not found`**: install `pandoc` (Ubuntu: `sudo apt-get install pandoc`, macOS: `brew install pandoc`).
 - **Too few samples after QC**: IlluMeta stops if total n is too small for reliable stats; inspect `QC_Summary.csv` and consider adjusting `--qc-intensity-threshold` (or disable by setting `--qc-intensity-threshold 0`).
 - **Mixed array sizes**: by default, IlluMeta drops samples that deviate from the modal array size; use `--force-idat` only when appropriate.
+- **Missing IDAT pairs**: see `Preflight_IDAT_Pairs.csv` and ensure each basename has both `_Grn.idat` and `_Red.idat` (or `.gz`) files.
+- **Reference package unavailable** (e.g., FlowSorted.* not in your Bioconductor): IlluMeta falls back to RefFreeEWAS; consider `--cell-reference` or upgrading R/Bioconductor.
 
 ## Citation
 See `CITATION.cff`.

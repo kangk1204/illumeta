@@ -117,6 +117,10 @@ option_list <- list(
               help="Number of top-variable CpGs for variancePartition (default: 5000)"),
   make_option(c("--tissue"), type="character", default="Auto", 
               help="Tissue type for cell deconvolution (default: Auto = reference-free). Supported: Auto (RefFreeEWAS), Blood, CordBlood, DLPFC"),
+  make_option(c("--cell_reference"), type="character", default="",
+              help="Custom cell reference (package name, package::object, or .rds/.rda path)"),
+  make_option(c("--cell_reference_platform"), type="character", default="",
+              help="Reference platform string for custom cell reference (e.g. IlluminaHumanMethylationEPIC)"),
   make_option(c("--positive_controls"), type="character", default=NULL,
               help="Comma-separated list of gene symbols (e.g. 'AHRR,CYP1A1') to verify as positive controls."),
   make_option(c("--id_column"), type="character", default="",
@@ -177,6 +181,10 @@ disable_auto_cov <- opt$disable_auto_covariates
 disable_sva <- opt$disable_sva
 include_cov <- ifelse(opt$include_covariates == "", character(0), trimws(strsplit(opt$include_covariates, ",")[[1]]))
 include_clock_covariates <- opt$include_clock_covariates
+cell_reference <- opt$cell_reference
+cell_reference_platform <- opt$cell_reference_platform
+tissue_use <- opt$tissue
+tissue_source <- "arg"
 cell_covariates <- character(0)
 cell_counts_df <- NULL
 id_col_override <- opt$id_column
@@ -492,7 +500,113 @@ filter_low_range <- function(betas, min_range = BETA_RANGE_MIN) {
   list(mat = betas[keep, , drop = FALSE], removed = sum(!keep))
 }
 
-estimate_cell_counts_safe <- function(rgSet, tissue = "Blood", out_dir = NULL) {
+normalize_tissue <- function(x) {
+  if (is.null(x) || length(x) == 0) return(NA_character_)
+  val <- trimws(as.character(x)[1])
+  if (!nzchar(val)) return(NA_character_)
+  key <- tolower(gsub("[^a-z0-9]", "", val))
+  map <- c(
+    "blood" = "Blood",
+    "wholeblood" = "Blood",
+    "peripheralblood" = "Blood",
+    "cordblood" = "CordBlood",
+    "umbilicalcordblood" = "CordBlood",
+    "dlpfc" = "DLPFC",
+    "dorsolateralprefrontalcortex" = "DLPFC",
+    "placenta" = "Placenta",
+    "saliva" = "Saliva"
+  )
+  if (key %in% names(map)) return(map[[key]])
+  NA_character_
+}
+
+infer_tissue_from_config <- function(targets) {
+  cand_cols <- c("tissue", "Tissue", "sample_tissue", "Sample_Tissue", "sample_type", "Sample_Type")
+  for (col in cand_cols) {
+    if (!col %in% colnames(targets)) next
+    vals <- unique(trimws(as.character(targets[[col]])))
+    vals <- vals[vals != ""]
+    vals <- vals[!is.na(vals)]
+    if (length(vals) == 0) next
+    norm_vals <- unique(na.omit(vapply(vals, normalize_tissue, character(1))))
+    if (length(norm_vals) == 1) {
+      return(list(tissue = norm_vals[1], source = col, raw = vals[1]))
+    }
+  }
+  NULL
+}
+
+detect_array_type <- function(rgSet) {
+  if (!requireNamespace("minfi", quietly = TRUE)) return(NA_character_)
+  try_check <- function(fn) {
+    if (exists(fn, envir = asNamespace("minfi"), inherits = FALSE)) {
+      return(tryCatch(get(fn, asNamespace("minfi"))(rgSet), error = function(e) FALSE))
+    }
+    FALSE
+  }
+  if (try_check(".isEPICv2")) return("EPICv2")
+  if (try_check(".isEPIC")) return("EPIC")
+  if (try_check(".is450k")) return("450k")
+  ann <- tryCatch(minfi::annotation(rgSet), error = function(e) NULL)
+  if (!is.null(ann) && "array" %in% names(ann)) {
+    return(as.character(ann["array"]))
+  }
+  NA_character_
+}
+
+reference_platform_from_array <- function(array_type) {
+  if (is.na(array_type) || !nzchar(array_type)) return("")
+  key <- tolower(gsub("[^a-z0-9]", "", array_type))
+  if (grepl("epic", key)) return("IlluminaHumanMethylationEPIC")
+  if (grepl("450k", key) || grepl("hm450", key)) return("IlluminaHumanMethylation450k")
+  ""
+}
+
+load_cell_reference <- function(ref_spec) {
+  if (!nzchar(ref_spec)) return(NULL)
+  if (file.exists(ref_spec)) {
+    if (grepl("\\.rds$", ref_spec, ignore.case = TRUE)) {
+      ref <- tryCatch(readRDS(ref_spec), error = function(e) NULL)
+      if (!is.null(ref)) {
+        return(list(reference = ref, label = basename(ref_spec), pkg = NA_character_))
+      }
+    }
+    if (grepl("\\.(rda|rdata)$", ref_spec, ignore.case = TRUE)) {
+      ref_env <- new.env(parent = emptyenv())
+      tryCatch(load(ref_spec, envir = ref_env), error = function(e) NULL)
+      objs <- ls(ref_env)
+      if (length(objs) > 0) {
+        if (length(objs) > 1) {
+          message("  - Multiple objects found in reference file; using the first: ", objs[1])
+        }
+        return(list(reference = ref_env[[objs[1]]], label = basename(ref_spec), pkg = NA_character_))
+      }
+    }
+    return(NULL)
+  }
+  if (grepl("::", ref_spec, fixed = TRUE)) {
+    parts <- strsplit(ref_spec, "::", fixed = TRUE)[[1]]
+    pkg <- parts[1]
+    obj <- parts[2]
+    if (!requireNamespace(pkg, quietly = TRUE)) return(NULL)
+    ref <- tryCatch(get(obj, envir = asNamespace(pkg)), error = function(e) NULL)
+    if (!is.null(ref)) {
+      return(list(reference = ref, label = ref_spec, pkg = pkg))
+    }
+  }
+  if (requireNamespace(ref_spec, quietly = TRUE)) {
+    ref_env <- new.env(parent = emptyenv())
+    tryCatch(data(list = ref_spec, package = ref_spec, envir = ref_env), error = function(e) NULL)
+    if (exists(ref_spec, envir = ref_env, inherits = FALSE)) {
+      return(list(reference = ref_env[[ref_spec]], label = ref_spec, pkg = ref_spec))
+    }
+  }
+  NULL
+}
+
+estimate_cell_counts_safe <- function(rgSet, tissue = "Blood", out_dir = NULL,
+                                      cell_reference = "", cell_reference_platform = "",
+                                      array_type = NA_character_) {
   run_ref_free <- function() {
     message("Estimating cell composition using Reference-Free method (RefFreeEWAS)...")
     if (!requireNamespace("RefFreeEWAS", quietly = TRUE)) {
@@ -539,6 +653,73 @@ estimate_cell_counts_safe <- function(rgSet, tissue = "Blood", out_dir = NULL) {
       message("  - Reference-Free estimation failed: ", e$message)
       return(NULL)
     })
+  }
+
+  if (nzchar(cell_reference)) {
+    ref_info <- load_cell_reference(cell_reference)
+    if (!is.null(ref_info)) {
+      ref_tissue <- tissue
+      if (ref_tissue == "Auto") {
+        message("Custom reference provided with tissue=Auto; using compositeCellType='Blood'.")
+        ref_tissue <- "Blood"
+      }
+      message(sprintf("Estimating cell composition using custom reference: %s...", ref_info$label))
+      est_fun <- NULL
+      if (!is.na(ref_info$pkg) && requireNamespace(ref_info$pkg, quietly = TRUE)) {
+        if (exists("estimateCellCounts2", envir = asNamespace(ref_info$pkg), inherits = FALSE)) {
+          est_fun <- get("estimateCellCounts2", envir = asNamespace(ref_info$pkg))
+        }
+      }
+      if (is.null(est_fun)) {
+        if (requireNamespace("minfi", quietly = TRUE)) {
+          if (exists("estimateCellCounts2", envir = asNamespace("minfi"), inherits = FALSE)) {
+            est_fun <- minfi::estimateCellCounts2
+          } else if (exists("estimateCellCounts", envir = asNamespace("minfi"), inherits = FALSE)) {
+            est_fun <- minfi::estimateCellCounts
+          }
+        }
+      }
+      if (!is.null(est_fun)) {
+        ref_platform <- cell_reference_platform
+        if (!nzchar(ref_platform)) {
+          ref_platform <- reference_platform_from_array(array_type)
+        }
+        res <- tryCatch({
+          arg_list <- list(
+            rgSet = rgSet,
+            compositeCellType = ref_tissue,
+            returnAll = FALSE
+          )
+          fn_args <- names(formals(est_fun))
+          if ("reference" %in% fn_args) arg_list$reference <- ref_info$reference
+          if ("referencePlatform" %in% fn_args && nzchar(ref_platform)) arg_list$referencePlatform <- ref_platform
+          if ("processMethod" %in% fn_args) arg_list$processMethod <- "preprocessNoob"
+          if ("normalizationMethod" %in% fn_args) arg_list$normalizationMethod <- "none"
+          if ("meanPlot" %in% fn_args) arg_list$meanPlot <- FALSE
+          do.call(est_fun, arg_list)
+        }, error = function(e) {
+          message("  - Custom reference cell composition failed: ", e$message)
+          NULL
+        })
+        if (!is.null(res)) {
+          if (is.list(res) && !is.null(res$prop)) {
+            res <- res$prop
+          }
+          df <- as.data.frame(res)
+          colnames(df) <- paste0("Cell_", colnames(df))
+          df$SampleID <- rownames(df)
+          if (!is.null(out_dir)) {
+            write.csv(df, file.path(out_dir, "cell_counts_custom_reference.csv"), row.names = FALSE)
+          }
+          message("  - Cell composition estimated using custom reference.")
+          return(list(counts = df, reference = ref_info$label))
+        }
+      } else {
+        message("  - Custom reference skipped: estimateCellCounts[2] not available.")
+      }
+    } else {
+      message("  - Unable to load custom cell reference; falling back to defaults.")
+    }
   }
 
   # 1. Reference-Free Mode (Auto)
@@ -1223,6 +1404,20 @@ if ("Sentrix_Position" %in% colnames(targets)) targets$Sentrix_Position <- as.fa
 if (!"primary_group" %in% colnames(targets)) stop("configure.tsv missing 'primary_group' column.")
 targets$primary_group <- trimws(targets$primary_group) # remove whitespace
 
+arg_tissue_norm <- normalize_tissue(opt$tissue)
+if (!is.na(arg_tissue_norm)) tissue_use <- arg_tissue_norm
+if (tolower(tissue_use) == "auto") {
+  inferred <- infer_tissue_from_config(targets)
+  if (!is.null(inferred)) {
+    tissue_use <- inferred$tissue
+    tissue_source <- paste0("config:", inferred$source)
+    message(sprintf("Auto tissue detected from %s: %s (raw: %s)", inferred$source, tissue_use, inferred$raw))
+  } else {
+    tissue_source <- "auto"
+    message("Auto tissue selection: no usable tissue column found; using reference-free mode.")
+  }
+}
+
 project_dir <- dirname(config_file)
 idat_dir <- opt$idat_dir
 if (!nzchar(idat_dir)) {
@@ -1314,6 +1509,30 @@ if (length(missing_base) > 0) {
 targets <- targets[!is.na(targets$Basename), ]
 if (nrow(targets) == 0) stop("No matching IDAT files found for the defined samples.")
 
+idat_has <- function(base, suffix) {
+  file.exists(paste0(base, suffix)) || file.exists(paste0(base, suffix, ".gz"))
+}
+idat_pairs <- data.frame(
+  SampleID = targets$SampleID,
+  Basename = targets$Basename,
+  Has_Grn = vapply(targets$Basename, idat_has, logical(1), suffix = "_Grn.idat"),
+  Has_Red = vapply(targets$Basename, idat_has, logical(1), suffix = "_Red.idat"),
+  Group = as.character(targets$primary_group),
+  stringsAsFactors = FALSE
+)
+write.csv(idat_pairs, file.path(out_dir, "Preflight_IDAT_Pairs.csv"), row.names = FALSE)
+missing_pair_idx <- which(!(idat_pairs$Has_Grn & idat_pairs$Has_Red))
+if (length(missing_pair_idx) > 0) {
+  bad_ids <- idat_pairs$SampleID[missing_pair_idx]
+  stop(paste0("Missing IDAT pairs for: ", paste(bad_ids, collapse = ", "),
+              ". Ensure both _Grn.idat and _Red.idat (or .gz) exist."))
+}
+
+dup_basename_count <- sum(duplicated(targets$Basename))
+if (dup_basename_count > 0) {
+  message("WARNING: Duplicate Basename entries detected (", dup_basename_count, "). Results may be biased.")
+}
+
 # Drop samples whose IDAT array size deviates from the modal value (prevents mixed-platform parsing errors)
 idat_size <- vapply(targets$Basename, function(bn) {
   f <- paste0(bn, "_Grn.idat")
@@ -1342,6 +1561,8 @@ if (sum(!is.na(idat_size)) > 0) {
   }
 }
 
+n_targets_raw <- nrow(targets)
+
 # 1. Filter for specified groups (Case-Insensitive)
 # Standardize to check match
 target_groups_lower <- tolower(targets$primary_group)
@@ -1368,6 +1589,16 @@ n_test <- sum(tolower(targets$primary_group) == test_lower)
 message(paste("Found", nrow(targets), "samples for analysis."))
 message(paste("  - Control Group:", group_con_in, paste0("(n=", n_con, ")")))
 message(paste("  - Test Group:   ", group_test_in, paste0("(n=", n_test, ")")))
+
+preflight_summary <- data.frame(
+  metric = c("Total_samples_config", "Samples_group_filtered", "Control_group_n", "Test_group_n",
+             "Duplicate_basenames", "IDAT_pairs_missing", "IDAT_modal_size"),
+  value = c(n_targets_raw, nrow(targets), n_con, n_test,
+            dup_basename_count, length(missing_pair_idx),
+            ifelse(is.na(mode_size), "NA", format(mode_size, scientific = FALSE))),
+  stringsAsFactors = FALSE
+)
+write.csv(preflight_summary, file.path(out_dir, "Preflight_Summary.csv"), row.names = FALSE)
 
 if (n_con < MIN_GROUP_SIZE_WARN || n_test < MIN_GROUP_SIZE_WARN) {
   message("WARNING: Very small sample size detected (n < 3 in one or both groups).")
@@ -1413,6 +1644,13 @@ if (force_idat) {
   message("  Forcing IDAT read despite differing array sizes (force=TRUE).")
 }
 rgSet <- read.metharray.exp(targets = targets, force = force_idat)
+array_type <- detect_array_type(rgSet)
+if (!is.na(array_type)) {
+  message(sprintf("Detected array type: %s", array_type))
+}
+if (!is.na(array_type) && array_type == "EPICv2" && tissue_use != "Auto") {
+  message(sprintf("EPICv2 detected; reference-based cell composition may not be available for tissue '%s'.", tissue_use))
+}
 
 # A. Sample-Level QC
 # Sample QC thresholds based on Illumina recommendations:
@@ -1540,7 +1778,14 @@ tryCatch({
 })
 
 # Cell composition estimation (before batch correction)
-cell_est <- estimate_cell_counts_safe(rgSet, tissue = opt$tissue, out_dir = out_dir)
+cell_est <- estimate_cell_counts_safe(
+  rgSet,
+  tissue = tissue_use,
+  out_dir = out_dir,
+  cell_reference = cell_reference,
+  cell_reference_platform = cell_reference_platform,
+  array_type = array_type
+)
 if (!is.null(cell_est)) {
   cell_df <- cell_est$counts
   cell_cols <- grep("^Cell_", colnames(cell_df), value = TRUE)
@@ -1772,7 +2017,7 @@ run_pipeline <- function(betas, prefix, annotation_df) {
 
   if (include_clock_covariates) {
     clock_cov <- compute_epigenetic_clocks(betas_full, targets, id_col = gsm_col, prefix = prefix,
-                                           out_dir = out_dir, tissue = opt$tissue, return_covariates = TRUE)
+                                           out_dir = out_dir, tissue = tissue_use, return_covariates = TRUE)
     clock_computed <- TRUE
     if (!is.null(clock_cov) && ncol(clock_cov) > 1) {
       match_idx <- match(targets[[gsm_col]], clock_cov$SampleID)
@@ -1902,7 +2147,7 @@ run_pipeline <- function(betas, prefix, annotation_df) {
   pvca_factors <- unique(c("primary_group", covariates))
   run_pvca_assessment(betas, targets, pvca_factors, prefix, out_dir, threshold = 0.6, max_probes = 5000, sample_ids = colnames(betas))
   if (!clock_computed) {
-    compute_epigenetic_clocks(betas, targets, id_col = gsm_col, prefix = prefix, out_dir = out_dir, tissue = opt$tissue)
+    compute_epigenetic_clocks(betas, targets, id_col = gsm_col, prefix = prefix, out_dir = out_dir, tissue = tissue_use)
   }
 
   # Compare batch correction strategies (none/ComBat/removeBatchEffect/SVA)
@@ -3045,9 +3290,11 @@ tryCatch({
   
   sva_rule <- ifelse(disable_sva, "disabled", "best_method_or_no_batch")
   params_json <- sprintf(
-    '{"pval_threshold": %.3f, "lfc_threshold": %.2f, "snp_maf": %.3f, "qc_intensity_threshold": %.1f, "detection_p_threshold": %.3f, "auto_covariate_alpha": %.3f, "auto_covariate_max_pcs": %d, "overcorrection_guard_ratio": %.2f, "undercorrection_guard_min_sv": %d, "sva_enabled": %s, "sva_inclusion_rule": "%s", "clock_covariates_enabled": %s, "sv_group_p_threshold": %.1e, "sv_group_eta2_threshold": %.2f, "pvca_min_samples": %d, "permutations": %d, "vp_top": %d, "dmr_maxgap": %d, "dmr_p_cutoff": %.3f, "logit_offset": %.6f, "seed": %d}',
+    '{"pval_threshold": %.3f, "lfc_threshold": %.2f, "snp_maf": %.3f, "qc_intensity_threshold": %.1f, "detection_p_threshold": %.3f, "tissue": "%s", "tissue_source": "%s", "array_type": "%s", "cell_reference": "%s", "cell_reference_platform": "%s", "auto_covariate_alpha": %.3f, "auto_covariate_max_pcs": %d, "overcorrection_guard_ratio": %.2f, "undercorrection_guard_min_sv": %d, "sva_enabled": %s, "sva_inclusion_rule": "%s", "clock_covariates_enabled": %s, "sv_group_p_threshold": %.1e, "sv_group_eta2_threshold": %.2f, "pvca_min_samples": %d, "permutations": %d, "vp_top": %d, "dmr_maxgap": %d, "dmr_p_cutoff": %.3f, "logit_offset": %.6f, "seed": %d}',
     pval_thresh, lfc_thresh, SNP_MAF_THRESHOLD, QC_MEDIAN_INTENSITY_THRESHOLD,
-    QC_DETECTION_P_THRESHOLD, AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION,
+    QC_DETECTION_P_THRESHOLD, tissue_use, tissue_source,
+    ifelse(is.na(array_type), "", array_type), cell_reference, cell_reference_platform,
+    AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION,
     OVERCORRECTION_GUARD_RATIO, UNDERCORRECTION_GUARD_MIN_SV, ifelse(disable_sva, "false", "true"), sva_rule, ifelse(include_clock_covariates, "true", "false"),
     SV_GROUP_P_THRESHOLD, SV_GROUP_ETA2_THRESHOLD, PVCA_MIN_SAMPLES, perm_n, vp_top, DMR_MAXGAP, DMR_P_CUTOFF, LOGIT_OFFSET, 12345
   )
@@ -3083,6 +3330,16 @@ tryCatch({
   } else {
     "disabled"
   }
+  array_type_str <- ifelse(is.na(array_type) || !nzchar(array_type), "NA", array_type)
+  cell_ref_str <- if (nzchar(cell_reference)) {
+    if (nzchar(cell_reference_platform)) {
+      sprintf("custom (%s; platform=%s)", cell_reference, cell_reference_platform)
+    } else {
+      sprintf("custom (%s; platform=auto)", cell_reference)
+    }
+  } else {
+    "default references (fallback to RefFreeEWAS when unavailable)"
+  }
   methods_lines <- c(
     "# IlluMeta analysis methods (auto-generated)",
     "",
@@ -3090,7 +3347,9 @@ tryCatch({
     sprintf("- Config: `%s`", config_file),
     sprintf("- Output: `%s`", out_dir),
     sprintf("- Groups: control=`%s` (n=%s), test=`%s` (n=%s)", group_con_in, summary_n_con, group_test_in, summary_n_test),
-    sprintf("- Tissue: `%s`", opt$tissue),
+    sprintf("- Tissue: `%s` (source: %s)", tissue_use, tissue_source),
+    sprintf("- Array type detected: %s", array_type_str),
+    sprintf("- Cell reference: %s", cell_ref_str),
     sprintf("- Significance thresholds: BH FDR < %.3f and |log2FC| > %.2f", pval_thresh, lfc_thresh),
     "",
     "## Overview",
@@ -3119,7 +3378,7 @@ tryCatch({
     "- Small-n safeguard: if covariate count would eliminate residual degrees of freedom, covariates are capped using PC-association/variance ranking to preserve model stability.",
     sprintf("- Overcorrection guard: total covariates + SVs are capped at %.0f%% of sample size (excess terms are dropped to preserve power).", OVERCORRECTION_GUARD_RATIO * 100),
     sprintf("- Undercorrection guard: if SVA detects hidden structure, at least %d SV(s) are retained when possible (dropping non-forced covariates first).", UNDERCORRECTION_GUARD_MIN_SV),
-    "- Cell composition: if `--tissue Auto`, reference-free deconvolution is performed via RefFreeEWAS (K=5 latent components); these components are optionally added as covariates after basic sanity checks.",
+    "- Cell composition: when tissue is `Auto`, IlluMeta attempts to infer tissue from metadata; if unresolved, reference-free deconvolution is performed via RefFreeEWAS (K=5 latent components). Custom references via `--cell_reference` override defaults when provided.",
     sprintf("- Surrogate variable analysis (SVA): enabled unless `--disable_sva`; SVs are estimated on top-variable probes and included in the model only when selected as the best batch strategy or when no batch factor is evaluated (to avoid double correction). SVs strongly associated with the group (P < %.1e or Eta^2 > %.2f) are excluded to avoid over-correction.", SV_GROUP_P_THRESHOLD, SV_GROUP_ETA2_THRESHOLD),
     "- Epigenetic clock covariates: when `--include_clock_covariates` is enabled, clock outputs are merged into metadata and considered by auto covariate selection (clocks with missing/constant values are excluded).",
     "- Batch method comparison: if a suitable unconfounded batch factor exists, multiple correction strategies are evaluated and a best method is chosen for modeling.",

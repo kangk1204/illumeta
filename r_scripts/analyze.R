@@ -148,6 +148,7 @@ LOGIT_OFFSET <- 1e-4
 BETA_RANGE_MIN <- 0.05
 AUTO_COVARIATE_ALPHA <- 0.01
 MAX_PCS_FOR_COVARIATE_DETECTION <- 5
+OVERCORRECTION_GUARD_RATIO <- 0.25
 SV_GROUP_P_THRESHOLD <- 1e-6
 SV_GROUP_ETA2_THRESHOLD <- 0.5
 PVCA_MIN_SAMPLES <- 8
@@ -419,6 +420,26 @@ rank_covariates <- function(targets, covariates, covar_log_df) {
     1 / lvls
   }, numeric(1))
   covariates[order(priorities, decreasing = TRUE)]
+}
+
+cap_covariates_for_overcorrection <- function(targets, covariates, forced_covariates, covar_log_df, ratio = OVERCORRECTION_GUARD_RATIO) {
+  max_terms <- max(1, floor(nrow(targets) * ratio))
+  if (length(covariates) <= max_terms) {
+    return(list(keep = covariates, dropped = character(0), cap = max_terms, forced_dropped = character(0)))
+  }
+  ranked_covars <- rank_covariates(targets, covariates, covar_log_df)
+  forced_keep <- intersect(forced_covariates, covariates)
+  forced_dropped <- character(0)
+  if (length(forced_keep) > max_terms) {
+    forced_dropped <- forced_keep[(max_terms + 1):length(forced_keep)]
+    forced_keep <- forced_keep[1:max_terms]
+  }
+  remaining <- max_terms - length(forced_keep)
+  if (remaining < 0) remaining <- 0
+  keep_covars <- unique(c(forced_keep, head(setdiff(ranked_covars, forced_keep), remaining)))
+  keep_covars <- keep_covars[1:min(length(keep_covars), max_terms)]
+  drop_covars <- setdiff(covariates, keep_covars)
+  list(keep = keep_covars, dropped = drop_covars, cap = max_terms, forced_dropped = forced_dropped)
 }
 
 filter_sv_by_group <- function(targets, sv_cols, group_col,
@@ -1743,6 +1764,7 @@ run_pipeline <- function(betas, prefix, annotation_df) {
   
   # Auto-detect covariates via PC association (top PCs) unless disabled
   covariates <- character(0)
+  forced_covariates <- character(0)
   covar_log_path <- file.path(out_dir, paste0(prefix, "_AutoCovariates.csv"))
   drop_log <- data.frame(Variable=character(0), Reason=character(0))
   covar_log_df <- data.frame(Variable = character(0), MinP = numeric(0))
@@ -1800,6 +1822,7 @@ run_pipeline <- function(betas, prefix, annotation_df) {
     present_force <- intersect(include_cov, colnames(targets))
     missing_force <- setdiff(include_cov, present_force)
     covariates <- unique(c(covariates, present_force))
+    forced_covariates <- unique(present_force)
     if (length(missing_force) > 0) {
       drop_log <- rbind(drop_log, data.frame(Variable = missing_force, Reason = "not_in_config"))
     }
@@ -1831,6 +1854,16 @@ run_pipeline <- function(betas, prefix, annotation_df) {
     }
   }
 
+  guard_cov <- cap_covariates_for_overcorrection(targets, covariates, forced_covariates, covar_log_df)
+  if (length(guard_cov$dropped) > 0) {
+    drop_log <- rbind(drop_log, data.frame(Variable = guard_cov$dropped, Reason = "overcorrection_guard_covariates"))
+    covariates <- guard_cov$keep
+    message(paste("  Overcorrection guard: capped covariates to", guard_cov$cap, "(", paste(covariates, collapse = ", "), ")"))
+    if (length(guard_cov$forced_dropped) > 0) {
+      message(paste("  Overcorrection guard dropped forced covariates:", paste(guard_cov$forced_dropped, collapse = ", ")))
+    }
+  }
+
   # Drop samples with NA in any design variable to prevent model.matrix failures
   design_vars <- unique(c("primary_group", covariates))
   design_vars <- intersect(design_vars, colnames(targets))
@@ -1852,6 +1885,16 @@ run_pipeline <- function(betas, prefix, annotation_df) {
   }
   if (n_con_local < MIN_GROUP_SIZE_WARN || n_test_local < MIN_GROUP_SIZE_WARN) {
     message(sprintf("  WARNING: Very small sample size after NA filtering (Control: %d, Test: %d)", n_con_local, n_test_local))
+  }
+
+  guard_cov_post <- cap_covariates_for_overcorrection(targets, covariates, forced_covariates, covar_log_df)
+  if (length(guard_cov_post$dropped) > 0) {
+    drop_log <- rbind(drop_log, data.frame(Variable = guard_cov_post$dropped, Reason = "overcorrection_guard_covariates_post_na"))
+    covariates <- guard_cov_post$keep
+    message(paste("  Overcorrection guard (post-NA): capped covariates to", guard_cov_post$cap, "(", paste(covariates, collapse = ", "), ")"))
+    if (length(guard_cov_post$forced_dropped) > 0) {
+      message(paste("  Overcorrection guard (post-NA) dropped forced covariates:", paste(guard_cov_post$forced_dropped, collapse = ", ")))
+    }
   }
   
   # PVCA before model fitting to quantify variance explained by group/batch factors
@@ -2034,6 +2077,20 @@ run_pipeline <- function(betas, prefix, annotation_df) {
       }
       targets <- targets[, setdiff(colnames(targets), drop_sv), drop = FALSE]
       sv_cols <- sv_filt$keep
+    }
+  }
+  max_terms_total <- max(1, floor(nrow(targets) * OVERCORRECTION_GUARD_RATIO))
+  if (length(sv_cols) > 0) {
+    max_sv_allowed <- max(0, max_terms_total - length(covariates))
+    if (max_sv_allowed < length(sv_cols)) {
+      drop_sv <- sv_cols[(max_sv_allowed + 1):length(sv_cols)]
+      if (length(drop_sv) > 0) {
+        drop_log <- rbind(drop_log, data.frame(Variable = drop_sv, Reason = "overcorrection_guard_sv"))
+        message(paste("  Overcorrection guard: capping SVs to", max_sv_allowed, "(dropping", paste(drop_sv, collapse = ", "), ")"))
+        design <- design[, setdiff(colnames(design), drop_sv), drop = FALSE]
+        targets <- targets[, setdiff(colnames(targets), drop_sv), drop = FALSE]
+        sv_cols <- setdiff(sv_cols, drop_sv)
+      }
     }
   }
   colnames(design) <- make.unique(colnames(design))
@@ -2951,10 +3008,10 @@ tryCatch({
   
   sva_rule <- ifelse(disable_sva, "disabled", "best_method_or_no_batch")
   params_json <- sprintf(
-    '{"pval_threshold": %.3f, "lfc_threshold": %.2f, "snp_maf": %.3f, "qc_intensity_threshold": %.1f, "detection_p_threshold": %.3f, "auto_covariate_alpha": %.3f, "auto_covariate_max_pcs": %d, "sva_enabled": %s, "sva_inclusion_rule": "%s", "clock_covariates_enabled": %s, "sv_group_p_threshold": %.1e, "sv_group_eta2_threshold": %.2f, "pvca_min_samples": %d, "permutations": %d, "vp_top": %d, "dmr_maxgap": %d, "dmr_p_cutoff": %.3f, "logit_offset": %.6f, "seed": %d}',
+    '{"pval_threshold": %.3f, "lfc_threshold": %.2f, "snp_maf": %.3f, "qc_intensity_threshold": %.1f, "detection_p_threshold": %.3f, "auto_covariate_alpha": %.3f, "auto_covariate_max_pcs": %d, "overcorrection_guard_ratio": %.2f, "sva_enabled": %s, "sva_inclusion_rule": "%s", "clock_covariates_enabled": %s, "sv_group_p_threshold": %.1e, "sv_group_eta2_threshold": %.2f, "pvca_min_samples": %d, "permutations": %d, "vp_top": %d, "dmr_maxgap": %d, "dmr_p_cutoff": %.3f, "logit_offset": %.6f, "seed": %d}',
     pval_thresh, lfc_thresh, SNP_MAF_THRESHOLD, QC_MEDIAN_INTENSITY_THRESHOLD,
     QC_DETECTION_P_THRESHOLD, AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION,
-    ifelse(disable_sva, "false", "true"), sva_rule, ifelse(include_clock_covariates, "true", "false"),
+    OVERCORRECTION_GUARD_RATIO, ifelse(disable_sva, "false", "true"), sva_rule, ifelse(include_clock_covariates, "true", "false"),
     SV_GROUP_P_THRESHOLD, SV_GROUP_ETA2_THRESHOLD, PVCA_MIN_SAMPLES, perm_n, vp_top, DMR_MAXGAP, DMR_P_CUTOFF, LOGIT_OFFSET, 12345
   )
   writeLines(params_json, file.path(out_dir, "analysis_parameters.json"))
@@ -3023,6 +3080,7 @@ tryCatch({
     "## Covariates and batch control",
     sprintf("- Automatic covariate discovery: metadata variables associated with the top PCs (alpha=%.3f; up to %d PCs) are considered, then filtered for stability/confounding.", AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION),
     "- Small-n safeguard: if covariate count would eliminate residual degrees of freedom, covariates are capped using PC-association/variance ranking to preserve model stability.",
+    sprintf("- Overcorrection guard: total covariates + SVs are capped at %.0f%% of sample size (excess terms are dropped to preserve power).", OVERCORRECTION_GUARD_RATIO * 100),
     "- Cell composition: if `--tissue Auto`, reference-free deconvolution is performed via RefFreeEWAS (K=5 latent components); these components are optionally added as covariates after basic sanity checks.",
     sprintf("- Surrogate variable analysis (SVA): enabled unless `--disable_sva`; SVs are estimated on top-variable probes and included in the model only when selected as the best batch strategy or when no batch factor is evaluated (to avoid double correction). SVs strongly associated with the group (P < %.1e or Eta^2 > %.2f) are excluded to avoid over-correction.", SV_GROUP_P_THRESHOLD, SV_GROUP_ETA2_THRESHOLD),
     "- Epigenetic clock covariates: when `--include_clock_covariates` is enabled, clock outputs are merged into metadata and considered by auto covariate selection (clocks with missing/constant values are excluded).",

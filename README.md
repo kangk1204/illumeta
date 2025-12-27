@@ -535,6 +535,9 @@ python3 illumeta.py analysis -i my_project --group_con Untreated --group_test Tr
 # Tighten thresholds
 python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --pval 0.01 --lfc 1.0
 
+# Add an absolute Delta Beta filter
+python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --delta-beta 0.05
+
 # Disable SVA (very small n)
 python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --disable-sva
 

@@ -149,6 +149,7 @@ BETA_RANGE_MIN <- 0.05
 AUTO_COVARIATE_ALPHA <- 0.01
 MAX_PCS_FOR_COVARIATE_DETECTION <- 5
 OVERCORRECTION_GUARD_RATIO <- 0.25
+UNDERCORRECTION_GUARD_MIN_SV <- 1
 SV_GROUP_P_THRESHOLD <- 1e-6
 SV_GROUP_ETA2_THRESHOLD <- 0.5
 PVCA_MIN_SAMPLES <- 8
@@ -1981,6 +1982,7 @@ run_pipeline <- function(betas, prefix, annotation_df) {
   colnames(design) <- make.unique(make.names(colnames(design)))
   group_cols <- make.names(levels(targets$primary_group))
   
+  svobj <- NULL
   sv_cols <- character(0)
   use_sva_in_model <- !disable_sva && (!batch_evaluated || best_method == "sva")
   
@@ -2079,6 +2081,10 @@ run_pipeline <- function(betas, prefix, annotation_df) {
       sv_cols <- sv_filt$keep
     }
   }
+  sv_mat_all <- NULL
+  if (length(sv_cols) > 0) {
+    sv_mat_all <- as.data.frame(targets[, sv_cols, drop = FALSE])
+  }
   max_terms_total <- max(1, floor(nrow(targets) * OVERCORRECTION_GUARD_RATIO))
   if (length(sv_cols) > 0) {
     max_sv_allowed <- max(0, max_terms_total - length(covariates))
@@ -2091,6 +2097,37 @@ run_pipeline <- function(betas, prefix, annotation_df) {
         targets <- targets[, setdiff(colnames(targets), drop_sv), drop = FALSE]
         sv_cols <- setdiff(sv_cols, drop_sv)
       }
+    }
+  }
+  if (!is.null(sv_mat_all) && ncol(sv_mat_all) > 0 &&
+      length(sv_cols) < UNDERCORRECTION_GUARD_MIN_SV && use_sva_in_model && !disable_sva) {
+    needed_sv <- UNDERCORRECTION_GUARD_MIN_SV - length(sv_cols)
+    max_sv_possible <- max_terms_total - length(covariates)
+    if (max_sv_possible < needed_sv) {
+      drop_needed <- needed_sv - max_sv_possible
+      drop_candidates <- setdiff(rank_covariates(targets, covariates, covar_log_df), forced_covariates)
+      if (length(drop_candidates) >= drop_needed) {
+        drop_covs <- tail(drop_candidates, drop_needed)
+        drop_log <- rbind(drop_log, data.frame(Variable = drop_covs, Reason = "undercorrection_guard_drop_covariates"))
+        message(paste("  Undercorrection guard: dropping covariates to allow SVs:", paste(drop_covs, collapse = ", ")))
+        covariates <- setdiff(covariates, drop_covs)
+        design <- design[, setdiff(colnames(design), drop_covs), drop = FALSE]
+        targets <- targets[, setdiff(colnames(targets), drop_covs), drop = FALSE]
+      } else {
+        message("  Undercorrection guard: unable to free space for SVs; keeping covariates.")
+      }
+      max_sv_possible <- max_terms_total - length(covariates)
+    }
+    available_sv <- setdiff(colnames(sv_mat_all), sv_cols)
+    add_n <- min(needed_sv, max_sv_possible - length(sv_cols), length(available_sv))
+    if (add_n > 0) {
+      add_sv <- head(available_sv, add_n)
+      design <- cbind(design, sv_mat_all[, add_sv, drop = FALSE])
+      targets <- cbind(targets, sv_mat_all[, add_sv, drop = FALSE])
+      sv_cols <- c(sv_cols, add_sv)
+      message(paste("  Undercorrection guard: added SVs:", paste(add_sv, collapse = ", ")))
+    } else if (needed_sv > 0) {
+      message("  Undercorrection guard: unable to add SVs within cap.")
     }
   }
   colnames(design) <- make.unique(colnames(design))
@@ -3008,10 +3045,10 @@ tryCatch({
   
   sva_rule <- ifelse(disable_sva, "disabled", "best_method_or_no_batch")
   params_json <- sprintf(
-    '{"pval_threshold": %.3f, "lfc_threshold": %.2f, "snp_maf": %.3f, "qc_intensity_threshold": %.1f, "detection_p_threshold": %.3f, "auto_covariate_alpha": %.3f, "auto_covariate_max_pcs": %d, "overcorrection_guard_ratio": %.2f, "sva_enabled": %s, "sva_inclusion_rule": "%s", "clock_covariates_enabled": %s, "sv_group_p_threshold": %.1e, "sv_group_eta2_threshold": %.2f, "pvca_min_samples": %d, "permutations": %d, "vp_top": %d, "dmr_maxgap": %d, "dmr_p_cutoff": %.3f, "logit_offset": %.6f, "seed": %d}',
+    '{"pval_threshold": %.3f, "lfc_threshold": %.2f, "snp_maf": %.3f, "qc_intensity_threshold": %.1f, "detection_p_threshold": %.3f, "auto_covariate_alpha": %.3f, "auto_covariate_max_pcs": %d, "overcorrection_guard_ratio": %.2f, "undercorrection_guard_min_sv": %d, "sva_enabled": %s, "sva_inclusion_rule": "%s", "clock_covariates_enabled": %s, "sv_group_p_threshold": %.1e, "sv_group_eta2_threshold": %.2f, "pvca_min_samples": %d, "permutations": %d, "vp_top": %d, "dmr_maxgap": %d, "dmr_p_cutoff": %.3f, "logit_offset": %.6f, "seed": %d}',
     pval_thresh, lfc_thresh, SNP_MAF_THRESHOLD, QC_MEDIAN_INTENSITY_THRESHOLD,
     QC_DETECTION_P_THRESHOLD, AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION,
-    OVERCORRECTION_GUARD_RATIO, ifelse(disable_sva, "false", "true"), sva_rule, ifelse(include_clock_covariates, "true", "false"),
+    OVERCORRECTION_GUARD_RATIO, UNDERCORRECTION_GUARD_MIN_SV, ifelse(disable_sva, "false", "true"), sva_rule, ifelse(include_clock_covariates, "true", "false"),
     SV_GROUP_P_THRESHOLD, SV_GROUP_ETA2_THRESHOLD, PVCA_MIN_SAMPLES, perm_n, vp_top, DMR_MAXGAP, DMR_P_CUTOFF, LOGIT_OFFSET, 12345
   )
   writeLines(params_json, file.path(out_dir, "analysis_parameters.json"))
@@ -3081,6 +3118,7 @@ tryCatch({
     sprintf("- Automatic covariate discovery: metadata variables associated with the top PCs (alpha=%.3f; up to %d PCs) are considered, then filtered for stability/confounding.", AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION),
     "- Small-n safeguard: if covariate count would eliminate residual degrees of freedom, covariates are capped using PC-association/variance ranking to preserve model stability.",
     sprintf("- Overcorrection guard: total covariates + SVs are capped at %.0f%% of sample size (excess terms are dropped to preserve power).", OVERCORRECTION_GUARD_RATIO * 100),
+    sprintf("- Undercorrection guard: if SVA detects hidden structure, at least %d SV(s) are retained when possible (dropping non-forced covariates first).", UNDERCORRECTION_GUARD_MIN_SV),
     "- Cell composition: if `--tissue Auto`, reference-free deconvolution is performed via RefFreeEWAS (K=5 latent components); these components are optionally added as covariates after basic sanity checks.",
     sprintf("- Surrogate variable analysis (SVA): enabled unless `--disable_sva`; SVs are estimated on top-variable probes and included in the model only when selected as the best batch strategy or when no batch factor is evaluated (to avoid double correction). SVs strongly associated with the group (P < %.1e or Eta^2 > %.2f) are excluded to avoid over-correction.", SV_GROUP_P_THRESHOLD, SV_GROUP_ETA2_THRESHOLD),
     "- Epigenetic clock covariates: when `--include_clock_covariates` is enabled, clock outputs are merged into metadata and considered by auto covariate selection (clocks with missing/constant values are excluded).",

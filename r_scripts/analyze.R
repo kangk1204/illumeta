@@ -99,7 +99,7 @@ option_list <- list(
               help="Adjusted P-value threshold (default: 0.05)", metavar="double"),
   make_option(c("-l", "--lfc"), type="double", default=0.5, 
               help="LogFC threshold (default: 0.5)", metavar="double"),
-  make_option(c("--delta_beta", "--delta-beta"), type="double", default=0, 
+  make_option(c("--delta_beta"), type="double", default=0, 
               help="Absolute Delta Beta threshold (default: 0; disabled)", metavar="double"),
   make_option(c("--group_con"), type="character", default=NULL, 
               help="Control group label", metavar="character"),

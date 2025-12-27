@@ -252,7 +252,7 @@ save_datatable <- function(df, filename, dir, sort_col = NULL) {
   p_idx <- if (!is.null(sort_col)) match(sort_col, colnames(df)) - 1 else 0
   if (length(p_idx) == 0 || is.na(p_idx)) p_idx <- 0 # Fallback
   
-  dt <- datatable(df, extensions = 'Buttons', options = list(
+  dt <- datatable(df, rownames = FALSE, extensions = 'Buttons', options = list(
     dom = 'Bfrtip',
     pageLength = 25,
     buttons = c('csv', 'excel'),

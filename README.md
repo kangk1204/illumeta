@@ -115,8 +115,20 @@ pip install -r requirements.txt
 
 #### 3) Install R dependencies (first run / CI / reproducible setup)
 Before running `setup_env.R` (important for `devtools`/`roxygen2`/`xml2`):
-- Conda: ensure your env includes `libxml2-devel` + `zlib` + `xz` + `pkg-config` (and for devtools: `libgit2`, `harfbuzz`, `fribidi`, `fontconfig`, `expat`). If the repo was updated after you created the env, run `conda env update -f environment.yml --prune`.
-- System R: install the OS libraries listed above (they include `libxml2-dev`/`pkg-config`; add `libgit2-dev`/`harfbuzz`/`fribidi`/`fontconfig` if you plan to use devtools).
+Conda (recommended):
+```bash
+conda env update -f environment.yml --prune
+# Or, minimal install without full env update:
+conda install -c conda-forge libxml2-devel zlib xz pkg-config
+# devtools/tidyverse extras:
+conda install -c conda-forge libgit2 harfbuzz fribidi fontconfig expat
+```
+System R (Ubuntu/WSL):
+```bash
+sudo apt-get install -y libxml2-dev zlib1g-dev liblzma-dev pkg-config
+# devtools/tidyverse extras:
+sudo apt-get install -y libgit2-dev libharfbuzz-dev libfribidi-dev libfontconfig1-dev libexpat1-dev
+```
 
 This installs required R/Bioconductor packages into the repo-local library (`.r-lib/R-<major.minor>`) and may take ~10-30 minutes.
 
@@ -241,8 +253,20 @@ pip install -r requirements.txt
 
 #### 3) Install R dependencies (first run / CI / reproducible setup)
 Before running `setup_env.R` (important for `devtools`/`roxygen2`/`xml2`):
-- Conda: ensure your env includes `libxml2-devel` + `zlib` + `xz` + `pkg-config` (and for devtools: `libgit2`, `harfbuzz`, `fribidi`, `fontconfig`, `expat`). If the repo was updated after you created the env, run `conda env update -f environment.yml --prune`.
-- System R: install the OS libraries listed above (they include `libxml2-dev`/`pkg-config`; add `libgit2-dev`/`harfbuzz`/`fribidi`/`fontconfig` if you plan to use devtools).
+Conda (recommended):
+```bash
+conda env update -f environment.yml --prune
+# Or, minimal install without full env update:
+conda install -c conda-forge libxml2-devel zlib xz pkg-config
+# devtools/tidyverse extras:
+conda install -c conda-forge libgit2 harfbuzz fribidi fontconfig expat
+```
+System R (macOS):
+```bash
+brew install libxml2 zlib xz pkg-config
+# devtools/tidyverse extras:
+brew install libgit2 harfbuzz fribidi fontconfig expat
+```
 
 This installs required R/Bioconductor packages into the repo-local library (`.r-lib/R-<major.minor>`) and may take ~10-30 minutes.
 
@@ -379,8 +403,20 @@ pip install -r requirements.txt
 
 #### 3) Install R dependencies (first run / CI / reproducible setup)
 Before running `setup_env.R` (important for `devtools`/`roxygen2`/`xml2`):
-- Conda: ensure your env includes `libxml2-devel` + `zlib` + `xz` + `pkg-config` (and for devtools: `libgit2`, `harfbuzz`, `fribidi`, `fontconfig`, `expat`). If the repo was updated after you created the env, run `conda env update -f environment.yml --prune`.
-- System R: install the OS libraries listed above (they include `libxml2-dev`/`pkg-config`; add `libgit2-dev`/`harfbuzz`/`fribidi`/`fontconfig` if you plan to use devtools).
+Conda (recommended):
+```bash
+conda env update -f environment.yml --prune
+# Or, minimal install without full env update:
+conda install -c conda-forge libxml2-devel zlib xz pkg-config
+# devtools/tidyverse extras:
+conda install -c conda-forge libgit2 harfbuzz fribidi fontconfig expat
+```
+System R (WSL/Ubuntu):
+```bash
+sudo apt-get install -y libxml2-dev zlib1g-dev liblzma-dev pkg-config
+# devtools/tidyverse extras:
+sudo apt-get install -y libgit2-dev libharfbuzz-dev libfribidi-dev libfontconfig1-dev libexpat1-dev
+```
 
 This installs required R/Bioconductor packages into the repo-local library (`.r-lib/R-<major.minor>`) and may take ~10-30 minutes.
 

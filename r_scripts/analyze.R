@@ -471,8 +471,7 @@ filter_low_range <- function(betas, min_range = BETA_RANGE_MIN) {
 }
 
 estimate_cell_counts_safe <- function(rgSet, tissue = "Blood", out_dir = NULL) {
-  # 1. Reference-Free Mode (Auto)
-  if (tissue == "Auto") {
+  run_ref_free <- function() {
     message("Estimating cell composition using Reference-Free method (RefFreeEWAS)...")
     if (!requireNamespace("RefFreeEWAS", quietly = TRUE)) {
       message("  - RefFreeEWAS package not installed. Skipping.")
@@ -520,6 +519,11 @@ estimate_cell_counts_safe <- function(rgSet, tissue = "Blood", out_dir = NULL) {
     })
   }
 
+  # 1. Reference-Free Mode (Auto)
+  if (tissue == "Auto") {
+    return(run_ref_free())
+  }
+
   # 2. Reference-Based Mode
   # Map tissue types to potential reference packages (prioritized order)
   ref_map <- list(
@@ -529,11 +533,22 @@ estimate_cell_counts_safe <- function(rgSet, tissue = "Blood", out_dir = NULL) {
     "Saliva" = c("FlowSorted.Saliva.450k") # Rare but exists
   )
   
+  is_epicv2 <- FALSE
+  if (requireNamespace("minfi", quietly = TRUE) &&
+      exists(".isEPICv2", envir = asNamespace("minfi"), inherits = FALSE)) {
+    is_epicv2 <- tryCatch(get(".isEPICv2", asNamespace("minfi"))(rgSet), error = function(e) FALSE)
+  }
+  if (is_epicv2) {
+    message(sprintf("Cell composition references do not support EPIC v2; falling back to Auto (reference-free) for tissue '%s'.", tissue))
+    return(run_ref_free())
+  }
+
   refs <- ref_map[[tissue]]
   if (is.null(refs)) {
-    message(sprintf("Cell composition skipped: No known references for tissue '%s'. (Supported: %s, or use 'Auto' for reference-free)", 
+    message(sprintf("Reference-based cell composition skipped: No known references for tissue '%s'. (Supported: %s, or use 'Auto' for reference-free)", 
                     tissue, paste(names(ref_map), collapse=", ")))
-    return(NULL)
+    message("  - Falling back to reference-free (Auto) estimation.")
+    return(run_ref_free())
   }
 
   minfi_est_fun <- NULL
@@ -610,8 +625,9 @@ estimate_cell_counts_safe <- function(rgSet, tissue = "Blood", out_dir = NULL) {
     return(list(counts = df, reference = ref))
   }
   
-  message(sprintf("Cell composition skipped (all references for '%s' failed or missing).", tissue))
-  return(NULL)
+  message(sprintf("Reference-based cell composition skipped (all references for '%s' failed or missing).", tissue))
+  message("  - Falling back to reference-free (Auto) estimation.")
+  return(run_ref_free())
 }
 
 summarize_pvals <- function(pmat, exclude = character(0), alpha = 0.05) {
@@ -2329,6 +2345,7 @@ run_pipeline <- function(betas, prefix, annotation_df) {
 
   col_order <- c("CpG", "Gene", setdiff(colnames(res), c("CpG", "Gene")))
   res <- res[, col_order]
+  res <- res[order(res$P.Value, na.last = TRUE), ]
 
   write.csv(res, file.path(out_dir, paste0(prefix, "_DMPs_full.csv")), row.names = FALSE)
   top_for_table <- head(res, min(10000, nrow(res)))
@@ -2391,6 +2408,7 @@ run_pipeline <- function(betas, prefix, annotation_df) {
       
       if (nrow(dmr_res) > 0) {
           dmr_res <- annotate_dmr(dmr_res, curr_anno)
+          dmr_res <- dmr_res[order(dmr_res$p.adjust, dmr_res$p.value, na.last = TRUE), ]
           message(paste("    - Found", nrow(dmr_res), "DMRs."))
           
           # Save Table

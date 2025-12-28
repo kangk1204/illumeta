@@ -610,6 +610,8 @@ Common issues:
 - **`textshaping` / `ragg` errors** (devtools/tidyverse): install harfbuzz + fribidi + fontconfig + expat (conda: `conda env update -f environment.yml --prune` or `conda install -c conda-forge harfbuzz fribidi fontconfig expat`; Ubuntu/WSL: `sudo apt-get install -y libharfbuzz-dev libfribidi-dev libfontconfig1-dev libexpat1-dev`; macOS: `brew install harfbuzz fribidi fontconfig expat`), then rerun setup.
 - **`gfortran` / Fortran errors**: install a Fortran compiler (Ubuntu/WSL: `sudo apt-get install -y gfortran`; macOS: `brew install gcc`; conda: `conda install -c conda-forge gfortran`), then rerun setup.
 - **OpenMP / `libomp` errors** (macOS): install `libomp` (`brew install libomp`) and rerun setup.
+- **`clang: error: unsupported option '-fopenmp'`** (macOS, often `data.table`): install LLVM and rerun setup with Homebrew clang:
+  `brew install llvm && CC=/opt/homebrew/opt/llvm/bin/clang CXX=/opt/homebrew/opt/llvm/bin/clang++ Rscript r_scripts/setup_env.R`.
 - **`C17 standard requested but CC17 is not defined`**: update to the latest IlluMeta and rerun setup. If it persists, reinstall compilers (macOS: `xcode-select --install`, conda: `conda install -c conda-forge c-compiler cxx-compiler`).
 - **Bioconductor version mismatch** (e.g., R 4.4 but Bioc 3.22): rerun with an explicit Bioc version:
   `ILLUMETA_BIOC_VERSION=3.20 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.

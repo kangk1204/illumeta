@@ -624,6 +624,7 @@ Common issues:
 - **Mixed array sizes**: by default, IlluMeta drops samples that deviate from the modal array size; use `--force-idat` only when appropriate.
 - **Missing IDAT pairs**: see `Preflight_IDAT_Pairs.csv` and ensure each basename has both `_Grn.idat` and `_Red.idat` (or `.gz`) files.
 - **Reference package unavailable** (e.g., FlowSorted.* not in your Bioconductor): IlluMeta falls back to RefFreeEWAS; consider `--cell-reference` or upgrading R/Bioconductor.
+- **Sesame: `No normalization control probes found!`**: some EPIC IDATs do not include normalization controls or the cache is stale. Refresh with `R -q -e 'library(sesame); sesameDataCache("EPIC.1.SigDF")'`. If it persists, IlluMeta now continues without dye bias correction (or use `--skip-sesame`).
 
 ## Citation
 See `CITATION.cff`.

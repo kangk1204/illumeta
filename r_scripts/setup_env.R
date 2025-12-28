@@ -143,6 +143,34 @@ ensure_openmp_flags <- function() {
         message("  - macOS (Homebrew): brew install libomp")
         return(invisible(FALSE))
     }
+    user_cc <- Sys.getenv("CC", unset = "")
+    cc <- user_cc
+    if (!nzchar(cc)) cc <- Sys.which("clang")
+    cc_version <- character(0)
+    if (nzchar(cc)) {
+        cc_version <- tryCatch(system2(cc, "--version", stdout = TRUE, stderr = TRUE), error = function(e) character(0))
+    }
+    apple_clang <- length(cc_version) > 0 && grepl("Apple clang", cc_version[1], fixed = TRUE)
+    llvm_candidates <- c("/opt/homebrew/opt/llvm/bin/clang", "/usr/local/opt/llvm/bin/clang")
+    llvm_hits <- llvm_candidates[file.exists(llvm_candidates)]
+    llvm_clang <- if (length(llvm_hits) > 0) llvm_hits[1] else ""
+    if (apple_clang) {
+        if (nzchar(llvm_clang) && !nzchar(user_cc)) {
+            llvm_cxx <- file.path(dirname(llvm_clang), "clang++")
+            Sys.setenv(CC = llvm_clang)
+            Sys.setenv(CXX = llvm_cxx)
+            if (!nzchar(Sys.getenv("CXX11", unset = ""))) Sys.setenv(CXX11 = llvm_cxx)
+            if (!nzchar(Sys.getenv("CXX14", unset = ""))) Sys.setenv(CXX14 = llvm_cxx)
+            if (!nzchar(Sys.getenv("CXX17", unset = ""))) Sys.setenv(CXX17 = llvm_cxx)
+            if (!nzchar(Sys.getenv("CXX20", unset = ""))) Sys.setenv(CXX20 = llvm_cxx)
+            message("Detected Apple clang; using Homebrew llvm clang for OpenMP builds: ", llvm_clang)
+        } else {
+            message("Warning: Apple clang detected. OpenMP builds may fail with '-fopenmp'.")
+            message("  - Install llvm: brew install llvm")
+            message("  - Rerun with CC/CXX set to /opt/homebrew/opt/llvm/bin/clang(++)")
+            return(invisible(FALSE))
+        }
+    }
     cflags <- Sys.getenv("PKG_CFLAGS", unset = "")
     cppflags <- Sys.getenv("CPPFLAGS", unset = "")
     cflags_global <- Sys.getenv("CFLAGS", unset = "")
@@ -868,8 +896,22 @@ if (!requireNamespace("dmrff", quietly = TRUE)) {
     tryCatch({
         remotes::install_github("perishky/dmrff", upgrade = "never", lib = .libPaths()[1])
     }, error = function(e) {
+        msg <- conditionMessage(e)
+        if (grepl("HTTP error 401|Bad credentials", msg, ignore.case = TRUE)) {
+            message("Retrying dmrff install without GITHUB_PAT (public repo)...")
+            old_pat <- Sys.getenv("GITHUB_PAT", unset = NA_character_)
+            Sys.unsetenv("GITHUB_PAT")
+            tryCatch({
+                remotes::install_github("perishky/dmrff", upgrade = "never", lib = .libPaths()[1])
+            }, error = function(e2) {
+                message("Warning: Failed to install dmrff from GitHub.")
+                message(paste("Error details:", e2$message))
+            })
+            if (!is.na(old_pat)) Sys.setenv(GITHUB_PAT = old_pat)
+            return(invisible(FALSE))
+        }
         message("Warning: Failed to install dmrff from GitHub.")
-        message(paste("Error details:", e$message))
+        message(paste("Error details:", msg))
     })
 }
 

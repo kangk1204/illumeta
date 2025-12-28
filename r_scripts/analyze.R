@@ -2003,7 +2003,17 @@ if (opt$`skip-sesame`) {
         dyeBiasCorrTypeINorm(sdf),
         error = function(e) {
           message("  Sesame dyeBiasCorrTypeINorm failed; falling back to dyeBiasCorr: ", e$message)
-          dyeBiasCorr(sdf)
+          tryCatch(
+            dyeBiasCorr(sdf),
+            error = function(e2) {
+              msg <- conditionMessage(e2)
+              if (grepl("No normalization control probes found", msg, ignore.case = TRUE)) {
+                message("  Sesame dyeBiasCorr failed (no normalization control probes); proceeding without dye bias correction.")
+                return(sdf)
+              }
+              stop(e2)
+            }
+          )
         }
       )
     }
@@ -3525,7 +3535,7 @@ tryCatch({
     "",
     "## Normalization (two pipelines)",
     "- **minfi**: `preprocessNoob()` followed by `mapToGenome()`; beta values are extracted with `getBeta()`.",
-    "- **sesame**: `noob()` + `dyeBiasCorrTypeINorm()`; beta values are extracted with `getBetas()`.",
+    "- **sesame**: `noob()` + `dyeBiasCorrTypeINorm()` (fallback to `dyeBiasCorr()`, then `noob()` only if normalization controls are missing); beta values are extracted with `getBetas()`.",
     "",
     "## Covariates and batch control",
     sprintf("- Automatic covariate discovery: metadata variables associated with the top PCs (alpha=%.3f; up to %d PCs) are considered, then filtered for stability/confounding.", AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION),

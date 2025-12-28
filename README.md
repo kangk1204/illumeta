@@ -72,6 +72,11 @@ Recommended (default conda-forge; `setup_env.sh` is not included in this repo):
 conda env create -f environment.yml
 conda activate illumeta
 ```
+If you need the latest GitHub `sesame` (requires R >= 4.5), use:
+```bash
+conda env create -f environment-r45.yml
+conda activate illumeta-r45
+```
 If conda solve fails, try:
 ```bash
 conda env create -f environment.yml --solver=classic
@@ -216,6 +221,11 @@ Recommended (default conda-forge; `setup_env.sh` is not included in this repo):
 conda env create -f environment.yml
 conda activate illumeta
 ```
+If you need the latest GitHub `sesame` (requires R >= 4.5), use:
+```bash
+conda env create -f environment-r45.yml
+conda activate illumeta-r45
+```
 If conda solve fails, try:
 ```bash
 conda env create -f environment.yml --solver=classic
@@ -359,6 +369,11 @@ Recommended (default conda-forge; `setup_env.sh` is not included in this repo):
 ```bash
 conda env create -f environment.yml
 conda activate illumeta
+```
+If you need the latest GitHub `sesame` (requires R >= 4.5), use:
+```bash
+conda env create -f environment-r45.yml
+conda activate illumeta-r45
 ```
 If conda solve fails, try:
 ```bash

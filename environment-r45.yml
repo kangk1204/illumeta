@@ -1,0 +1,33 @@
+name: illumeta-r45
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - r-base=4.5
+  - pandoc
+  - cmake
+  - make
+  - pkg-config
+  - c-compiler
+  - cxx-compiler
+  - fortran-compiler
+  - libcurl
+  - openssl
+  - libxml2
+  - libxml2-devel
+  - zlib
+  - expat
+  - xz
+  - icu
+  - libgit2
+  - fontconfig
+  - harfbuzz
+  - fribidi
+  - freetype
+  - libpng
+  - libtiff
+  - libjpeg-turbo
+  - libwebp
+  - pip:
+      - -r requirements.txt

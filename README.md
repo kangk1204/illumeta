@@ -67,7 +67,7 @@ cd illumeta
 ##### Option A: Conda (recommended for beginners)
 This uses conda to provide R/Python plus the system libraries needed by many R packages.
 
-Recommended (default conda-forge; `setup_env.sh` is not included in this repo):
+Recommended (default conda-forge):
 ```bash
 conda env create -f environment.yml
 conda activate illumeta
@@ -216,7 +216,7 @@ cd illumeta
 ##### Option A: Conda (recommended for beginners)
 This uses conda to provide R/Python plus the system libraries needed by many R packages.
 
-Recommended (default conda-forge; `setup_env.sh` is not included in this repo):
+Recommended (default conda-forge):
 ```bash
 conda env create -f environment.yml
 conda activate illumeta
@@ -365,7 +365,7 @@ cd illumeta
 ##### Option A: Conda (recommended for beginners)
 This uses conda to provide R/Python plus the system libraries needed by many R packages.
 
-Recommended (default conda-forge; `setup_env.sh` is not included in this repo):
+Recommended (default conda-forge):
 ```bash
 conda env create -f environment.yml
 conda activate illumeta

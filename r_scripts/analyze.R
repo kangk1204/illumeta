@@ -152,6 +152,7 @@ QC_SAMPLE_DET_FAIL_FRAC <- 0.05
 SNP_MAF_THRESHOLD <- 0.01
 LOGIT_OFFSET <- 1e-4
 BETA_RANGE_MIN <- 0.05
+SESAME_NATIVE_NA_MAX_FRAC <- 0.1
 AUTO_COVARIATE_ALPHA <- 0.01
 MAX_PCS_FOR_COVARIATE_DETECTION <- 5
 OVERCORRECTION_GUARD_RATIO <- 0.25
@@ -266,6 +267,57 @@ save_datatable <- function(df, filename, dir, sort_col = NULL) {
   saveWidget(dt, file = file.path(dir, filename), selfcontained = TRUE)
 }
 
+with_muffled_warnings <- function(expr, label = NULL, patterns = NULL) {
+  seen <- character(0)
+  handler <- function(w) {
+    msg <- conditionMessage(w)
+    if (is.null(patterns) || any(grepl(patterns, msg, ignore.case = TRUE))) {
+      seen <<- unique(c(seen, msg))
+      invokeRestart("muffleWarning")
+    }
+  }
+  res <- withCallingHandlers(expr, warning = handler)
+  if (!is.null(label) && length(seen) > 0) {
+    if (any(grepl("boundary \\(singular\\) fit", seen, ignore.case = TRUE))) {
+      message(sprintf("  %s: singular fit warning suppressed; consider reducing covariates.", label))
+    } else if (length(seen) == 1) {
+      message(sprintf("  %s: warning suppressed (%s).", label, seen[1]))
+    } else {
+      message(sprintf("  %s: %d warnings suppressed.", label, length(seen)))
+    }
+  }
+  res
+}
+
+with_muffled_conditions <- function(expr, label = NULL, patterns = NULL) {
+  seen <- character(0)
+  warn_handler <- function(w) {
+    msg <- conditionMessage(w)
+    if (is.null(patterns) || any(grepl(patterns, msg, ignore.case = TRUE))) {
+      seen <<- unique(c(seen, msg))
+      invokeRestart("muffleWarning")
+    }
+  }
+  msg_handler <- function(m) {
+    msg <- conditionMessage(m)
+    if (is.null(patterns) || any(grepl(patterns, msg, ignore.case = TRUE))) {
+      seen <<- unique(c(seen, msg))
+      invokeRestart("muffleMessage")
+    }
+  }
+  res <- withCallingHandlers(expr, warning = warn_handler, message = msg_handler)
+  if (!is.null(label) && length(seen) > 0) {
+    if (any(grepl("boundary \\(singular\\) fit", seen, ignore.case = TRUE))) {
+      message(sprintf("  %s: singular fit warning suppressed; consider reducing covariates.", label))
+    } else if (length(seen) == 1) {
+      message(sprintf("  %s: warning/message suppressed (%s).", label, seen[1]))
+    } else {
+      message(sprintf("  %s: %d warning/message(s) suppressed.", label, length(seen)))
+    }
+  }
+  res
+}
+
 delta_beta_pass <- function(x) {
   if (!is.finite(delta_beta_thresh) || delta_beta_thresh <= 0) {
     return(rep(TRUE, length(x)))
@@ -328,7 +380,7 @@ auto_detect_covariates <- function(targets, gsm_col, pca_scores, alpha=AUTO_COVA
     # Skip if almost perfectly collinear with group (chi-square check for factors)
     if (is.character(val) || is.factor(val)) {
       tbl <- table(val, targets$primary_group)
-      p_chisq <- tryCatch(chisq.test(tbl)$p.value, error=function(e) 1)
+      p_chisq <- tryCatch(suppressWarnings(chisq.test(tbl)$p.value), error=function(e) 1)
       if (!is.na(p_chisq) && p_chisq < 1e-6) next
     }
     
@@ -400,7 +452,7 @@ filter_covariates <- function(targets, covariates, group_col) {
         drops <- rbind(drops, data.frame(Variable=cv, Reason="confounded_with_group"))
         next
       }
-      p_chisq <- tryCatch(chisq.test(tbl)$p.value, error=function(e) NA)
+      p_chisq <- tryCatch(suppressWarnings(chisq.test(tbl)$p.value), error=function(e) NA)
       if (!is.na(p_chisq) && p_chisq < 1e-6) {
         drops <- rbind(drops, data.frame(Variable=cv, Reason="confounded_with_group"))
         next
@@ -519,6 +571,41 @@ filter_low_range <- function(betas, min_range = BETA_RANGE_MIN) {
   })
   keep <- rng >= min_range
   list(mat = betas[keep, , drop = FALSE], removed = sum(!keep))
+}
+
+impute_row_means <- function(mat) {
+  if (!anyNA(mat)) return(list(mat = mat, imputed = 0L))
+  row_means <- rowMeans(mat, na.rm = TRUE)
+  na_idx <- which(is.na(mat), arr.ind = TRUE)
+  mat[na_idx] <- row_means[na_idx[, 1]]
+  list(mat = mat, imputed = nrow(na_idx))
+}
+
+prepare_sesame_native <- function(betas, na_max_frac = SESAME_NATIVE_NA_MAX_FRAC) {
+  if (is.null(betas) || nrow(betas) == 0) {
+    return(list(mat = betas, dropped_all_na = 0L, dropped_na = 0L, imputed = 0L))
+  }
+  na_frac <- rowMeans(is.na(betas))
+  drop_all <- is.na(na_frac) | na_frac >= 1
+  dropped_all_na <- sum(drop_all)
+  betas <- betas[!drop_all, , drop = FALSE]
+  if (nrow(betas) == 0) {
+    return(list(mat = betas, dropped_all_na = dropped_all_na, dropped_na = 0L, imputed = 0L))
+  }
+  na_frac <- na_frac[!drop_all]
+  keep <- na_frac <= na_max_frac
+  dropped_na <- sum(!keep)
+  betas <- betas[keep, , drop = FALSE]
+  if (nrow(betas) == 0) {
+    return(list(mat = betas, dropped_all_na = dropped_all_na, dropped_na = dropped_na, imputed = 0L))
+  }
+  imputed <- 0L
+  if (anyNA(betas)) {
+    impute_res <- impute_row_means(betas)
+    betas <- impute_res$mat
+    imputed <- impute_res$imputed
+  }
+  list(mat = betas, dropped_all_na = dropped_all_na, dropped_na = dropped_na, imputed = imputed)
 }
 
 compute_dmr_delta_beta <- function(dmr_res, dmr_anno, mean_con, mean_test) {
@@ -715,7 +802,11 @@ estimate_cell_counts_safe <- function(rgSet, tissue = "Blood", out_dir = NULL,
       message(sprintf("  - Running RefFreeCellMix with K=%d latent components...", K_latent))
       
       # Initialize with K-means (standard RefFreeEWAS approach)
-      res <- RefFreeEWAS::RefFreeCellMix(betas_sub, K = K_latent, verbose = FALSE)
+      res <- suppressMessages(with_muffled_warnings(
+        RefFreeEWAS::RefFreeCellMix(betas_sub, K = K_latent, verbose = FALSE),
+        patterns = "ward",
+        label = NULL
+      ))
       
       # Extract proportions (Omega)
       props <- res$Omega
@@ -777,7 +868,7 @@ estimate_cell_counts_safe <- function(rgSet, tissue = "Blood", out_dir = NULL,
           if ("processMethod" %in% fn_args) arg_list$processMethod <- "preprocessNoob"
           if ("normalizationMethod" %in% fn_args) arg_list$normalizationMethod <- "none"
           if ("meanPlot" %in% fn_args) arg_list$meanPlot <- FALSE
-          do.call(est_fun, arg_list)
+          suppressWarnings(do.call(est_fun, arg_list))
         }, error = function(e) {
           message("  - Custom reference cell composition failed: ", e$message)
           NULL
@@ -887,7 +978,7 @@ estimate_cell_counts_safe <- function(rgSet, tissue = "Blood", out_dir = NULL,
       if ("normalizationMethod" %in% fn_args) arg_list$normalizationMethod <- "none"
       if ("meanPlot" %in% fn_args) arg_list$meanPlot <- FALSE
       
-      do.call(est_fun, arg_list)
+      suppressWarnings(do.call(est_fun, arg_list))
     }, error = function(e) {
       message("  - Cell composition estimation failed for ", ref, ": ", e$message)
       NULL
@@ -1015,7 +1106,14 @@ run_pvca_assessment <- function(betas, meta, factors, prefix, out_dir, threshold
   pheno <- AnnotatedDataFrame(data = pvca_meta)
   eset <- ExpressionSet(assayData = as.matrix(betas_use), phenoData = pheno)
   
-  pvca_res <- tryCatch(pvcaBatchAssess(eset, colnames(pvca_meta), threshold), error = function(e) e)
+  pvca_res <- tryCatch(
+    with_muffled_conditions(
+      pvcaBatchAssess(eset, colnames(pvca_meta), threshold),
+      label = "PVCA",
+      patterns = "boundary \\(singular\\) fit"
+    ),
+    error = function(e) e
+  )
   if (inherits(pvca_res, "error") || !is.list(pvca_res) || is.null(pvca_res$dat) || is.null(pvca_res$label)) {
     message("  PVCA failed: ", if (inherits(pvca_res, "error")) pvca_res$message else "invalid PVCA result")
     return(NULL)
@@ -1088,14 +1186,84 @@ compute_epigenetic_clocks <- function(betas, meta, id_col, prefix, out_dir, tiss
   if (return_covariates) {
     clock_covariates <- data.frame(SampleID = sample_ids, stringsAsFactors = FALSE)
   }
+
+  normalize_clock_betas <- function(betas_in) {
+    betas_in <- as.matrix(betas_in)
+    storage.mode(betas_in) <- "numeric"
+    ids <- rownames(betas_in)
+    if (is.null(ids)) return(list(betas = betas_in, normalized = FALSE))
+    has_suffix <- grepl("^cg[0-9]+_", ids)
+    if (!any(has_suffix)) return(list(betas = betas_in, normalized = FALSE))
+
+    base_ids <- ids
+    base_ids[has_suffix] <- sub("_.+$", "", base_ids[has_suffix])
+    dup_count <- sum(duplicated(base_ids))
+    if (dup_count == 0) {
+      rownames(betas_in) <- base_ids
+      return(list(betas = betas_in, normalized = TRUE, collapsed = FALSE, dup_count = 0))
+    }
+
+    collapse_res <- tryCatch({
+      na_mask <- is.na(betas_in)
+      betas_zero <- betas_in
+      betas_zero[na_mask] <- 0
+      sums <- rowsum(betas_zero, group = base_ids, reorder = FALSE)
+      counts <- rowsum((!na_mask) * 1, group = base_ids, reorder = FALSE)
+      betas_out <- sums / counts
+      betas_out[counts == 0] <- NA_real_
+      list(betas = betas_out)
+    }, error = function(e) e)
+    if (inherits(collapse_res, "error")) {
+      message("  EPICv2 CpG collapse failed; using first occurrence for duplicate IDs: ", collapse_res$message)
+      keep_idx <- !duplicated(base_ids)
+      betas_out <- betas_in[keep_idx, , drop = FALSE]
+      rownames(betas_out) <- base_ids[keep_idx]
+      return(list(betas = betas_out, normalized = TRUE, collapsed = FALSE, dup_count = dup_count))
+    }
+    return(list(betas = collapse_res$betas, normalized = TRUE, collapsed = TRUE, dup_count = dup_count))
+  }
   
   # --- 1. methylclock (Default / General Clocks) ---
   # Prioritize methylclock as it is more robust and supports newer clocks
   mc_success <- FALSE
-  if (requireNamespace("methylclock", quietly = TRUE)) {
+  mc_available <- suppressWarnings(suppressMessages(requireNamespace("methylclock", quietly = TRUE)))
+  if (isTRUE(mc_available)) {
      message("  Computing epigenetic clocks using 'methylclock'...")
      tryCatch({
-       mc_res <- methylclock::DNAmAge(betas, toBetas=FALSE, fastImp=TRUE, normalize=FALSE)
+       clock_betas <- betas
+       norm_res <- normalize_clock_betas(clock_betas)
+       clock_betas <- norm_res$betas
+       if (isTRUE(norm_res$normalized)) {
+         if (isTRUE(norm_res$collapsed)) {
+           message("  EPICv2-style CpG IDs detected; collapsed to base cg IDs for clock computation (duplicates: ", norm_res$dup_count, ").")
+         } else {
+           message("  EPICv2-style CpG IDs detected; normalized CpG IDs for clock computation.")
+         }
+       }
+       mc_attempts <- list(
+         list(label = "fastImp=TRUE, cell.count=TRUE", args = list(fastImp = TRUE, cell.count = TRUE)),
+         list(label = "fastImp=FALSE, cell.count=TRUE", args = list(fastImp = FALSE, cell.count = TRUE)),
+         list(label = "fastImp=FALSE, cell.count=FALSE", args = list(fastImp = FALSE, cell.count = FALSE))
+       )
+       mc_res <- NULL
+       mc_err <- NULL
+       for (att in mc_attempts) {
+         mc_try <- tryCatch(
+           suppressMessages(suppressWarnings(do.call(methylclock::DNAmAge, c(list(x = clock_betas, toBetas = FALSE, normalize = FALSE), att$args)))),
+           error = function(e) e
+         )
+         if (!inherits(mc_try, "error")) {
+           mc_res <- mc_try
+           message("  methylclock succeeded (", att$label, ").")
+           break
+         } else {
+           mc_err <- mc_try
+           message("  methylclock attempt failed (", att$label, "): ", mc_try$message)
+         }
+       }
+       if (is.null(mc_res)) {
+         stop(mc_err$message)
+       }
        mc_df <- as.data.frame(mc_res)
        
        # Align Sample IDs
@@ -1990,59 +2158,128 @@ colnames(anno_df)[colnames(anno_df) == "Relation_to_Island"] <- "Island_Context"
 
 # --- 3. Sesame Analysis ---
 message("--- Starting Sesame Analysis ---")
-beta_sesame <- NULL
-sesame_before_qc <- 0
+beta_sesame_strict <- NULL
+beta_sesame_native <- NULL
+sesame_strict_before <- 0
+sesame_native_before <- 0
 if (opt$`skip-sesame`) {
   message("Sesame analysis skipped (--skip-sesame).")
 } else {
   tryCatch({
     ssets <- lapply(targets$Basename, function(x) readIDATpair(x))
+    sesame_skip_typeinorm <- FALSE
+    sesame_warned_no_norm <- FALSE
+    sesame_cache_refresh_attempted <- FALSE
+    sesame_cache_refresh_supported <- !is.na(array_type) && array_type %in% c("EPIC", "EPICv1")
+    sesame_try_dyebias <- function(sdf) {
+      tryCatch(
+        dyeBiasCorr(sdf),
+        error = function(e2) {
+          msg <- conditionMessage(e2)
+          if (grepl("No normalization control probes found", msg, ignore.case = TRUE)) {
+            if (isTRUE(sesame_cache_refresh_supported) && !isTRUE(sesame_cache_refresh_attempted)) {
+              sesame_cache_refresh_attempted <<- TRUE
+              message("  Sesame normalization controls missing; refreshing EPIC.1.SigDF cache and retrying.")
+              cache_ok <- tryCatch({
+                suppressMessages(suppressWarnings(sesameDataCache("EPIC.1.SigDF")))
+                TRUE
+              }, error = function(e_cache) {
+                message("  Sesame cache refresh failed: ", e_cache$message)
+                FALSE
+              })
+              if (isTRUE(cache_ok)) {
+                retry <- tryCatch(dyeBiasCorr(sdf), error = function(e_retry) e_retry)
+                if (!inherits(retry, "error")) return(retry)
+              }
+            }
+            if (!isTRUE(sesame_warned_no_norm)) {
+              message("  Sesame dyeBiasCorr skipped (normalization controls unavailable); proceeding without dye bias correction.")
+              sesame_warned_no_norm <<- TRUE
+            }
+            return(sdf)
+          }
+          stop(e2)
+        }
+      )
+    }
     sesame_preprocess <- function(x) {
       sdf <- noob(x)
+      if (isTRUE(sesame_skip_typeinorm)) {
+        return(sesame_try_dyebias(sdf))
+      }
       tryCatch(
         dyeBiasCorrTypeINorm(sdf),
         error = function(e) {
-          message("  Sesame dyeBiasCorrTypeINorm failed; falling back to dyeBiasCorr: ", e$message)
-          tryCatch(
-            dyeBiasCorr(sdf),
-            error = function(e2) {
-              msg <- conditionMessage(e2)
-              if (grepl("No normalization control probes found", msg, ignore.case = TRUE)) {
-                message("  Sesame dyeBiasCorr failed (no normalization control probes); proceeding without dye bias correction.")
-                return(sdf)
-              }
-              stop(e2)
-            }
-          )
+          msg <- conditionMessage(e)
+          if (grepl("pthread_create", msg, ignore.case = TRUE)) {
+            sesame_skip_typeinorm <<- TRUE
+            message("  Sesame dyeBiasCorrTypeINorm disabled after thread error; using dyeBiasCorr/noob only.")
+          } else {
+            message("  Sesame dyeBiasCorrTypeINorm failed; falling back to dyeBiasCorr.")
+          }
+          sesame_try_dyebias(sdf)
         }
       )
     }
     betas_sesame_list <- lapply(ssets, function(x) getBetas(sesame_preprocess(x)))
     common_probes_sesame <- Reduce(intersect, lapply(betas_sesame_list, names))
-    beta_sesame <- do.call(cbind, lapply(betas_sesame_list, function(x) x[common_probes_sesame]))
-    colnames(beta_sesame) <- targets[[gsm_col]]
-    beta_sesame <- na.omit(beta_sesame)
-    sesame_before_qc <- nrow(beta_sesame)
-    # Harmonize Sesame with Minfi QC/annotation footprint
-    qc_probes <- rownames(beta_minfi)
-    shared_qc <- intersect(rownames(beta_sesame), qc_probes)
-    if (length(shared_qc) > 0) {
-      beta_sesame <- beta_sesame[shared_qc, , drop = FALSE]
+    beta_sesame_raw <- do.call(cbind, lapply(betas_sesame_list, function(x) x[common_probes_sesame]))
+    colnames(beta_sesame_raw) <- targets[[gsm_col]]
+    if (nrow(beta_sesame_raw) == 0) {
+      stop("Sesame preprocessing produced no probes after alignment.")
     }
-    message(paste("Sesame processed", sesame_before_qc, "probes (after QC alignment:", nrow(beta_sesame), ")."))
+
+    # Native Sesame: keep pOOBAH masking and avoid Minfi-driven probe filtering
+    sesame_native_before <- nrow(beta_sesame_raw)
+    native_res <- prepare_sesame_native(beta_sesame_raw, SESAME_NATIVE_NA_MAX_FRAC)
+    beta_sesame_native <- native_res$mat
+    if (!is.null(beta_sesame_native) && nrow(beta_sesame_native) == 0) beta_sesame_native <- NULL
+    if (is.null(beta_sesame_native)) {
+      message("Sesame native: no probes retained after NA filtering.")
+    } else {
+      message(sprintf(
+        "Sesame native: %d probes -> %d (dropped all-NA: %d, dropped NA>%.2f: %d, imputed: %d).",
+        sesame_native_before, nrow(beta_sesame_native), native_res$dropped_all_na,
+        SESAME_NATIVE_NA_MAX_FRAC, native_res$dropped_na, native_res$imputed
+      ))
+    }
+
+    # Strict Sesame: harmonize to Minfi footprint for conservative cross-validation
+    beta_sesame_strict <- na.omit(beta_sesame_raw)
+    sesame_strict_before <- nrow(beta_sesame_strict)
+    qc_probes <- rownames(beta_minfi)
+    shared_qc <- intersect(rownames(beta_sesame_strict), qc_probes)
+    if (length(shared_qc) > 0) {
+      beta_sesame_strict <- beta_sesame_strict[shared_qc, , drop = FALSE]
+    }
+    if (nrow(beta_sesame_strict) == 0) beta_sesame_strict <- NULL
+    if (is.null(beta_sesame_strict)) {
+      message("Sesame strict: no probes retained after QC alignment.")
+    } else {
+      message(sprintf(
+        "Sesame strict: %d probes (after NA omit) -> %d after QC alignment.",
+        sesame_strict_before, nrow(beta_sesame_strict)
+      ))
+    }
   }, error = function(e) {
     message("Sesame analysis failed; continuing with Minfi only: ", e$message)
-    beta_sesame <<- NULL
+    beta_sesame_strict <<- NULL
+    beta_sesame_native <<- NULL
   })
 }
 
 # --- 4. Intersection ---
-if (is.null(beta_sesame)) {
-  common_cpgs <- character(0)
-  message("Intersection: skipped (Sesame not available).")
+if (is.null(beta_sesame_strict)) {
+  message("Intersection (strict): skipped (Sesame not available).")
 } else {
-  common_cpgs <- intersect(rownames(beta_minfi), rownames(beta_sesame))
-  message(paste("Intersection:", length(common_cpgs), "CpGs common to Minfi and Sesame."))
+  common_cpgs <- intersect(rownames(beta_minfi), rownames(beta_sesame_strict))
+  message(paste("Intersection (strict):", length(common_cpgs), "CpGs common to Minfi and Sesame."))
+}
+if (is.null(beta_sesame_native)) {
+  message("Intersection (native): skipped (Sesame native not available).")
+} else {
+  common_cpgs <- intersect(rownames(beta_minfi), rownames(beta_sesame_native))
+  message(paste("Intersection (native):", length(common_cpgs), "CpGs common to Minfi and Sesame."))
 }
 
 # --- Pipeline Function ---
@@ -3223,7 +3460,11 @@ run_pipeline <- function(betas, prefix, annotation_df) {
         form_str <- paste("~", paste(form_terms, collapse = " + "))
         form_vp <- as.formula(form_str)
         vp_res <- tryCatch({
-          fitExtractVarPartModel(m_vp, form_vp, meta_vp)
+          with_muffled_conditions(
+            fitExtractVarPartModel(m_vp, form_vp, meta_vp),
+            label = "variancePartition",
+            patterns = "boundary \\(singular\\) fit"
+          )
         }, error = function(e) { message("    - variancePartition failed: ", e$message); NULL })
         
         if (!is.null(vp_res)) {
@@ -3304,23 +3545,12 @@ run_pipeline <- function(betas, prefix, annotation_df) {
   return(list(res = res, n_con = n_con_local, n_test = n_test_local, n_samples = nrow(targets)))
 }
 
-minfi_out <- run_pipeline(beta_minfi, "Minfi", anno_df)
-sesame_out <- NULL
-if (!is.null(beta_sesame)) {
-  sesame_out <- run_pipeline(beta_sesame, "Sesame", anno_df)
-} else {
-  message("Sesame pipeline skipped (no Sesame betas available).")
-}
-res_minfi <- if (!is.null(minfi_out)) minfi_out$res else NULL
-res_sesame <- if (!is.null(sesame_out)) sesame_out$res else NULL
-
-# --- Consensus (Intersection) between Minfi and Sesame ---
-# For publication-ready "double validation", we define consensus DMPs as probes that are significant
-# in BOTH pipelines with the same direction (and passing the same thresholds).
-consensus_counts <- list(up = 0, down = 0)
-if (is.null(res_minfi) || is.null(res_sesame)) {
-  message("Warning: Consensus (Intersection) skipped because one or more pipelines produced no results.")
-} else {
+run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
+  consensus_counts <- list(up = 0, down = 0)
+  if (is.null(res_minfi) || is.null(res_sesame)) {
+    message(sprintf("Warning: Consensus (%s) skipped because one or more pipelines produced no results.", prefix))
+    return(consensus_counts)
+  }
   tryCatch({
     keep_cols <- intersect(
       c("CpG", "Gene", "chr", "pos", "Region", "Island_Context", "logFC", "Delta_Beta", "P.Value", "adj.P.Val"),
@@ -3332,37 +3562,35 @@ if (is.null(res_minfi) || is.null(res_sesame)) {
     concord <- concord[is.finite(concord$logFC.Minfi) & is.finite(concord$logFC.Sesame), , drop = FALSE]
     delta_pass_minfi <- delta_beta_pass(concord$Delta_Beta.Minfi)
     delta_pass_sesame <- delta_beta_pass(concord$Delta_Beta.Sesame)
-    
+
     is_up <- concord$adj.P.Val.Minfi < pval_thresh &
       concord$adj.P.Val.Sesame < pval_thresh &
       concord$logFC.Minfi > lfc_thresh &
       concord$logFC.Sesame > lfc_thresh &
       delta_pass_minfi &
       delta_pass_sesame
-    
+
     is_down <- concord$adj.P.Val.Minfi < pval_thresh &
       concord$adj.P.Val.Sesame < pval_thresh &
       concord$logFC.Minfi < -lfc_thresh &
       concord$logFC.Sesame < -lfc_thresh &
       delta_pass_minfi &
       delta_pass_sesame
-    
+
     consensus_counts$up <- sum(is_up, na.rm = TRUE)
     consensus_counts$down <- sum(is_down, na.rm = TRUE)
-    
+
     consensus_df <- concord[is_up | is_down, , drop = FALSE]
-    if (nrow(consensus_df) > 0) {
-      consensus_df$logFC_mean <- rowMeans(consensus_df[, c("logFC.Minfi", "logFC.Sesame")], na.rm = TRUE)
-      consensus_df$P.Value <- pmax(consensus_df$P.Value.Minfi, consensus_df$P.Value.Sesame, na.rm = TRUE)
-      consensus_df$adj.P.Val <- pmax(consensus_df$adj.P.Val.Minfi, consensus_df$adj.P.Val.Sesame, na.rm = TRUE)
-      consensus_df <- consensus_df[order(consensus_df$P.Value, consensus_df$adj.P.Val), , drop = FALSE]
-      
-      out_cons_csv <- file.path(out_dir, "Intersection_Consensus_DMPs.csv")
-      write.csv(consensus_df, out_cons_csv, row.names = FALSE)
-      save_datatable(head(consensus_df, min(10000, nrow(consensus_df))), "Intersection_Consensus_DMPs.html", out_dir)
-      message(paste("Consensus DMPs saved to", out_cons_csv))
-    }
-    
+    consensus_df$logFC_mean <- rowMeans(consensus_df[, c("logFC.Minfi", "logFC.Sesame")], na.rm = TRUE)
+    consensus_df$P.Value <- pmax(consensus_df$P.Value.Minfi, consensus_df$P.Value.Sesame, na.rm = TRUE)
+    consensus_df$adj.P.Val <- pmax(consensus_df$adj.P.Val.Minfi, consensus_df$adj.P.Val.Sesame, na.rm = TRUE)
+    consensus_df <- consensus_df[order(consensus_df$P.Value, consensus_df$adj.P.Val), , drop = FALSE]
+
+    out_cons_csv <- file.path(out_dir, paste0(prefix, "_Consensus_DMPs.csv"))
+    write.csv(consensus_df, out_cons_csv, row.names = FALSE)
+    save_datatable(head(consensus_df, min(10000, nrow(consensus_df))), paste0(prefix, "_Consensus_DMPs.html"), out_dir)
+    message(paste("Consensus DMPs saved to", out_cons_csv, "(n=", nrow(consensus_df), ")."))
+
     # Concordance plot (logFC Minfi vs Sesame)
     concord$Consensus <- (is_up | is_down)
     plot_df <- concord
@@ -3379,36 +3607,60 @@ if (is.null(res_minfi) || is.null(res_sesame)) {
       scale_color_manual(values = c("FALSE" = "gray70", "TRUE" = "#e74c3c")) +
       theme_minimal() +
       labs(
-        title = "Minfi vs Sesame logFC concordance",
+        title = sprintf("Minfi vs %s logFC concordance", sesame_label),
         subtitle = sprintf("Pearson r = %.3f (points subsampled to max_plots=%d for rendering)", r_val, max_points),
         x = "log2FC (Minfi)",
         y = "log2FC (Sesame)",
         color = "Consensus"
       )
-    save_interactive_plot(p_conc, "Intersection_LogFC_Concordance.html", out_dir)
-    save_static_plot(p_conc, "Intersection_LogFC_Concordance.png", out_dir, width = 6, height = 6)
-    
+    save_interactive_plot(p_conc, paste0(prefix, "_LogFC_Concordance.html"), out_dir)
+    save_static_plot(p_conc, paste0(prefix, "_LogFC_Concordance.png"), out_dir, width = 6, height = 6)
+
     # Overlap summary plot (counts)
     sig_minfi <- concord$adj.P.Val.Minfi < pval_thresh & abs(concord$logFC.Minfi) > lfc_thresh & delta_pass_minfi
     sig_sesame <- concord$adj.P.Val.Sesame < pval_thresh & abs(concord$logFC.Sesame) > lfc_thresh & delta_pass_sesame
     n_both <- sum(is_up | is_down, na.rm = TRUE)
     overlap_df <- data.frame(
-      Category = c("Minfi only", "Sesame only", "Both (consensus)"),
+      Category = c("Minfi only", paste0(sesame_label, " only"), "Both (consensus)"),
       Count = c(sum(sig_minfi, na.rm = TRUE) - n_both, sum(sig_sesame, na.rm = TRUE) - n_both, n_both)
     )
+    fill_vals <- c("#3498db", "#2ecc71", "#e74c3c")
+    names(fill_vals) <- c("Minfi only", paste0(sesame_label, " only"), "Both (consensus)")
     p_ov <- ggplot(overlap_df, aes(x = Category, y = Count, fill = Category, text = Count)) +
       geom_col() +
-      scale_fill_manual(values = c("Minfi only" = "#3498db", "Sesame only" = "#2ecc71", "Both (consensus)" = "#e74c3c")) +
+      scale_fill_manual(values = fill_vals) +
       theme_minimal() +
       theme(legend.position = "none") +
-      labs(title = "Significant DMP overlap (Minfi vs Sesame)", y = "Count", x = NULL)
-    save_interactive_plot(p_ov, "Intersection_Significant_Overlap.html", out_dir)
-    save_static_plot(p_ov, "Intersection_Significant_Overlap.png", out_dir, width = 7, height = 4)
-    
+      labs(title = sprintf("Significant DMP overlap (Minfi vs %s)", sesame_label), y = "Count", x = NULL)
+    save_interactive_plot(p_ov, paste0(prefix, "_Significant_Overlap.html"), out_dir)
+    save_static_plot(p_ov, paste0(prefix, "_Significant_Overlap.png"), out_dir, width = 7, height = 4)
+
   }, error = function(e) {
     message("Warning: Consensus (Intersection) outputs failed: ", e$message)
   })
+  consensus_counts
 }
+
+minfi_out <- run_pipeline(beta_minfi, "Minfi", anno_df)
+sesame_out <- NULL
+sesame_native_out <- NULL
+if (!is.null(beta_sesame_strict)) {
+  sesame_out <- run_pipeline(beta_sesame_strict, "Sesame", anno_df)
+} else {
+  message("Sesame strict pipeline skipped (no Sesame betas available).")
+}
+if (!is.null(beta_sesame_native)) {
+  sesame_native_out <- run_pipeline(beta_sesame_native, "Sesame_Native", anno_df)
+} else {
+  message("Sesame native pipeline skipped (no Sesame native betas available).")
+}
+res_minfi <- if (!is.null(minfi_out)) minfi_out$res else NULL
+res_sesame <- if (!is.null(sesame_out)) sesame_out$res else NULL
+res_sesame_native <- if (!is.null(sesame_native_out)) sesame_native_out$res else NULL
+
+# --- Consensus (Intersection) between Minfi and Sesame ---
+consensus_counts <- run_intersection(res_minfi, res_sesame, "Intersection", "Sesame (Strict)")
+consensus_native_counts <- run_intersection(res_minfi, res_sesame_native, "Intersection_Native", "Sesame (Native)")
 
 get_sig_counts <- function(res_df) {
   if (is.null(res_df) || nrow(res_df) == 0) return(list(up = 0, down = 0))
@@ -3420,11 +3672,15 @@ get_sig_counts <- function(res_df) {
 
 minfi_counts <- get_sig_counts(res_minfi)
 sesame_counts <- get_sig_counts(res_sesame)
+sesame_native_counts <- get_sig_counts(res_sesame_native)
 intersect_counts <- consensus_counts
+intersect_native_counts <- consensus_native_counts
 summary_n_con <- if (!is.null(minfi_out) && !is.null(minfi_out$n_con)) {
   minfi_out$n_con
 } else if (!is.null(sesame_out) && !is.null(sesame_out$n_con)) {
   sesame_out$n_con
+} else if (!is.null(sesame_native_out) && !is.null(sesame_native_out$n_con)) {
+  sesame_native_out$n_con
 } else {
   n_con
 }
@@ -3432,17 +3688,28 @@ summary_n_test <- if (!is.null(minfi_out) && !is.null(minfi_out$n_test)) {
   minfi_out$n_test
 } else if (!is.null(sesame_out) && !is.null(sesame_out$n_test)) {
   sesame_out$n_test
+} else if (!is.null(sesame_native_out) && !is.null(sesame_native_out$n_test)) {
+  sesame_native_out$n_test
 } else {
   n_test
 }
 
 tryCatch({
   summary_json <- sprintf(
-    '{"n_con": %d, "n_test": %d, "minfi_up": %d, "minfi_down": %d, "sesame_up": %d, "sesame_down": %d, "intersect_up": %d, "intersect_down": %d}', 
+    paste0(
+      '{"n_con": %d, "n_test": %d, ',
+      '"minfi_up": %d, "minfi_down": %d, ',
+      '"sesame_up": %d, "sesame_down": %d, ',
+      '"sesame_native_up": %d, "sesame_native_down": %d, ',
+      '"intersect_up": %d, "intersect_down": %d, ',
+      '"intersect_native_up": %d, "intersect_native_down": %d}'
+    ),
     summary_n_con, summary_n_test,
     minfi_counts$up, minfi_counts$down,
     sesame_counts$up, sesame_counts$down,
-    intersect_counts$up, intersect_counts$down
+    sesame_native_counts$up, sesame_native_counts$down,
+    intersect_counts$up, intersect_counts$down,
+    intersect_native_counts$up, intersect_native_counts$down
   )
   
   writeLines(summary_json, file.path(out_dir, "summary.json"))
@@ -3450,11 +3717,11 @@ tryCatch({
   
   sva_rule <- ifelse(disable_sva, "disabled", "best_method_or_no_batch")
   params_json <- sprintf(
-    '{"pval_threshold": %.3f, "lfc_threshold": %.2f, "delta_beta_threshold": %.3f, "snp_maf": %.3f, "qc_intensity_threshold": %.1f, "detection_p_threshold": %.3f, "tissue": "%s", "tissue_source": "%s", "array_type": "%s", "cell_reference": "%s", "cell_reference_platform": "%s", "auto_covariate_alpha": %.3f, "auto_covariate_max_pcs": %d, "overcorrection_guard_ratio": %.2f, "undercorrection_guard_min_sv": %d, "sva_enabled": %s, "sva_inclusion_rule": "%s", "clock_covariates_enabled": %s, "sv_group_p_threshold": %.1e, "sv_group_eta2_threshold": %.2f, "pvca_min_samples": %d, "permutations": %d, "vp_top": %d, "dmr_maxgap": %d, "dmr_p_cutoff": %.3f, "logit_offset": %.6f, "seed": %d}',
+    '{"pval_threshold": %.3f, "lfc_threshold": %.2f, "delta_beta_threshold": %.3f, "snp_maf": %.3f, "qc_intensity_threshold": %.1f, "detection_p_threshold": %.3f, "tissue": "%s", "tissue_source": "%s", "array_type": "%s", "cell_reference": "%s", "cell_reference_platform": "%s", "auto_covariate_alpha": %.3f, "auto_covariate_max_pcs": %d, "sesame_native_na_max_frac": %.2f, "overcorrection_guard_ratio": %.2f, "undercorrection_guard_min_sv": %d, "sva_enabled": %s, "sva_inclusion_rule": "%s", "clock_covariates_enabled": %s, "sv_group_p_threshold": %.1e, "sv_group_eta2_threshold": %.2f, "pvca_min_samples": %d, "permutations": %d, "vp_top": %d, "dmr_maxgap": %d, "dmr_p_cutoff": %.3f, "logit_offset": %.6f, "seed": %d}',
     pval_thresh, lfc_thresh, delta_beta_thresh, SNP_MAF_THRESHOLD, QC_MEDIAN_INTENSITY_THRESHOLD,
     QC_DETECTION_P_THRESHOLD, tissue_use, tissue_source,
     ifelse(is.na(array_type), "", array_type), cell_reference, cell_reference_platform,
-    AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION,
+    AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION, SESAME_NATIVE_NA_MAX_FRAC,
     OVERCORRECTION_GUARD_RATIO, UNDERCORRECTION_GUARD_MIN_SV, ifelse(disable_sva, "false", "true"), sva_rule, ifelse(include_clock_covariates, "true", "false"),
     SV_GROUP_P_THRESHOLD, SV_GROUP_ETA2_THRESHOLD, PVCA_MIN_SAMPLES, perm_n, vp_top, DMR_MAXGAP, dmr_p_cutoff, LOGIT_OFFSET, 12345
   )
@@ -3517,7 +3784,7 @@ tryCatch({
     sig_line,
     "",
     "## Overview",
-    "IlluMeta performs an end-to-end DNA methylation analysis from raw Illumina IDAT files, running two independent normalization pipelines (minfi and sesame) and reporting both per-pipeline results and a consensus (intersection) call set.",
+    "IlluMeta performs an end-to-end DNA methylation analysis from raw Illumina IDAT files, running minfi and sesame in parallel and reporting Sesame in both strict (Minfi-aligned) and native (pOOBAH-preserving) views, plus consensus (intersection) call sets.",
     "",
     "## Data input",
     "- Raw IDATs are read from the project `idat/` directory.",
@@ -3536,6 +3803,8 @@ tryCatch({
     "## Normalization (two pipelines)",
     "- **minfi**: `preprocessNoob()` followed by `mapToGenome()`; beta values are extracted with `getBeta()`.",
     "- **sesame**: `noob()` + `dyeBiasCorrTypeINorm()` (fallback to `dyeBiasCorr()`, then `noob()` only if normalization controls are missing); beta values are extracted with `getBetas()`.",
+    "- **sesame strict view**: probes with any masked values are removed and then intersected with the minfi QC probe set for conservative cross-validation.",
+    sprintf("- **sesame native view**: probes with ≤ %.2f missingness are retained; remaining NAs are imputed by per-probe mean for downstream modeling.", SESAME_NATIVE_NA_MAX_FRAC),
     "",
     "## Covariates and batch control",
     sprintf("- Automatic covariate discovery: metadata variables associated with the top PCs (alpha=%.3f; up to %d PCs) are considered, then filtered for stability/confounding.", AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION),
@@ -3557,7 +3826,8 @@ tryCatch({
     "",
     "## Consensus (intersection) call set",
     "- Consensus DMPs are defined as CpGs significant in **both** minfi and sesame with the **same direction** under the same thresholds.",
-    "- Consensus outputs: `Intersection_Consensus_DMPs.csv`, `Intersection_Consensus_DMPs.html`, and concordance/overlap plots.",
+    "- Consensus is computed for both the strict (Minfi-aligned) and native Sesame views.",
+    "- Consensus outputs: `Intersection_Consensus_DMPs.*` and `Intersection_Native_Consensus_DMPs.*`, plus concordance/overlap plots.",
     "",
     "## Reproducibility artifacts",
     "- `analysis_parameters.json`: run parameters and thresholds.",

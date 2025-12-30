@@ -5,8 +5,8 @@ In addition to array-based DNA methylation analysis, IlluMeta is designed to sup
 
 ## Highlights
 - **One-command workflow**: `download` → edit `configure.tsv` → `analysis`.
-- **Two independent pipelines**: **minfi (Noob)** and **sesame** run side-by-side.
-- **Consensus (intersection) call set**: CpGs significant in **both** pipelines with the **same direction**.
+- **Two independent pipelines**: **minfi (Noob)** and **sesame** run side-by-side; Sesame is reported in both **strict (Minfi-aligned)** and **native (pOOBAH-preserving)** views.
+- **Consensus (intersection) call set**: CpGs significant in **both** pipelines with the **same direction**, reported for strict and native Sesame.
 - **Batch handling**: evaluates correction strategies (SVA/ComBat/limma) when a batch factor exists.
 - **Paper-ready artifacts**: interactive HTML + static PNG figures, plus `methods.md`, `analysis_parameters.json`, `sessionInfo.txt`, and `code_version.txt`.
 
@@ -502,6 +502,10 @@ docker run --rm -it -v "$PWD":/app illumeta analysis \
 
 ## Quick start
 
+### 0) Choose your input type
+- If you have **GEO**: follow steps 1–4 below.
+- If you have **your own IDATs**: see “Analyze your own IDATs (non-GEO)” right after this section.
+
 ### 1) Download a dataset from GEO
 ```bash
 # Activate your environment (choose one)
@@ -527,6 +531,15 @@ Note: the default output folder name is derived from the group labels. If it con
 Open the generated HTML:
 `projects/GSE121633/Case_vs_Control_results_index.html`
 
+### 5) Interpret results (beginner checklist)
+1. **QC first**: open `QC_Summary.csv`, `Sample_QC_DetectionP_FailFraction.html`, and `Sample_QC_Intensity_Medians.html`. If many samples fail QC, stop and fix QC before interpreting DMP/DMR.
+2. **Batch check**: compare `*_Batch_Evaluation_Before.html` vs `*_Batch_Evaluation_After.html`. After-correction should reduce batch association without erasing group signal.
+3. **Consensus vs pipeline results**:  
+   - **Consensus (Strict)** = Minfi ∩ Sesame (strict alignment); most conservative.  
+   - **Consensus (Native)** = Minfi ∩ Sesame native; more sensitive to Sesame’s masking philosophy.  
+4. **DMP tables**: use `*_Top_DMPs.html` for top hits (sorted by P.Value). Full tables are `*_DMPs_full.csv`.
+5. **DMR tables**: use `*_DMRs_Table.html` / `*_DMRs.csv` (sorted by p.value). Check volcano/manhattan for signal distribution.
+
 ## Usage
 
 ### Search GEO for IDAT-enabled datasets
@@ -540,6 +553,13 @@ python3 illusearch.py --keywords "breast cancer" --email your_email@example.com 
    - `Basename` (e.g., `idat/Sample1_R01C01`)
    - `primary_group` (e.g., `Treated`, `Untreated`)
    - Optional: `tissue` (e.g., `Blood`, `CordBlood`, `Placenta`) to auto-select reference
+   - Example:
+     ```tsv
+     Basename	primary_group	SampleID	sex	age
+     idat/S1_R01C01	control	S1	M	52
+     idat/S1_R02C01	control	S2	F	47
+     idat/S2_R01C01	case	S3	M	61
+     ```
 3. Run:
 ```bash
 python3 illumeta.py analysis -i my_project --group_con Untreated --group_test Treated
@@ -598,16 +618,17 @@ IlluMeta writes results to the analysis output directory (default: `[input]/[tes
 - `Sample_QC_DetectionP_FailFraction.png` and `Sample_QC_Intensity_Medians.png`: static QC figures (HTML versions are also saved).
 
 ### Differential methylation (per pipeline)
-For each pipeline (`Minfi`, `Sesame`):
+For each pipeline (`Minfi`, `Sesame` = strict/Minfi-aligned, `Sesame_Native` = native Sesame):
 - `*_DMPs_full.csv`: full differential methylation results table.
 - `*_Volcano.html/.png`, `*_Manhattan.html/.png`, `*_QQPlot.html/.png`
 - `*_Top100_Heatmap.html/.png`
 - `*_DMR_Volcano.html/.png`, `*_DMR_Manhattan.html/.png`, `*_Top_DMRs_Heatmap.html/.png`
 
 ### Consensus (intersection) call set
-- `Intersection_Consensus_DMPs.csv` and `Intersection_Consensus_DMPs.html`
-- `Intersection_LogFC_Concordance.html/.png` (minfi vs sesame logFC concordance)
-- `Intersection_Significant_Overlap.html/.png` (significant counts and overlap)
+- `Intersection_Consensus_DMPs.csv` and `Intersection_Consensus_DMPs.html` (strict)
+- `Intersection_Native_Consensus_DMPs.csv` and `Intersection_Native_Consensus_DMPs.html` (native)
+- `Intersection*_LogFC_Concordance.html/.png` (minfi vs sesame logFC concordance)
+- `Intersection*_Significant_Overlap.html/.png` (significant counts and overlap)
 
 ## Troubleshooting
 
@@ -639,7 +660,7 @@ Common issues:
 - **Mixed array sizes**: by default, IlluMeta drops samples that deviate from the modal array size; use `--force-idat` only when appropriate.
 - **Missing IDAT pairs**: see `Preflight_IDAT_Pairs.csv` and ensure each basename has both `_Grn.idat` and `_Red.idat` (or `.gz`) files.
 - **Reference package unavailable** (e.g., FlowSorted.* not in your Bioconductor): IlluMeta falls back to RefFreeEWAS; consider `--cell-reference` or upgrading R/Bioconductor.
-- **Sesame: `No normalization control probes found!`**: some EPIC IDATs do not include normalization controls or the cache is stale. Refresh with `R -q -e 'library(sesame); sesameDataCache("EPIC.1.SigDF")'`. If it persists, IlluMeta now continues without dye bias correction (or use `--skip-sesame`).
+- **Sesame: `No normalization control probes found!`**: some EPIC IDATs do not include normalization controls or the cache is stale. IlluMeta now attempts a one-time refresh of `EPIC.1.SigDF` and retries automatically; you can also run `R -q -e 'library(sesame); sesameDataCache("EPIC.1.SigDF")'` manually. If it persists, IlluMeta continues without dye bias correction (or use `--skip-sesame`).
 
 ## Citation
 See `CITATION.cff`.

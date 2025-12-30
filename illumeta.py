@@ -672,8 +672,14 @@ def generate_dashboard(output_dir, group_test, group_con):
     dashboard_filename = f"{results_folder_name}_index.html"
     dashboard_path = os.path.join(parent_dir, dashboard_filename)
     
-    # Reordered: Intersection First
-    pipelines = ["Intersection", "Minfi", "Sesame"]
+    # Reordered: Consensus + Native/Strict pipelines
+    pipeline_defs = [
+        ("Intersection", "Consensus (Strict)", "intersection"),
+        ("Intersection_Native", "Consensus (Native)", "intersection"),
+        ("Minfi", "Minfi (Noob)", "pipeline"),
+        ("Sesame", "Sesame (Strict)", "pipeline"),
+        ("Sesame_Native", "Sesame (Native)", "pipeline"),
+    ]
     
     # Load Summary Statistics
     summary_path = os.path.join(output_dir, "summary.json")
@@ -684,7 +690,11 @@ def generate_dashboard(output_dir, group_test, group_con):
     except (FileNotFoundError, json.JSONDecodeError):
         log_err("[!] Warning: summary.json not found or invalid. Dashboard will lack stats.")
         # Default empty stats
-        keys = ["n_con", "n_test", "minfi_up", "minfi_down", "sesame_up", "sesame_down", "intersect_up", "intersect_down"]
+        keys = [
+            "n_con", "n_test", "minfi_up", "minfi_down",
+            "sesame_up", "sesame_down", "sesame_native_up", "sesame_native_down",
+            "intersect_up", "intersect_down", "intersect_native_up", "intersect_native_down"
+        ]
         stats = {k: 0 for k in keys}
 
     intersection_sections = [
@@ -741,11 +751,9 @@ def generate_dashboard(output_dir, group_test, group_con):
         ]),
     ]
 
-    pipeline_sections = {
-        "Intersection": intersection_sections,
-        "Minfi": pipeline_sections_base,
-        "Sesame": pipeline_sections_base,
-    }
+    pipeline_sections = {}
+    for pipe_id, _, kind in pipeline_defs:
+        pipeline_sections[pipe_id] = intersection_sections if kind == "intersection" else pipeline_sections_base
     
     def load_metrics(pipe_name):
         path = os.path.join(output_dir, f"{pipe_name}_Metrics.csv")
@@ -816,10 +824,18 @@ def generate_dashboard(output_dir, group_test, group_con):
     sesame_up = safe_int(stats.get('sesame_up'))
     sesame_down = safe_int(stats.get('sesame_down'))
     sesame_total = sesame_up + sesame_down
+
+    sesame_native_up = safe_int(stats.get('sesame_native_up'))
+    sesame_native_down = safe_int(stats.get('sesame_native_down'))
+    sesame_native_total = sesame_native_up + sesame_native_down
     
     intersect_up = safe_int(stats.get('intersect_up'))
     intersect_down = safe_int(stats.get('intersect_down'))
     intersect_total = intersect_up + intersect_down
+
+    intersect_native_up = safe_int(stats.get('intersect_native_up'))
+    intersect_native_down = safe_int(stats.get('intersect_native_down'))
+    intersect_native_total = intersect_native_up + intersect_native_down
     analysis_params = load_analysis_params()
     qc_summary = load_qc_summary()
 
@@ -1067,8 +1083,8 @@ def generate_dashboard(output_dir, group_test, group_con):
             <p class="hero-sub">Comparison: <strong>{group_test}</strong> (Test) vs <strong>{group_con}</strong> (Control)</p>
             <div class="hero-tags">
                 <span class="tag">Samples: {total_samples}</span>
-                <span class="tag">Consensus DMPs: {intersect_total}</span>
-                <span class="tag">Minfi: {minfi_total} / Sesame: {sesame_total}</span>
+                <span class="tag">Consensus DMPs (strict/native): {intersect_total} / {intersect_native_total}</span>
+                <span class="tag">Minfi: {minfi_total} · Sesame strict: {sesame_total} · Sesame native: {sesame_native_total}</span>
             </div>
         </div>
         <div class="hero-grid">
@@ -1079,13 +1095,13 @@ def generate_dashboard(output_dir, group_test, group_con):
             </div>
             <div class="hero-card">
                 <div class="hero-card-title">Consensus DMPs</div>
-                <div class="hero-card-value">{intersect_total}</div>
-                <div class="hero-card-sub">Up {intersect_up} / Down {intersect_down}</div>
+                <div class="hero-card-value">{intersect_total} | {intersect_native_total}</div>
+                <div class="hero-card-sub">Strict ▲ {intersect_up} ▼ {intersect_down} · Native ▲ {intersect_native_up} ▼ {intersect_native_down}</div>
             </div>
             <div class="hero-card">
                 <div class="hero-card-title">Pipeline DMPs</div>
-                <div class="hero-card-value">{minfi_total} | {sesame_total}</div>
-                <div class="hero-card-sub">Minfi ▲ {minfi_up} ▼ {minfi_down} · Sesame ▲ {sesame_up} ▼ {sesame_down}</div>
+                <div class="hero-card-value">{minfi_total} | {sesame_total} | {sesame_native_total}</div>
+                <div class="hero-card-sub">Minfi ▲ {minfi_up} ▼ {minfi_down} · Strict ▲ {sesame_up} ▼ {sesame_down} · Native ▲ {sesame_native_up} ▼ {sesame_native_down}</div>
             </div>
         </div>
     </div>
@@ -1104,9 +1120,11 @@ def generate_dashboard(output_dir, group_test, group_con):
         ("Step 1", "Check sample quality", "Verify QC pass/fail and signal quality before interpreting results.",
          [("QC_Summary.csv", "QC Summary"), ("Sample_QC_DetectionP_FailFraction.html", "Detection P"), ("Sample_QC_Intensity_Medians.html", "Intensity")]),
         ("Step 2", "Review consensus signals", "Use the intersection set for the most conservative findings.",
-         [("Intersection_Consensus_DMPs.html", "Consensus DMPs"), ("Intersection_LogFC_Concordance.html", "Concordance"), ("Intersection_Significant_Overlap.html", "Overlap")]),
+         [("Intersection_Consensus_DMPs.html", "Consensus DMPs (Strict)"), ("Intersection_Native_Consensus_DMPs.html", "Consensus DMPs (Native)"),
+          ("Intersection_LogFC_Concordance.html", "Concordance (Strict)"), ("Intersection_Native_LogFC_Concordance.html", "Concordance (Native)")]),
         ("Step 3", "Dive into pipelines", "Explore Minfi and Sesame for method-specific depth.",
-         [("Minfi_Volcano.html", "Minfi Volcano"), ("Sesame_Volcano.html", "Sesame Volcano"), ("Minfi_DMRs_Table.html", "Minfi DMRs")]),
+         [("Minfi_Volcano.html", "Minfi Volcano"), ("Sesame_Volcano.html", "Sesame Volcano (Strict)"),
+          ("Sesame_Native_Volcano.html", "Sesame Volcano (Native)"), ("Minfi_DMRs_Table.html", "Minfi DMRs")]),
     ]
     html_parts.append('<div id="start" class="section-title">Beginner Path</div>')
     html_parts.append('<div class="section-grid">')
@@ -1135,6 +1153,7 @@ def generate_dashboard(output_dir, group_test, group_con):
             cell_ref_label = "default" if not cell_ref else f"{cell_ref} ({cell_ref_platform or 'auto'})"
             html_parts.append(f'            <div class="metrics-row"><span>Cell reference</span><span>{cell_ref_label}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Auto covariates</span><span>alpha={analysis_params.get("auto_covariate_alpha", "N/A")}, max_pcs={analysis_params.get("auto_covariate_max_pcs", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Sesame native NA max</span><span>{analysis_params.get("sesame_native_na_max_frac", "N/A")}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Over/Under guard</span><span>{analysis_params.get("overcorrection_guard_ratio", "N/A")} / {analysis_params.get("undercorrection_guard_min_sv", "N/A")}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>SVA</span><span>{analysis_params.get("sva_enabled", "N/A")} ({analysis_params.get("sva_inclusion_rule", "N/A")})</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Clock covariates</span><span>{analysis_params.get("clock_covariates_enabled", "N/A")}</span></div>\n')
@@ -1200,22 +1219,22 @@ def generate_dashboard(output_dir, group_test, group_con):
         html_parts.append('</div>')
 
     html_parts.append('<div id="pipelines" class="section-title">Results by Pipeline</div>')
-    html_parts.append("""
-<div class="nav-tabs" id="navTabs">
-    <div class="nav-tab active" data-tab="Intersection" onclick="switchTab('Intersection')">Consensus</div>
-    <div class="nav-tab" data-tab="Minfi" onclick="switchTab('Minfi')">Minfi (Noob)</div>
-    <div class="nav-tab" data-tab="Sesame" onclick="switchTab('Sesame')">Sesame</div>
-</div>
-<div class="tab-shell">
-""")
+    html_parts.append('<div class="nav-tabs" id="navTabs">')
+    for idx, (pipe_id, pipe_label, _) in enumerate(pipeline_defs):
+        active_class = " active" if idx == 0 else ""
+        html_parts.append(
+            f'    <div class="nav-tab{active_class}" data-tab="{pipe_id}" onclick="switchTab(\'{pipe_id}\')">{pipe_label}</div>'
+        )
+    html_parts.append('</div>')
+    html_parts.append('<div class="tab-shell">')
 
     # Loop for Pipelines
-    for pipe in pipelines:
-        active_class = "active" if pipe == "Intersection" else ""
-        html_parts.append(f'    <div id="{pipe}" class="tab-content {active_class}">\n')
+    for idx, (pipe_id, _, _) in enumerate(pipeline_defs):
+        active_class = "active" if idx == 0 else ""
+        html_parts.append(f'    <div id="{pipe_id}" class="tab-content {active_class}">\n')
         
         # Metrics block (if available)
-        metrics = load_metrics(pipe)
+        metrics = load_metrics(pipe_id)
         if metrics:
             html_parts.append('        <div class="metrics-card">\n')
             html_parts.append('            <div class="metrics-title">Model & Batch Summary</div>\n')
@@ -1234,19 +1253,19 @@ def generate_dashboard(output_dir, group_test, group_con):
                 html_parts.append(f'            <div class="metrics-row"><span>VarPart primary_group</span><span>{metrics.get("vp_primary_group_mean", "N/A")}</span></div>\n')
             if metrics.get("dropped_covariates"):
                 html_parts.append(f'            <div class="metrics-row"><span>Dropped covariates</span><span>{metrics.get("dropped_covariates")}</span></div>\n')
-            drop_reasons = load_drop_reasons(pipe)
+            drop_reasons = load_drop_reasons(pipe_id)
             if drop_reasons:
                 reasons_txt = ", ".join([f"{k}:{v}" for k, v in drop_reasons.items()])
                 html_parts.append(f'            <div class="metrics-row"><span>Drop reasons</span><span>{reasons_txt}</span></div>\n')
             html_parts.append('        </div>\n')
         files_found = 0
         card_index = 0
-        sections = pipeline_sections.get(pipe, [])
+        sections = pipeline_sections.get(pipe_id, [])
 
         for section_title, section_items in sections:
             section_cards = []
             for suffix, title, desc, badge in section_items:
-                filename = f"{pipe}{suffix}"
+                filename = f"{pipe_id}{suffix}"
                 file_path = os.path.join(output_dir, filename)
                 rel_path = f"{results_folder_name}/{filename}"
                 if os.path.exists(file_path):

@@ -777,7 +777,10 @@ clean_downloaded_packages <- function() {
 
 is_loadable <- function(pkg) {
     if (is_pkg_mismatch(pkg)) return(FALSE)
-    ok <- tryCatch(requireNamespace(pkg, quietly = TRUE), error = function(e) FALSE)
+    ok <- tryCatch(
+        suppressMessages(suppressWarnings(requireNamespace(pkg, quietly = TRUE))),
+        error = function(e) FALSE
+    )
     isTRUE(ok)
 }
 
@@ -790,6 +793,15 @@ remove_broken_pkg <- function(pkg, lib = .libPaths()[1]) {
 install_bioc_safe <- function(pkgs) {
     miss <- pkgs[!vapply(pkgs, is_loadable, logical(1))]
     if (length(miss) == 0) return(invisible())
+    avail_flags <- vapply(miss, function(pkg) {
+        is_bioc_available(pkg)
+    }, logical(1))
+    skip <- names(avail_flags)[avail_flags == FALSE]
+    if (length(skip) > 0) {
+        message("Skipping unavailable Bioconductor packages: ", paste(skip, collapse = ", "))
+        miss <- setdiff(miss, skip)
+        if (length(miss) == 0) return(invisible())
+    }
     for (pkg in miss) remove_broken_pkg(pkg)
     message(paste("Installing Bioconductor packages:", paste(miss, collapse = ", ")))
     tryCatch({

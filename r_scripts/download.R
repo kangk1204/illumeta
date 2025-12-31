@@ -42,15 +42,21 @@ message(paste("Fetching metadata for:", gse_id))
 
 retry_run <- function(fn, label = "request", attempts = 3, wait = 3) {
   last_err <- NULL
+  last_msg <- ""
   for (i in seq_len(attempts)) {
     res <- tryCatch(fn(), error = function(e) { last_err <<- e; NULL })
     if (!is.null(res)) {
       return(res)
     }
-    message(sprintf("[%s] attempt %d/%d failed: %s", label, i, attempts, last_err$message))
+    if (!is.null(last_err) && !is.null(last_err$message) && nzchar(last_err$message)) {
+      last_msg <- last_err$message
+    } else if (last_msg == "") {
+      last_msg <- "returned NULL"
+    }
+    message(sprintf("[%s] attempt %d/%d failed: %s", label, i, attempts, last_msg))
     if (i < attempts) Sys.sleep(wait)
   }
-  stop(sprintf("%s failed after %d attempts: %s", label, attempts, last_err$message))
+  stop(sprintf("%s failed after %d attempts: %s", label, attempts, last_msg))
 }
 
 # Fetch GEO series (possibly multi-platform)
@@ -101,12 +107,63 @@ if (length(existing_idats) > 0) {
     message("Skipping download step.")
 } else {
     message("Attempting to download raw files (IDATs)...")
+
+    geo_group_from_gse <- function(gse_id) {
+        num <- suppressWarnings(as.integer(gsub("[^0-9]", "", gse_id)))
+        if (is.na(num)) return(NULL)
+        sprintf("GSE%03dnnn", floor(num / 1000))
+    }
+
+    manual_download_suppl <- function(gse_id, out_dir, pattern = "[Rr][Aa][Ww]\\.tar(\\.gz)?$") {
+        grp <- geo_group_from_gse(gse_id)
+        if (is.null(grp)) return(NULL)
+        base_url <- sprintf("https://ftp.ncbi.nlm.nih.gov/geo/series/%s/%s/suppl", grp, gse_id)
+        filelist_url <- paste0(base_url, "/filelist.txt")
+        tmp <- tempfile(fileext = ".txt")
+        files <- character(0)
+        ok <- tryCatch({
+            utils::download.file(filelist_url, tmp, quiet = TRUE, mode = "wb")
+            TRUE
+        }, error = function(e) FALSE)
+        if (ok) {
+            lines <- readLines(tmp, warn = FALSE)
+            files <- sub("\\s+.*$", "", lines)
+            files <- files[grepl(pattern, files)]
+        }
+        if (length(files) == 0) {
+            files <- c(paste0(gse_id, "_RAW.tar"), paste0(gse_id, "_RAW.tar.gz"))
+        }
+        dl_dir <- file.path(out_dir, gse_id)
+        if (!dir.exists(dl_dir)) dir.create(dl_dir, recursive = TRUE)
+        downloaded <- character(0)
+        for (fname in unique(files)) {
+            url <- paste0(base_url, "/", fname)
+            dest <- file.path(dl_dir, fname)
+            ok <- tryCatch({
+                utils::download.file(url, dest, quiet = TRUE, mode = "wb")
+                file.exists(dest) && file.info(dest)$size > 0
+            }, error = function(e) FALSE)
+            if (ok) {
+                downloaded <- c(downloaded, dest)
+            } else if (file.exists(dest)) {
+                unlink(dest)
+            }
+        }
+        if (length(downloaded) == 0) return(NULL)
+        downloaded
+    }
     
     tryCatch({
         # Strategy 1: Try to download individual IDAT files
-        files_info <- retry_run(
-            function() getGEOSuppFiles(gse_id, baseDir = out_dir, makeDirectory = TRUE, filter_regex = "(?i)idat(\\\\.gz)?$"),
-            label = "getGEOSuppFiles(idat[.gz])"
+        files_info <- tryCatch(
+            retry_run(
+                function() getGEOSuppFiles(gse_id, baseDir = out_dir, makeDirectory = TRUE, filter_regex = "idat(\\\\.gz)?$"),
+                label = "getGEOSuppFiles(idat[.gz])"
+            ),
+            error = function(e) {
+                message("IDAT download attempt failed: ", e$message)
+                NULL
+            }
         )
         
         downloaded_dir <- file.path(out_dir, gse_id)
@@ -119,12 +176,25 @@ if (length(existing_idats) > 0) {
             
             # Strategy 2: Download RAW.tar
             # Note: filter_regex might need to be broad or specific. usually "RAW.tar" matches "GSEXXXX_RAW.tar"
-            files_info_tar <- retry_run(
-                function() getGEOSuppFiles(gse_id, baseDir = out_dir, makeDirectory = TRUE, filter_regex = "RAW.tar"),
-                label = "getGEOSuppFiles(RAW.tar)"
+            files_info_tar <- tryCatch(
+                retry_run(
+                    function() getGEOSuppFiles(gse_id, baseDir = out_dir, makeDirectory = TRUE, filter_regex = "[Rr][Aa][Ww]\\\\.tar(\\\\.gz)?$"),
+                    label = "getGEOSuppFiles(RAW.tar)"
+                ),
+                error = function(e) {
+                    message("RAW tar download attempt failed: ", e$message)
+                    NULL
+                }
             )
             
-            tar_files <- list.files(downloaded_dir, pattern = "RAW.tar", full.names = TRUE)
+            tar_files <- list.files(downloaded_dir, pattern = "RAW\\.tar(\\.gz)?$", full.names = TRUE, ignore.case = TRUE)
+            if (length(tar_files) == 0) {
+                manual_tar <- manual_download_suppl(gse_id, out_dir)
+                if (!is.null(manual_tar)) {
+                    tar_files <- manual_tar
+                    message("Downloaded RAW tar bundle via direct HTTPS fallback.")
+                }
+            }
             
             if (length(tar_files) > 0) {
                 message(paste("Found RAW tar bundle:", tar_files[1]))

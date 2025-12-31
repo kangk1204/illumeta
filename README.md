@@ -6,7 +6,8 @@ In addition to array-based DNA methylation analysis, IlluMeta is designed to sup
 ## Highlights
 - **One-command workflow**: `download` → edit `configure.tsv` → `analysis`.
 - **Two independent pipelines**: **minfi (Noob)** and **sesame** run side-by-side; Sesame is reported in both **strict (Minfi-aligned)** and **native (pOOBAH-preserving)** views.
-- **Consensus (intersection) call set**: CpGs significant in **both** pipelines with the **same direction**, reported for strict and native Sesame.
+- **Consensus (intersection) call set**: CpGs significant in **both** pipelines with the **same direction**. `Intersection_Native` is the recommended “golden set”; strict is the most conservative cross-check.
+- **Sesame-native covariates**: when available, Sesame uses EpiDISH-based cell composition; otherwise Minfi-derived covariates are reused for stability.
 - **Batch handling**: evaluates correction strategies (SVA/ComBat/limma) when a batch factor exists.
 - **Paper-ready artifacts**: interactive HTML + static PNG figures, plus `methods.md`, `analysis_parameters.json`, `sessionInfo.txt`, and `code_version.txt`.
 
@@ -629,6 +630,7 @@ For each pipeline (`Minfi`, `Sesame` = strict/Minfi-aligned, `Sesame_Native` = n
 - `Intersection_Native_Consensus_DMPs.csv` and `Intersection_Native_Consensus_DMPs.html` (native)
 - `Intersection*_LogFC_Concordance.html/.png` (minfi vs sesame logFC concordance)
 - `Intersection*_Significant_Overlap.html/.png` (significant counts and overlap)
+> Tip: use `Intersection_Native_*` as the main call set (“golden set”), and the strict version as a conservative check.
 
 ## Troubleshooting
 

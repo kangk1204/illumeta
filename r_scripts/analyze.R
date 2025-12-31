@@ -153,6 +153,10 @@ SNP_MAF_THRESHOLD <- 0.01
 LOGIT_OFFSET <- 1e-4
 BETA_RANGE_MIN <- 0.05
 SESAME_NATIVE_NA_MAX_FRAC <- 0.1
+SESAME_NATIVE_KNN_K <- 10
+SESAME_NATIVE_KNN_MAX_ROWS <- 50000
+SESAME_NATIVE_KNN_REF_ROWS <- 20000
+SESAME_NATIVE_IMPUTE_METHOD <- "knn"
 AUTO_COVARIATE_ALPHA <- 0.01
 MAX_PCS_FOR_COVARIATE_DETECTION <- 5
 OVERCORRECTION_GUARD_RATIO <- 0.25
@@ -194,6 +198,9 @@ tissue_use <- opt$tissue
 tissue_source <- "arg"
 cell_covariates <- character(0)
 cell_counts_df <- NULL
+sesame_native_impute_method <- "none"
+sesame_cell_est <- NULL
+sesame_cell_reference <- "minfi-derived"
 id_col_override <- opt$id_column
 MIN_TOTAL_SIZE_STOP <- max(2, opt$min_total_size)
 force_idat <- opt$force_idat
@@ -573,6 +580,44 @@ filter_low_range <- function(betas, min_range = BETA_RANGE_MIN) {
   list(mat = betas[keep, , drop = FALSE], removed = sum(!keep))
 }
 
+normalize_epicv2_ids <- function(betas_in) {
+  betas_in <- as.matrix(betas_in)
+  storage.mode(betas_in) <- "numeric"
+  ids <- rownames(betas_in)
+  if (is.null(ids)) {
+    return(list(betas = betas_in, normalized = FALSE, collapsed = FALSE, dup_count = 0))
+  }
+  base_ids <- sub("_.+$", "", ids)
+  valid_base <- grepl("^(cg|ch)[0-9]+$", base_ids) | grepl("^ch\\.[0-9]+$", base_ids) | grepl("^rs[0-9]+$", base_ids)
+  has_suffix <- ids != base_ids & valid_base
+  if (!any(has_suffix)) {
+    return(list(betas = betas_in, normalized = FALSE, collapsed = FALSE, dup_count = 0))
+  }
+  base_ids[!has_suffix] <- ids[!has_suffix]
+  dup_count <- sum(duplicated(base_ids))
+  if (dup_count == 0) {
+    rownames(betas_in) <- base_ids
+    return(list(betas = betas_in, normalized = TRUE, collapsed = FALSE, dup_count = 0))
+  }
+  collapse_res <- tryCatch({
+    na_mask <- is.na(betas_in)
+    betas_zero <- betas_in
+    betas_zero[na_mask] <- 0
+    sums <- rowsum(betas_zero, group = base_ids, reorder = FALSE)
+    counts <- rowsum((!na_mask) * 1, group = base_ids, reorder = FALSE)
+    betas_out <- sums / counts
+    betas_out[counts == 0] <- NA_real_
+    list(betas = betas_out)
+  }, error = function(e) e)
+  if (inherits(collapse_res, "error")) {
+    keep_idx <- !duplicated(base_ids)
+    betas_out <- betas_in[keep_idx, , drop = FALSE]
+    rownames(betas_out) <- base_ids[keep_idx]
+    return(list(betas = betas_out, normalized = TRUE, collapsed = FALSE, dup_count = dup_count))
+  }
+  list(betas = collapse_res$betas, normalized = TRUE, collapsed = TRUE, dup_count = dup_count)
+}
+
 impute_row_means <- function(mat) {
   if (!anyNA(mat)) return(list(mat = mat, imputed = 0L))
   row_means <- rowMeans(mat, na.rm = TRUE)
@@ -581,31 +626,303 @@ impute_row_means <- function(mat) {
   list(mat = mat, imputed = nrow(na_idx))
 }
 
+impute_knn <- function(mat, na_max_frac = SESAME_NATIVE_NA_MAX_FRAC,
+                       k = SESAME_NATIVE_KNN_K,
+                       max_rows = SESAME_NATIVE_KNN_MAX_ROWS,
+                       ref_rows = SESAME_NATIVE_KNN_REF_ROWS) {
+  if (!anyNA(mat)) return(list(mat = mat, imputed = 0L, method = "none"))
+  if (!requireNamespace("impute", quietly = TRUE)) {
+    return(list(mat = mat, imputed = 0L, method = "missing_impute_pkg"))
+  }
+
+  na_row_counts <- rowSums(is.na(mat))
+  missing_rows <- which(na_row_counts > 0)
+  if (length(missing_rows) == 0) return(list(mat = mat, imputed = 0L, method = "none"))
+  if (length(missing_rows) > max_rows) {
+    return(list(mat = mat, imputed = 0L, method = "too_many_missing_rows"))
+  }
+
+  complete_rows <- which(na_row_counts == 0)
+  if (length(complete_rows) == 0) {
+    return(list(mat = mat, imputed = 0L, method = "no_complete_rows"))
+  }
+  ref_take <- min(length(complete_rows), ref_rows)
+  ref_rows <- head(complete_rows, ref_take)
+  work_rows <- c(missing_rows, ref_rows)
+  work_mat <- mat[work_rows, , drop = FALSE]
+  k_use <- min(k, nrow(work_mat) - 1L)
+  if (k_use < 1) {
+    return(list(mat = mat, imputed = 0L, method = "k_too_small"))
+  }
+
+  imp <- tryCatch(
+    with_muffled_conditions(
+      impute::impute.knn(work_mat, k = k_use, rowmax = na_max_frac, colmax = 1),
+      label = NULL,
+      patterns = "no finite values|missing values|all\\s+NA"
+    ),
+    error = function(e) e
+  )
+  if (inherits(imp, "error")) {
+    return(list(mat = mat, imputed = 0L, method = "knn_failed"))
+  }
+  out <- mat
+  out[missing_rows, ] <- imp$data[seq_along(missing_rows), , drop = FALSE]
+  before_na <- sum(is.na(mat[missing_rows, , drop = FALSE]))
+  after_na <- sum(is.na(out[missing_rows, , drop = FALSE]))
+  list(mat = out, imputed = max(0L, before_na - after_na), method = "knn")
+}
+
 prepare_sesame_native <- function(betas, na_max_frac = SESAME_NATIVE_NA_MAX_FRAC) {
   if (is.null(betas) || nrow(betas) == 0) {
-    return(list(mat = betas, dropped_all_na = 0L, dropped_na = 0L, imputed = 0L))
+    return(list(mat = betas, dropped_all_na = 0L, dropped_na = 0L, imputed = 0L, impute_method = "none"))
   }
   na_frac <- rowMeans(is.na(betas))
   drop_all <- is.na(na_frac) | na_frac >= 1
   dropped_all_na <- sum(drop_all)
   betas <- betas[!drop_all, , drop = FALSE]
   if (nrow(betas) == 0) {
-    return(list(mat = betas, dropped_all_na = dropped_all_na, dropped_na = 0L, imputed = 0L))
+    return(list(mat = betas, dropped_all_na = dropped_all_na, dropped_na = 0L, imputed = 0L, impute_method = "none"))
   }
   na_frac <- na_frac[!drop_all]
   keep <- na_frac <= na_max_frac
   dropped_na <- sum(!keep)
   betas <- betas[keep, , drop = FALSE]
   if (nrow(betas) == 0) {
-    return(list(mat = betas, dropped_all_na = dropped_all_na, dropped_na = dropped_na, imputed = 0L))
+    return(list(mat = betas, dropped_all_na = dropped_all_na, dropped_na = dropped_na, imputed = 0L, impute_method = "none"))
   }
   imputed <- 0L
+  impute_method <- "none"
   if (anyNA(betas)) {
-    impute_res <- impute_row_means(betas)
-    betas <- impute_res$mat
-    imputed <- impute_res$imputed
+    knn_res <- impute_knn(betas, na_max_frac = na_max_frac)
+    if (knn_res$method == "knn") {
+      betas <- knn_res$mat
+      imputed <- knn_res$imputed
+      impute_method <- "knn"
+    } else {
+      impute_res <- impute_row_means(betas)
+      betas <- impute_res$mat
+      imputed <- impute_res$imputed
+      impute_method <- "row_mean_fallback"
+    }
   }
-  list(mat = betas, dropped_all_na = dropped_all_na, dropped_na = dropped_na, imputed = imputed)
+  list(mat = betas, dropped_all_na = dropped_all_na, dropped_na = dropped_na,
+       imputed = imputed, impute_method = impute_method)
+}
+
+extract_sesame_cc_vector <- function(res) {
+  if (is.null(res)) return(NULL)
+  if (is.list(res) && !is.null(res$prop)) res <- res$prop
+  if (is.data.frame(res) || is.matrix(res)) {
+    if (nrow(res) == 1 && ncol(res) >= 1) {
+      vec <- as.numeric(res[1, ])
+      names(vec) <- colnames(res)
+      return(vec)
+    }
+    if (ncol(res) == 1 && nrow(res) >= 1) {
+      vec <- as.numeric(res[, 1])
+      names(vec) <- rownames(res)
+      return(vec)
+    }
+    return(NULL)
+  }
+  if (!is.numeric(res)) return(NULL)
+  vec <- as.numeric(res)
+  if (is.null(names(res)) || any(!nzchar(names(res)))) {
+    names(vec) <- paste0("CellType", seq_along(vec))
+  } else {
+    names(vec) <- names(res)
+  }
+  vec
+}
+
+estimate_sesame_cell_counts <- function(sdf_list, sample_ids, out_dir = NULL) {
+  if (length(sdf_list) == 0) return(NULL)
+  if (!requireNamespace("sesame", quietly = TRUE)) return(NULL)
+  fun_candidates <- c("estimateCellComposition", "estimateCellComposition2")
+  for (fn in fun_candidates) {
+    if (!exists(fn, envir = asNamespace("sesame"), inherits = FALSE)) next
+    fun <- get(fn, envir = asNamespace("sesame"))
+    probe <- tryCatch(fun(sdf_list[[1]]), error = function(e) e)
+    if (inherits(probe, "error")) next
+    vec <- extract_sesame_cc_vector(probe)
+    if (is.null(vec)) next
+    cell_types <- names(vec)
+    mat <- vapply(sdf_list, function(sdf) {
+      res <- tryCatch(fun(sdf), error = function(e) NULL)
+      vec2 <- extract_sesame_cc_vector(res)
+      if (is.null(vec2)) return(rep(NA_real_, length(cell_types)))
+      vec2 <- vec2[cell_types]
+      as.numeric(vec2)
+    }, FUN.VALUE = numeric(length(cell_types)))
+    df <- as.data.frame(t(mat))
+    colnames(df) <- paste0("Cell_", cell_types)
+    df$SampleID <- sample_ids
+    if (!is.null(out_dir)) {
+      write.csv(df, file.path(out_dir, "cell_counts_sesame.csv"), row.names = FALSE)
+    }
+    return(list(counts = df, reference = paste0("sesame::", fn)))
+  }
+  NULL
+}
+
+load_epidish_reference <- function(ref_name) {
+  if (!requireNamespace("EpiDISH", quietly = TRUE)) return(NULL)
+  if (exists(ref_name, envir = asNamespace("EpiDISH"), inherits = FALSE)) {
+    ref <- get(ref_name, envir = asNamespace("EpiDISH"))
+    if (!is.null(ref)) return(ref)
+  }
+  ref_env <- new.env(parent = emptyenv())
+  tryCatch(data(list = ref_name, package = "EpiDISH", envir = ref_env), error = function(e) NULL)
+  if (exists(ref_name, envir = ref_env, inherits = FALSE)) {
+    return(ref_env[[ref_name]])
+  }
+  NULL
+}
+
+extract_epidish_fractions <- function(res, sample_ids) {
+  mat <- NULL
+  if (is.list(res)) {
+    if (!is.null(res$estF)) {
+      mat <- res$estF
+    } else if (!is.null(res$cellProp)) {
+      mat <- res$cellProp
+    }
+  }
+  if (is.null(mat) && (is.matrix(res) || is.data.frame(res))) {
+    mat <- res
+  }
+  if (is.null(mat)) return(NULL)
+  mat <- as.data.frame(mat)
+  n_samples <- length(sample_ids)
+  if (nrow(mat) == n_samples) {
+    if (is.null(rownames(mat)) || any(!nzchar(rownames(mat)))) {
+      rownames(mat) <- sample_ids
+    }
+  } else if (ncol(mat) == n_samples) {
+    mat <- as.data.frame(t(mat))
+    rownames(mat) <- sample_ids
+  } else {
+    return(NULL)
+  }
+  if (is.null(colnames(mat)) || any(!nzchar(colnames(mat)))) {
+    colnames(mat) <- paste0("CellType", seq_len(ncol(mat)))
+  }
+  mat
+}
+
+estimate_cell_counts_epidish <- function(betas, tissue = "Blood", out_dir = NULL) {
+  if (!requireNamespace("EpiDISH", quietly = TRUE)) return(NULL)
+  if (is.null(betas) || nrow(betas) == 0) return(NULL)
+  if (!tolower(tissue) %in% c("blood")) return(NULL)
+
+  norm_res <- normalize_epicv2_ids(betas)
+  betas_use <- norm_res$betas
+  if (isTRUE(norm_res$collapsed)) {
+    message("  - EPICv2-style CpG IDs detected; collapsed for EpiDISH reference alignment.")
+  } else if (isTRUE(norm_res$normalized)) {
+    message("  - EPICv2-style CpG IDs normalized for EpiDISH reference alignment.")
+  }
+  betas_use <- pmin(pmax(betas_use, 0), 1)
+
+  ref_candidates <- c("centDHSbloodDMC.m", "IDOL", "centDHS")
+  ref <- NULL
+  ref_name <- NULL
+  for (cand in ref_candidates) {
+    ref_try <- load_epidish_reference(cand)
+    if (!is.null(ref_try)) {
+      ref <- ref_try
+      ref_name <- cand
+      break
+    }
+  }
+  if (is.null(ref)) return(NULL)
+
+  common <- intersect(rownames(betas_use), rownames(ref))
+  if (length(common) < min(50, nrow(ref))) return(NULL)
+  betas_use <- betas_use[common, , drop = FALSE]
+  ref_use <- ref[common, , drop = FALSE]
+
+  epifun <- NULL
+  epifun_name <- NULL
+  if (exists("epidish", envir = asNamespace("EpiDISH"), inherits = FALSE)) {
+    epifun <- get("epidish", envir = asNamespace("EpiDISH"))
+    epifun_name <- "epidish"
+  } else if (exists("RPC", envir = asNamespace("EpiDISH"), inherits = FALSE)) {
+    epifun <- get("RPC", envir = asNamespace("EpiDISH"))
+    epifun_name <- "RPC"
+  }
+  if (is.null(epifun)) return(NULL)
+
+  fn_args <- names(formals(epifun))
+  arg_list <- list()
+  if ("beta.m" %in% fn_args) {
+    arg_list$beta.m <- betas_use
+  } else if ("dat" %in% fn_args) {
+    arg_list$dat <- betas_use
+  } else {
+    arg_list[[fn_args[1]]] <- betas_use
+  }
+  if ("ref.m" %in% fn_args) {
+    arg_list$ref.m <- ref_use
+  } else if ("ref" %in% fn_args) {
+    arg_list$ref <- ref_use
+  }
+  if ("method" %in% fn_args) arg_list$method <- "RPC"
+  if ("robust" %in% fn_args) arg_list$robust <- TRUE
+
+  res <- tryCatch(
+    with_muffled_conditions(do.call(epifun, arg_list), label = NULL),
+    error = function(e) NULL
+  )
+  if (is.null(res)) return(NULL)
+
+  frac_mat <- extract_epidish_fractions(res, colnames(betas_use))
+  if (is.null(frac_mat)) return(NULL)
+  df <- as.data.frame(frac_mat)
+  colnames(df) <- paste0("Cell_", colnames(df))
+  df$SampleID <- rownames(df)
+  if (!is.null(out_dir)) {
+    write.csv(df, file.path(out_dir, "cell_counts_epidish.csv"), row.names = FALSE)
+  }
+  list(counts = df, reference = sprintf("EpiDISH::%s(%s)", epifun_name, ref_name))
+}
+
+estimate_cell_counts_reffree <- function(betas, out_dir = NULL, label = "RefFreeEWAS (Sesame)") {
+  if (!requireNamespace("RefFreeEWAS", quietly = TRUE)) return(NULL)
+  if (is.null(betas) || nrow(betas) < 10 || ncol(betas) < 3) return(NULL)
+
+  betas_use <- as.matrix(betas)
+  storage.mode(betas_use) <- "numeric"
+  betas_use <- betas_use[rowSums(is.na(betas_use)) == 0, , drop = FALSE]
+  if (nrow(betas_use) < 10) return(NULL)
+
+  vars <- apply(betas_use, 1, var)
+  vars[!is.finite(vars)] <- 0
+  top_n <- min(10000, length(vars))
+  top_idx <- order(vars, decreasing = TRUE)[seq_len(top_n)]
+  betas_sub <- betas_use[top_idx, , drop = FALSE]
+
+  K_latent <- 5
+  res <- tryCatch({
+    suppressMessages(with_muffled_warnings(
+      RefFreeEWAS::RefFreeCellMix(betas_sub, K = K_latent, verbose = FALSE),
+      patterns = "ward",
+      label = NULL
+    ))
+  }, error = function(e) NULL)
+  if (is.null(res) || is.null(res$Omega)) return(NULL)
+
+  df <- as.data.frame(res$Omega)
+  colnames(df) <- paste0("Cell_Latent", seq_len(ncol(df)))
+  if (is.null(rownames(df)) || any(!nzchar(rownames(df)))) {
+    rownames(df) <- colnames(betas_sub)
+  }
+  df$SampleID <- rownames(df)
+  if (!is.null(out_dir)) {
+    write.csv(df, file.path(out_dir, "cell_counts_RefFree_Sesame.csv"), row.names = FALSE)
+  }
+  list(counts = df, reference = label)
 }
 
 compute_dmr_delta_beta <- function(dmr_res, dmr_anno, mean_con, mean_test) {
@@ -2094,6 +2411,8 @@ if (!is.null(cell_est)) {
   }
 }
 
+targets_global <- targets
+
 # B. Normalization
 message("Preprocessing (Noob)...")
 mSet <- preprocessNoob(rgSet)
@@ -2221,7 +2540,8 @@ if (opt$`skip-sesame`) {
         }
       )
     }
-    betas_sesame_list <- lapply(ssets, function(x) getBetas(sesame_preprocess(x)))
+    sdf_list <- lapply(ssets, sesame_preprocess)
+    betas_sesame_list <- lapply(sdf_list, getBetas)
     common_probes_sesame <- Reduce(intersect, lapply(betas_sesame_list, names))
     beta_sesame_raw <- do.call(cbind, lapply(betas_sesame_list, function(x) x[common_probes_sesame]))
     colnames(beta_sesame_raw) <- targets[[gsm_col]]
@@ -2229,18 +2549,42 @@ if (opt$`skip-sesame`) {
       stop("Sesame preprocessing produced no probes after alignment.")
     }
 
+    sesame_cell_est <- estimate_sesame_cell_counts(sdf_list, targets[[gsm_col]], out_dir = out_dir)
+    if (!is.null(sesame_cell_est)) {
+      message("  - Sesame cell composition estimated using ", sesame_cell_est$reference)
+    }
+
     # Native Sesame: keep pOOBAH masking and avoid Minfi-driven probe filtering
     sesame_native_before <- nrow(beta_sesame_raw)
     native_res <- prepare_sesame_native(beta_sesame_raw, SESAME_NATIVE_NA_MAX_FRAC)
     beta_sesame_native <- native_res$mat
     if (!is.null(beta_sesame_native) && nrow(beta_sesame_native) == 0) beta_sesame_native <- NULL
+    if (!is.null(native_res$impute_method)) {
+      sesame_native_impute_method <<- native_res$impute_method
+    }
+    if (is.null(sesame_cell_est) && !is.null(beta_sesame_native)) {
+      sesame_cell_est <- estimate_cell_counts_epidish(beta_sesame_native, tissue_use, out_dir = out_dir)
+      if (!is.null(sesame_cell_est)) {
+        message("  - Sesame cell composition estimated using ", sesame_cell_est$reference)
+      }
+    }
+    if (is.null(sesame_cell_est) && !is.null(beta_sesame_native)) {
+      sesame_cell_est <- estimate_cell_counts_reffree(beta_sesame_native, out_dir = out_dir)
+      if (!is.null(sesame_cell_est)) {
+        message("  - Sesame cell composition estimated using ", sesame_cell_est$reference)
+      }
+    }
+    if (!is.null(sesame_cell_est)) {
+      sesame_cell_reference <<- sesame_cell_est$reference
+    }
     if (is.null(beta_sesame_native)) {
       message("Sesame native: no probes retained after NA filtering.")
     } else {
       message(sprintf(
-        "Sesame native: %d probes -> %d (dropped all-NA: %d, dropped NA>%.2f: %d, imputed: %d).",
+        "Sesame native: %d probes -> %d (dropped all-NA: %d, dropped NA>%.2f: %d, imputed: %d; method: %s).",
         sesame_native_before, nrow(beta_sesame_native), native_res$dropped_all_na,
-        SESAME_NATIVE_NA_MAX_FRAC, native_res$dropped_na, native_res$imputed
+        SESAME_NATIVE_NA_MAX_FRAC, native_res$dropped_na, native_res$imputed,
+        native_res$impute_method
       ))
     }
 
@@ -2261,6 +2605,9 @@ if (opt$`skip-sesame`) {
         sesame_strict_before, nrow(beta_sesame_strict)
       ))
     }
+
+    rm(beta_sesame_raw, betas_sesame_list, sdf_list, ssets)
+    invisible(gc())
   }, error = function(e) {
     message("Sesame analysis failed; continuing with Minfi only: ", e$message)
     beta_sesame_strict <<- NULL
@@ -2282,12 +2629,46 @@ if (is.null(beta_sesame_native)) {
   message(paste("Intersection (native):", length(common_cpgs), "CpGs common to Minfi and Sesame."))
 }
 
+targets_sesame <- NULL
+if (!is.null(sesame_cell_est)) {
+  cell_df <- sesame_cell_est$counts
+  cell_cols <- grep("^Cell_", colnames(cell_df), value = TRUE)
+  if (length(cell_cols) > 0) {
+    targets_sesame <- targets_global
+    drop_cols <- grep("^Cell_", colnames(targets_sesame), value = TRUE)
+    if (length(drop_cols) > 0) {
+      targets_sesame <- targets_sesame[, setdiff(colnames(targets_sesame), drop_cols), drop = FALSE]
+    }
+    clean_id <- function(x) sub("\\.idat.*$", "", basename(as.character(x)))
+    match_idx <- match(clean_id(targets_sesame[[gsm_col]]), clean_id(cell_df$SampleID))
+    if (all(is.na(match_idx)) && "Basename" %in% colnames(targets_sesame)) {
+      match_idx <- match(clean_id(targets_sesame$Basename), clean_id(cell_df$SampleID))
+    }
+    matched <- !is.na(match_idx)
+    if (any(matched)) {
+      for (cc in cell_cols) {
+        targets_sesame[[cc]] <- NA_real_
+        targets_sesame[[cc]][matched] <- cell_df[[cc]][match_idx[matched]]
+      }
+      write.csv(targets_sesame[, c(gsm_col, cell_cols), drop = FALSE],
+                file.path(out_dir, "cell_counts_sesame_merged.csv"), row.names = FALSE)
+      message(paste("  - Sesame cell covariates applied:", paste(cell_cols, collapse = ", ")))
+    } else {
+      targets_sesame <- NULL
+      message("  - Sesame cell composition estimated but sample IDs did not match metadata; using Minfi covariates.")
+    }
+  }
+}
+if (is.null(targets_sesame) && !is.null(beta_sesame_native)) {
+  message(sprintf("  - Sesame pipelines using %s cell covariates.", sesame_cell_reference))
+}
+
 # --- Pipeline Function ---
 
-run_pipeline <- function(betas, prefix, annotation_df) {
+run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) {
   message(paste("Running pipeline for:", prefix))
   # Work on a local copy of targets to avoid altering the shared metadata across pipelines
-  targets <- targets
+  targets <- if (is.null(targets_override)) targets_global else targets_override
   
   best_method <- "none"
   batch_evaluated <- FALSE
@@ -3642,21 +4023,31 @@ run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
 }
 
 minfi_out <- run_pipeline(beta_minfi, "Minfi", anno_df)
+res_minfi <- if (!is.null(minfi_out)) minfi_out$res else NULL
+rm(minfi_out, beta_minfi)
+invisible(gc())
+
 sesame_out <- NULL
-sesame_native_out <- NULL
+res_sesame <- NULL
 if (!is.null(beta_sesame_strict)) {
-  sesame_out <- run_pipeline(beta_sesame_strict, "Sesame", anno_df)
+  sesame_out <- run_pipeline(beta_sesame_strict, "Sesame", anno_df, targets_override = targets_sesame)
+  res_sesame <- if (!is.null(sesame_out)) sesame_out$res else NULL
+  rm(sesame_out, beta_sesame_strict)
+  invisible(gc())
 } else {
   message("Sesame strict pipeline skipped (no Sesame betas available).")
 }
+
+sesame_native_out <- NULL
+res_sesame_native <- NULL
 if (!is.null(beta_sesame_native)) {
-  sesame_native_out <- run_pipeline(beta_sesame_native, "Sesame_Native", anno_df)
+  sesame_native_out <- run_pipeline(beta_sesame_native, "Sesame_Native", anno_df, targets_override = targets_sesame)
+  res_sesame_native <- if (!is.null(sesame_native_out)) sesame_native_out$res else NULL
+  rm(sesame_native_out, beta_sesame_native)
+  invisible(gc())
 } else {
   message("Sesame native pipeline skipped (no Sesame native betas available).")
 }
-res_minfi <- if (!is.null(minfi_out)) minfi_out$res else NULL
-res_sesame <- if (!is.null(sesame_out)) sesame_out$res else NULL
-res_sesame_native <- if (!is.null(sesame_native_out)) sesame_native_out$res else NULL
 
 # --- Consensus (Intersection) between Minfi and Sesame ---
 consensus_counts <- run_intersection(res_minfi, res_sesame, "Intersection", "Sesame (Strict)")
@@ -3675,24 +4066,8 @@ sesame_counts <- get_sig_counts(res_sesame)
 sesame_native_counts <- get_sig_counts(res_sesame_native)
 intersect_counts <- consensus_counts
 intersect_native_counts <- consensus_native_counts
-summary_n_con <- if (!is.null(minfi_out) && !is.null(minfi_out$n_con)) {
-  minfi_out$n_con
-} else if (!is.null(sesame_out) && !is.null(sesame_out$n_con)) {
-  sesame_out$n_con
-} else if (!is.null(sesame_native_out) && !is.null(sesame_native_out$n_con)) {
-  sesame_native_out$n_con
-} else {
-  n_con
-}
-summary_n_test <- if (!is.null(minfi_out) && !is.null(minfi_out$n_test)) {
-  minfi_out$n_test
-} else if (!is.null(sesame_out) && !is.null(sesame_out$n_test)) {
-  sesame_out$n_test
-} else if (!is.null(sesame_native_out) && !is.null(sesame_native_out$n_test)) {
-  sesame_native_out$n_test
-} else {
-  n_test
-}
+summary_n_con <- n_con
+summary_n_test <- n_test
 
 tryCatch({
   summary_json <- sprintf(
@@ -3717,11 +4092,13 @@ tryCatch({
   
   sva_rule <- ifelse(disable_sva, "disabled", "best_method_or_no_batch")
   params_json <- sprintf(
-    '{"pval_threshold": %.3f, "lfc_threshold": %.2f, "delta_beta_threshold": %.3f, "snp_maf": %.3f, "qc_intensity_threshold": %.1f, "detection_p_threshold": %.3f, "tissue": "%s", "tissue_source": "%s", "array_type": "%s", "cell_reference": "%s", "cell_reference_platform": "%s", "auto_covariate_alpha": %.3f, "auto_covariate_max_pcs": %d, "sesame_native_na_max_frac": %.2f, "overcorrection_guard_ratio": %.2f, "undercorrection_guard_min_sv": %d, "sva_enabled": %s, "sva_inclusion_rule": "%s", "clock_covariates_enabled": %s, "sv_group_p_threshold": %.1e, "sv_group_eta2_threshold": %.2f, "pvca_min_samples": %d, "permutations": %d, "vp_top": %d, "dmr_maxgap": %d, "dmr_p_cutoff": %.3f, "logit_offset": %.6f, "seed": %d}',
+    '{"pval_threshold": %.3f, "lfc_threshold": %.2f, "delta_beta_threshold": %.3f, "snp_maf": %.3f, "qc_intensity_threshold": %.1f, "detection_p_threshold": %.3f, "tissue": "%s", "tissue_source": "%s", "array_type": "%s", "cell_reference": "%s", "cell_reference_platform": "%s", "auto_covariate_alpha": %.3f, "auto_covariate_max_pcs": %d, "sesame_native_na_max_frac": %.2f, "sesame_native_impute_method": "%s", "sesame_native_knn_k": %d, "sesame_native_knn_max_rows": %d, "sesame_native_knn_ref_rows": %d, "sesame_cell_reference": "%s", "overcorrection_guard_ratio": %.2f, "undercorrection_guard_min_sv": %d, "sva_enabled": %s, "sva_inclusion_rule": "%s", "clock_covariates_enabled": %s, "sv_group_p_threshold": %.1e, "sv_group_eta2_threshold": %.2f, "pvca_min_samples": %d, "permutations": %d, "vp_top": %d, "dmr_maxgap": %d, "dmr_p_cutoff": %.3f, "logit_offset": %.6f, "seed": %d}',
     pval_thresh, lfc_thresh, delta_beta_thresh, SNP_MAF_THRESHOLD, QC_MEDIAN_INTENSITY_THRESHOLD,
     QC_DETECTION_P_THRESHOLD, tissue_use, tissue_source,
     ifelse(is.na(array_type), "", array_type), cell_reference, cell_reference_platform,
     AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION, SESAME_NATIVE_NA_MAX_FRAC,
+    sesame_native_impute_method, SESAME_NATIVE_KNN_K, SESAME_NATIVE_KNN_MAX_ROWS, SESAME_NATIVE_KNN_REF_ROWS,
+    sesame_cell_reference,
     OVERCORRECTION_GUARD_RATIO, UNDERCORRECTION_GUARD_MIN_SV, ifelse(disable_sva, "false", "true"), sva_rule, ifelse(include_clock_covariates, "true", "false"),
     SV_GROUP_P_THRESHOLD, SV_GROUP_ETA2_THRESHOLD, PVCA_MIN_SAMPLES, perm_n, vp_top, DMR_MAXGAP, dmr_p_cutoff, LOGIT_OFFSET, 12345
   )
@@ -3758,6 +4135,13 @@ tryCatch({
     "disabled"
   }
   array_type_str <- ifelse(is.na(array_type) || !nzchar(array_type), "NA", array_type)
+  genome_build <- if (array_type_str == "EPICv2") {
+    "hg38"
+  } else if (array_type_str %in% c("EPIC", "EPICv1", "450k")) {
+    "hg19"
+  } else {
+    "minfi annotation"
+  }
   cell_ref_str <- if (nzchar(cell_reference)) {
     if (nzchar(cell_reference_platform)) {
       sprintf("custom (%s; platform=%s)", cell_reference, cell_reference_platform)
@@ -3780,7 +4164,9 @@ tryCatch({
     sprintf("- Groups: control=`%s` (n=%s), test=`%s` (n=%s)", group_con_in, summary_n_con, group_test_in, summary_n_test),
     sprintf("- Tissue: `%s` (source: %s)", tissue_use, tissue_source),
     sprintf("- Array type detected: %s", array_type_str),
+    sprintf("- Genomic coordinates: standardized to minfi annotation (%s) for cross-pipeline comparison.", genome_build),
     sprintf("- Cell reference: %s", cell_ref_str),
+    sprintf("- Sesame cell composition: %s.", sesame_cell_reference),
     sig_line,
     "",
     "## Overview",
@@ -3804,7 +4190,7 @@ tryCatch({
     "- **minfi**: `preprocessNoob()` followed by `mapToGenome()`; beta values are extracted with `getBeta()`.",
     "- **sesame**: `noob()` + `dyeBiasCorrTypeINorm()` (fallback to `dyeBiasCorr()`, then `noob()` only if normalization controls are missing); beta values are extracted with `getBetas()`.",
     "- **sesame strict view**: probes with any masked values are removed and then intersected with the minfi QC probe set for conservative cross-validation.",
-    sprintf("- **sesame native view**: probes with ≤ %.2f missingness are retained; remaining NAs are imputed by per-probe mean for downstream modeling.", SESAME_NATIVE_NA_MAX_FRAC),
+    sprintf("- **sesame native view**: probes with ≤ %.2f missingness are retained; remaining NAs are imputed via KNN (impute::impute.knn, k=%d) when available, with row-mean fallback if KNN is unavailable.", SESAME_NATIVE_NA_MAX_FRAC, SESAME_NATIVE_KNN_K),
     "",
     "## Covariates and batch control",
     sprintf("- Automatic covariate discovery: metadata variables associated with the top PCs (alpha=%.3f; up to %d PCs) are considered, then filtered for stability/confounding.", AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION),
@@ -3812,6 +4198,7 @@ tryCatch({
     sprintf("- Overcorrection guard: total covariates + SVs are capped at %.0f%% of sample size (excess terms are dropped to preserve power).", OVERCORRECTION_GUARD_RATIO * 100),
     sprintf("- Undercorrection guard: if SVA detects hidden structure, at least %d SV(s) are retained when possible (dropping non-forced covariates first).", UNDERCORRECTION_GUARD_MIN_SV),
     "- Cell composition: when tissue is `Auto`, IlluMeta attempts to infer tissue from metadata; if unresolved, reference-free deconvolution is performed via RefFreeEWAS (K=5 latent components). Custom references via `--cell_reference` override defaults when provided.",
+    "- Sesame pipelines attempt Sesame-native cell composition; if unavailable, they try EpiDISH (Blood) or RefFreeEWAS on Sesame betas, and fall back to Minfi-derived covariates if needed.",
     sprintf("- Surrogate variable analysis (SVA): enabled unless `--disable_sva`; SVs are estimated on top-variable probes and included in the model only when selected as the best batch strategy or when no batch factor is evaluated (to avoid double correction). SVs strongly associated with the group (P < %.1e or Eta^2 > %.2f) are excluded to avoid over-correction.", SV_GROUP_P_THRESHOLD, SV_GROUP_ETA2_THRESHOLD),
     "- Epigenetic clock covariates: when `--include_clock_covariates` is enabled, clock outputs are merged into metadata and considered by auto covariate selection (clocks with missing/constant values are excluded).",
     "- Batch method comparison: if a suitable unconfounded batch factor exists, multiple correction strategies are evaluated and a best method is chosen for modeling.",

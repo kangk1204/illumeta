@@ -697,6 +697,8 @@ bioc_pkgs <- c(
     "sva", # Added for Surrogate Variable Analysis
     "variancePartition",
     "pvca",
+    "impute",
+    "EpiDISH",
     "FlowSorted.Blood.EPIC",   # Cell type reference (EPIC/EPICv2)
     "FlowSorted.Blood.450k",   # Cell type reference (450k)
     "FlowSorted.CordBlood.EPIC",
@@ -897,7 +899,24 @@ ensure_min_version <- function(pkg, min_ver, installer_fn, lib = .libPaths()[1])
     }
 }
 
+# Ensure Matrix is new enough for lme4 (R 4.1 needs archived Matrix >= 1.5.0)
+ensure_matrix_version <- function(min_ver = "1.5.0", lib = .libPaths()[1]) {
+    cur_ver <- tryCatch(packageVersion("Matrix"), error = function(e) NULL)
+    if (!is.null(cur_ver) && cur_ver >= as.package_version(min_ver)) return(invisible(TRUE))
+    message("Installing/Updating Matrix to >= ", min_ver, " (required by lme4)...")
+    tryCatch({
+        if (getRversion() < "4.2.0") {
+            remotes::install_version("Matrix", version = "1.5-4", repos = cran_repo, lib = lib, upgrade = "never")
+        } else {
+            install.packages("Matrix", repos = cran_repo, lib = lib)
+        }
+    }, error = function(e) {
+        message("Warning: Failed to update Matrix - ", conditionMessage(e))
+    })
+}
+
 # Refresh packages implicated in variancePartition/reformulas changes
+ensure_matrix_version("1.5.0")
 ensure_min_version("reformulas", "0.3.0", function(p, lib) install.packages(p, repos = cran_repo, lib = lib))
 ensure_min_version("lme4", "1.1-35", function(p, lib) install.packages(p, repos = cran_repo, lib = lib))
 ensure_min_version("variancePartition", "1.30.0", function(p, lib) BiocManager::install(p, update = TRUE, ask = FALSE, lib = lib))

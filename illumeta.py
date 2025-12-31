@@ -665,6 +665,16 @@ def safe_int(val):
     except (ValueError, TypeError):
         return 0
 
+def safe_float(val):
+    if val is None:
+        return None
+    if isinstance(val, str) and val.strip().upper() in {"", "NA", "NAN"}:
+        return None
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
+
 def generate_dashboard(output_dir, group_test, group_con):
     """Generates a beautiful HTML dashboard to navigate results."""
     results_folder_name = os.path.basename(os.path.normpath(output_dir))
@@ -674,8 +684,8 @@ def generate_dashboard(output_dir, group_test, group_con):
     
     # Reordered: Consensus + Native/Strict pipelines
     pipeline_defs = [
+        ("Intersection_Native", "Consensus (Native · Golden Set)", "intersection"),
         ("Intersection", "Consensus (Strict)", "intersection"),
-        ("Intersection_Native", "Consensus (Native)", "intersection"),
         ("Minfi", "Minfi (Noob)", "pipeline"),
         ("Sesame", "Sesame (Strict)", "pipeline"),
         ("Sesame_Native", "Sesame (Native)", "pipeline"),
@@ -705,11 +715,6 @@ def generate_dashboard(output_dir, group_test, group_con):
         ("Agreement Checks", [
             ("_LogFC_Concordance.html", "Pipeline Concordance", "Minfi vs Sesame logFC concordance.", "PLOT"),
             ("_Significant_Overlap.html", "Pipeline Overlap", "Significant DMP counts and overlap.", "PLOT"),
-        ]),
-        ("Visual Summary", [
-            ("_Volcano.html", "Volcano Plot", "Visualizes significant changes (LogFC vs P-value).", "PLOT"),
-            ("_Manhattan.html", "Manhattan Plot", "Genomic distribution of methylation changes.", "PLOT"),
-            ("_Top100_Heatmap.html", "Heatmap (Top 100)", "Clustering of the top 100 most significant CpGs.", "PLOT"),
         ]),
     ]
 
@@ -767,6 +772,39 @@ def generate_dashboard(output_dir, group_test, group_con):
             except Exception:
                 pass
         return metrics
+
+    def build_correction_guidance(metrics):
+        if not metrics:
+            return None
+        lam = safe_float(metrics.get("lambda"))
+        batch_after = safe_int(metrics.get("batch_sig_p_lt_0.05_after")) if metrics.get("batch_sig_p_lt_0.05_after") is not None else None
+        group_after = safe_float(metrics.get("group_min_p_after"))
+        issues = []
+        if lam is not None:
+            if lam > 1.2:
+                issues.append("inflation high")
+            elif lam < 0.9:
+                issues.append("overcorrection risk")
+        if batch_after is not None and batch_after > 0:
+            issues.append("residual batch signal")
+        if group_after is not None and group_after > 0.1:
+            issues.append("group signal weak")
+        details = []
+        if lam is not None:
+            details.append(f"λ={lam:.3f}")
+        if batch_after is not None:
+            details.append(f"batch p<0.05 after={batch_after}")
+        if group_after is not None:
+            details.append(f"group min p after={group_after:.3g}")
+        detail_txt = ", ".join(details)
+        if not issues:
+            if detail_txt:
+                return f"Correction looks adequate ({detail_txt})."
+            return "Correction looks adequate; manual adjustment usually not needed."
+        issue_txt = ", ".join(issues)
+        if detail_txt:
+            return f"Manual review recommended: {issue_txt} ({detail_txt})."
+        return f"Manual review recommended: {issue_txt}."
 
     def load_analysis_params():
         path = os.path.join(output_dir, "analysis_parameters.json")
@@ -1083,7 +1121,7 @@ def generate_dashboard(output_dir, group_test, group_con):
             <p class="hero-sub">Comparison: <strong>{group_test}</strong> (Test) vs <strong>{group_con}</strong> (Control)</p>
             <div class="hero-tags">
                 <span class="tag">Samples: {total_samples}</span>
-                <span class="tag">Consensus DMPs (strict/native): {intersect_total} / {intersect_native_total}</span>
+                <span class="tag">Golden Set (Native): {intersect_native_total} · Strict: {intersect_total}</span>
                 <span class="tag">Minfi: {minfi_total} · Sesame strict: {sesame_total} · Sesame native: {sesame_native_total}</span>
             </div>
         </div>
@@ -1094,9 +1132,9 @@ def generate_dashboard(output_dir, group_test, group_con):
                 <div class="hero-card-sub">Control {n_con} / Test {n_test}</div>
             </div>
             <div class="hero-card">
-                <div class="hero-card-title">Consensus DMPs</div>
-                <div class="hero-card-value">{intersect_total} | {intersect_native_total}</div>
-                <div class="hero-card-sub">Strict ▲ {intersect_up} ▼ {intersect_down} · Native ▲ {intersect_native_up} ▼ {intersect_native_down}</div>
+                <div class="hero-card-title">Golden Set (Consensus Native)</div>
+                <div class="hero-card-value">{intersect_native_total}</div>
+                <div class="hero-card-sub">Native ▲ {intersect_native_up} ▼ {intersect_native_down} · Strict ▲ {intersect_up} ▼ {intersect_down}</div>
             </div>
             <div class="hero-card">
                 <div class="hero-card-title">Pipeline DMPs</div>
@@ -1119,9 +1157,9 @@ def generate_dashboard(output_dir, group_test, group_con):
     guide_steps = [
         ("Step 1", "Check sample quality", "Verify QC pass/fail and signal quality before interpreting results.",
          [("QC_Summary.csv", "QC Summary"), ("Sample_QC_DetectionP_FailFraction.html", "Detection P"), ("Sample_QC_Intensity_Medians.html", "Intensity")]),
-        ("Step 2", "Review consensus signals", "Use the intersection set for the most conservative findings.",
-         [("Intersection_Consensus_DMPs.html", "Consensus DMPs (Strict)"), ("Intersection_Native_Consensus_DMPs.html", "Consensus DMPs (Native)"),
-          ("Intersection_LogFC_Concordance.html", "Concordance (Strict)"), ("Intersection_Native_LogFC_Concordance.html", "Concordance (Native)")]),
+        ("Step 2", "Review the Golden Set", "Prioritize Intersection (Native) for the main call set; use strict as a conservative cross-check.",
+         [("Intersection_Native_Consensus_DMPs.html", "Golden Set DMPs (Native)"), ("Intersection_Consensus_DMPs.html", "Consensus DMPs (Strict)"),
+          ("Intersection_Native_LogFC_Concordance.html", "Concordance (Native)"), ("Intersection_LogFC_Concordance.html", "Concordance (Strict)")]),
         ("Step 3", "Dive into pipelines", "Explore Minfi and Sesame for method-specific depth.",
          [("Minfi_Volcano.html", "Minfi Volcano"), ("Sesame_Volcano.html", "Sesame Volcano (Strict)"),
           ("Sesame_Native_Volcano.html", "Sesame Volcano (Native)"), ("Minfi_DMRs_Table.html", "Minfi DMRs")]),
@@ -1247,6 +1285,9 @@ def generate_dashboard(output_dir, group_test, group_con):
             html_parts.append(f'            <div class="metrics-row"><span>Batch p<0.05 (Before→After)</span><span>{metrics.get("batch_sig_p_lt_0.05_before", "N/A")} → {metrics.get("batch_sig_p_lt_0.05_after", "N/A")}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Min batch p (Before→After)</span><span>{metrics.get("batch_min_p_before", "N/A")} → {metrics.get("batch_min_p_after", "N/A")}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Group min p (Before→After)</span><span>{metrics.get("group_min_p_before", "N/A")} → {metrics.get("group_min_p_after", "N/A")}</span></div>\n')
+            guidance = build_correction_guidance(metrics)
+            if guidance:
+                html_parts.append(f'            <div class="metrics-row"><span>Correction guide</span><span>{guidance}</span></div>\n')
             if metrics.get("perm_mean_sig") is not None:
                 html_parts.append(f'            <div class="metrics-row"><span>Perm mean/max sig (null)</span><span>{metrics.get("perm_mean_sig", "N/A")} / {metrics.get("perm_max_sig", "N/A")}</span></div>\n')
             if metrics.get("vp_primary_group_mean") is not None:

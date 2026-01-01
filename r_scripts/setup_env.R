@@ -736,6 +736,7 @@ cran_pkgs <- c(
     "data.table",
     "qqman",
     "ggrepel",
+    "yaml",
     "remotes",
     "lme4",
     # Add other core tidyverse components explicitly if needed by methylclock

@@ -650,6 +650,8 @@ Common issues:
 - **OpenMP / `libomp` errors** (macOS): install `libomp` (`brew install libomp`) and rerun setup.
 - **`clang: error: unsupported option '-fopenmp'`** (macOS, often `data.table`): install LLVM and rerun setup with Homebrew clang:
   `brew install llvm && CC=/opt/homebrew/opt/llvm/bin/clang CXX=/opt/homebrew/opt/llvm/bin/clang++ Rscript r_scripts/setup_env.R`.
+- **`stringi` configure: `cannot run C++ compiled programs`** (macOS conda): install prebuilt R packages in the conda env, then rerun setup:
+  `conda install -c conda-forge r-stringi r-stringr r-tidyr r-plotly r-selectr r-rvest`.
 - **`C17 standard requested but CC17 is not defined`**: update to the latest IlluMeta and rerun setup. If it persists, reinstall compilers (macOS: `xcode-select --install`, conda: `conda install -c conda-forge c-compiler cxx-compiler`).
 - **Bioconductor version mismatch** (e.g., R 4.4 but Bioc 3.22): rerun with an explicit Bioc version:
   `ILLUMETA_BIOC_VERSION=3.20 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.

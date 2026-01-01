@@ -655,6 +655,7 @@ Common issues:
   `ILLUMETA_BIOC_VERSION=3.20 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.
 - **`lzma decoding result 10` / “read error from connection”** (large annotation downloads corrupted): rerun with retries:
   `ILLUMETA_DOWNLOAD_RETRIES=3 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.
+- **GEO download warnings** (`getGEOSuppFiles` returned NULL / 404 for `*_RAW.tar.gz`): some GEO series no longer host `.tar.gz` on FTP. IlluMeta retries and falls back to a direct HTTPS `.tar` download. If it still fails, manually download `GSE*_RAW.tar` from GEO and place it under `projects/<GSE>/<GSE>/`, then rerun `python3 illumeta.py download <GSE> -o projects/<GSE>`.
 - **Segfaults or “package built under R x.y” warnings**: you likely switched R versions. Rerun setup and, if needed, clean mismatched packages:
   `ILLUMETA_CLEAN_MISMATCHED_RLIB=1 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.
 - **`pandoc: command not found`**: install `pandoc` (Ubuntu: `sudo apt-get install pandoc`, macOS: `brew install pandoc`).

@@ -87,6 +87,10 @@ if (!exists("findbars")) {
 option_list <- list(
   make_option(c("-c", "--config"), type="character", default=NULL, 
               help="Path to configure.tsv", metavar="character"),
+  make_option(c("--config_yaml"), type="character", default="",
+              help="Optional YAML config (default: config.yaml next to configure.tsv)", metavar="character"),
+  make_option(c("--preset"), type="character", default="conservative",
+              help="Optimization preset (conservative or aggressive)", metavar="character"),
   make_option(c("-o", "--out"), type="character", default=".", 
               help="Output directory for results", metavar="character"),
   make_option(c("--idat_dir"), type="character", default="",
@@ -113,8 +117,8 @@ option_list <- list(
               help="Comma-separated covariate names to always try to include (if present)"),
   make_option(c("--include_clock_covariates"), action="store_true", default=FALSE,
               help="Compute epigenetic clocks and add them as metadata covariates for auto selection (writes *_configure_with_clocks.tsv)."),
-  make_option(c("--permutations"), type="integer", default=0,
-              help="Number of label permutations for null DMP counts (0 to skip)"),
+  make_option(c("--permutations"), type="integer", default=20,
+              help="Number of label permutations for null DMP counts (default: 20; set 0 to use config minimum; set calibration.permutations_min=0 to disable)"),
   make_option(c("--vp_top"), type="integer", default=5000,
               help="Number of top-variable CpGs for variancePartition (default: 5000)"),
   make_option(c("--tissue"), type="character", default="Auto", 
@@ -171,12 +175,141 @@ BATCH_EVAL_TOP_VAR <- 20000
 MIN_GROUP_SIZE_WARN <- 3
 MIN_TOTAL_SIZE_STOP <- NULL
 
+CONFIG_DEFAULTS <- list(
+  preset = "conservative",
+  min_overlap_per_cell = 2,
+  confounding = list(
+    tier1_v = 0.2,
+    tier2_v = 0.4,
+    tier1_r2 = 0.1,
+    tier2_r2 = 0.25
+  ),
+  batch_candidate_patterns = c("sentrix", "slide", "array", "plate", "chip", "batch"),
+  batch_candidates = NULL,
+  forced_adjust = character(0),
+  allowed_adjust = character(0),
+  do_not_adjust = character(0),
+  missingness = list(max_frac = 0.2, impute_max_frac = 0.1),
+  collinearity = list(cor_threshold = 0.9),
+  calibration = list(ks_p = 0.05, permutations_min = 20),
+  scoring_presets = list(
+    conservative = list(
+      weights = list(batch = 0.20, bio = 0.35, cal = 0.25, stab = 0.20),
+      guards = list(batch_reduction_min = 0.20, pc_batch_r2_reduction = 0.30, bio_min = 0.85),
+      top_k = 5
+    ),
+    aggressive = list(
+      weights = list(batch = 0.35, bio = 0.25, cal = 0.15, stab = 0.25),
+      guards = list(batch_reduction_min = 0.25, mix_improve = 0.05, bio_min = 0.80),
+      top_k = 5
+    )
+  )
+)
+
+merge_config_defaults <- function(base, override) {
+  if (is.null(override) || length(override) == 0) return(base)
+  out <- base
+  for (nm in names(override)) {
+    if (is.list(base[[nm]]) && is.list(override[[nm]])) {
+      out[[nm]] <- merge_config_defaults(base[[nm]], override[[nm]])
+    } else {
+      out[[nm]] <- override[[nm]]
+    }
+  }
+  out
+}
+
+load_yaml_config <- function(path) {
+  if (!nzchar(path) || !file.exists(path)) return(NULL)
+  if (!requireNamespace("yaml", quietly = TRUE)) {
+    message("Warning: yaml package not available; config.yaml ignored.")
+    return(NULL)
+  }
+  tryCatch(yaml::read_yaml(path), error = function(e) {
+    message("Warning: failed to parse config.yaml: ", e$message)
+    NULL
+  })
+}
+
+write_yaml_safe <- function(obj, path) {
+  if (requireNamespace("yaml", quietly = TRUE)) {
+    yaml::write_yaml(obj, path)
+    return(invisible(TRUE))
+  }
+  lines <- c()
+  for (nm in names(obj)) {
+    val <- obj[[nm]]
+    if (is.list(val)) {
+      lines <- c(lines, paste0(nm, ":"))
+      sublines <- paste0("  ", names(val), ": ", unlist(val))
+      lines <- c(lines, sublines)
+    } else if (length(val) > 1) {
+      lines <- c(lines, paste0(nm, ": [", paste(val, collapse = ", "), "]"))
+    } else {
+      lines <- c(lines, paste0(nm, ": ", val))
+    }
+  }
+  writeLines(lines, path)
+  invisible(TRUE)
+}
+
+normalize_preset <- function(preset) {
+  if (is.null(preset) || !nzchar(preset)) return("conservative")
+  preset <- tolower(trimws(preset))
+  if (!preset %in% c("conservative", "aggressive")) preset <- "conservative"
+  preset
+}
+
+decision_log <- data.frame(
+  timestamp = character(0),
+  stage = character(0),
+  decision = character(0),
+  value = character(0),
+  reason = character(0),
+  metrics = character(0),
+  stringsAsFactors = FALSE
+)
+
+log_decision <- function(stage, decision, value, reason = "", metrics = NULL) {
+  metrics_str <- ""
+  if (!is.null(metrics) && length(metrics) > 0) {
+    metrics_str <- paste(sprintf("%s=%s", names(metrics), metrics), collapse = ";")
+  }
+  decision_log <<- rbind(
+    decision_log,
+    data.frame(
+      timestamp = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
+      stage = stage,
+      decision = decision,
+      value = value,
+      reason = reason,
+      metrics = metrics_str,
+      stringsAsFactors = FALSE
+    )
+  )
+}
+
 if (is.null(opt$config) || is.null(opt$group_con) || is.null(opt$group_test)){
   print_help(opt_parser)
   stop("Configuration file, group_con, and group_test must be supplied", call.=FALSE)
 }
 
 config_file <- opt$config
+config_yaml_path <- opt$config_yaml
+if (!nzchar(config_yaml_path)) {
+  config_yaml_path <- file.path(dirname(config_file), "config.yaml")
+}
+config_raw <- load_yaml_config(config_yaml_path)
+config_settings <- merge_config_defaults(CONFIG_DEFAULTS, config_raw)
+preset_name <- normalize_preset(config_settings$preset)
+cli_preset <- normalize_preset(opt$preset)
+if (!identical(cli_preset, "conservative")) {
+  preset_name <- cli_preset
+}
+config_settings$preset <- preset_name
+scoring_preset <- config_settings$scoring_presets[[preset_name]]
+log_decision("config", "preset", preset_name,
+             reason = if (file.exists(config_yaml_path)) "config_yaml_or_cli" else "default")
 out_dir <- opt$out
 max_points <- opt$max_plots
 pval_thresh <- opt$pval
@@ -187,6 +320,8 @@ delta_beta_thresh <- abs(delta_beta_thresh)
 group_con_in <- opt$group_con
 group_test_in <- opt$group_test
 perm_n <- opt$permutations
+if (!is.finite(perm_n) || perm_n < 0) perm_n <- 0
+if (perm_n == 0) perm_n <- config_settings$calibration$permutations_min
 vp_top <- opt$vp_top
 disable_auto_cov <- opt$disable_auto_covariates
 disable_sva <- opt$disable_sva
@@ -211,6 +346,17 @@ if (!is.finite(dmr_p_cutoff) || dmr_p_cutoff <= 0) {
 }
 
 if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+results_root <- file.path(out_dir, "results")
+results_dirs <- list(
+  minfi = file.path(results_root, "minfi"),
+  sesame = file.path(results_root, "sesame"),
+  sesame_native = file.path(results_root, "sesame_native"),
+  consensus = file.path(results_root, "consensus"),
+  reports = file.path(results_root, "reports"),
+  logs = file.path(results_root, "logs")
+)
+dir.create(results_root, recursive = TRUE, showWarnings = FALSE)
+invisible(lapply(results_dirs, function(d) dir.create(d, recursive = TRUE, showWarnings = FALSE)))
 
 # --- Set ExperimentHub/AnnotationHub Cache ---
 sesame_cache_dir <- file.path(getwd(), "cache") 
@@ -361,6 +507,309 @@ safe_prcomp <- function(mat, label = "PCA", center = TRUE, scale. = TRUE) {
   prcomp(mat, center = center, scale. = scale.)
 }
 
+clamp01 <- function(x) {
+  pmin(pmax(x, 0), 1)
+}
+
+reduction_score <- function(baseline, current) {
+  if (!is.finite(baseline) || baseline <= 0) return(0)
+  clamp01((baseline - current) / baseline)
+}
+
+compute_pc_batch_r2 <- function(pca_scores, batch, max_pcs = 5) {
+  if (is.null(pca_scores) || ncol(pca_scores) < 1) return(NA_real_)
+  n_pcs <- min(max_pcs, ncol(pca_scores))
+  r2s <- numeric(0)
+  for (k in seq_len(n_pcs)) {
+    df <- data.frame(pc = pca_scores[, k], batch = batch)
+    fit <- tryCatch(lm(pc ~ batch, data = df), error = function(e) NULL)
+    if (is.null(fit)) next
+    r2s <- c(r2s, summary(fit)$r.squared)
+  }
+  if (length(r2s) == 0) return(NA_real_)
+  median(r2s, na.rm = TRUE)
+}
+
+compute_knn_mixing <- function(pca_scores, batch, k = 10, max_samples = 500) {
+  if (is.null(pca_scores) || nrow(pca_scores) < (k + 2)) return(NA_real_)
+  n <- nrow(pca_scores)
+  idx <- seq_len(n)
+  if (n > max_samples) {
+    set.seed(123)
+    idx <- sort(sample(idx, max_samples))
+  }
+  pcs <- pca_scores[idx, , drop = FALSE]
+  batch_sub <- batch[idx]
+  d <- as.matrix(dist(pcs))
+  mix_scores <- numeric(length(idx))
+  for (i in seq_along(idx)) {
+    ord <- order(d[i, ], na.last = NA)
+    ord <- ord[ord != i]
+    nn <- head(ord, k)
+    same <- sum(batch_sub[nn] == batch_sub[i])
+    mix_scores[i] <- 1 - (same / k)
+  }
+  mean(mix_scores, na.rm = TRUE)
+}
+
+detect_bio_controls <- function(targets) {
+  cols <- colnames(targets)
+  cols <- setdiff(cols, c("primary_group", "Basename", "filenames", "SampleID"))
+  sex_cols <- cols[grepl("sex|gender", tolower(cols))]
+  age_cols <- cols[grepl("age", tolower(cols))]
+  cell_cols <- cols[grepl("^cell_|cell", tolower(cols))]
+  unique(c(sex_cols, age_cols, cell_cols))
+}
+
+compute_bio_preservation <- function(pca_before, pca_after, targets, bio_vars, max_pcs = 5) {
+  if (is.null(pca_before) || is.null(pca_after)) return(list(score = 1, detail = NULL))
+  if (length(bio_vars) == 0) return(list(score = 1, detail = NULL))
+  n_pcs <- min(max_pcs, ncol(pca_before$x), ncol(pca_after$x))
+  scores <- numeric(0)
+  detail <- data.frame(Variable = character(0), Before = numeric(0), After = numeric(0), Ratio = numeric(0))
+  for (var in bio_vars) {
+    if (!var %in% colnames(targets)) next
+    vals <- targets[[var]]
+    if (length(unique(vals)) < 2) next
+    before_vals <- numeric(0)
+    after_vals <- numeric(0)
+    for (k in seq_len(n_pcs)) {
+      if (is.numeric(vals) || is.integer(vals)) {
+        fit_b <- tryCatch(lm(pca_before$x[, k] ~ vals), error = function(e) NULL)
+        fit_a <- tryCatch(lm(pca_after$x[, k] ~ vals), error = function(e) NULL)
+        if (!is.null(fit_b)) before_vals <- c(before_vals, summary(fit_b)$r.squared)
+        if (!is.null(fit_a)) after_vals <- c(after_vals, summary(fit_a)$r.squared)
+      } else {
+        fit_b <- tryCatch(aov(pca_before$x[, k] ~ as.factor(vals)), error = function(e) NULL)
+        fit_a <- tryCatch(aov(pca_after$x[, k] ~ as.factor(vals)), error = function(e) NULL)
+        if (!is.null(fit_b)) {
+          ss <- summary(fit_b)[[1]]
+          before_vals <- c(before_vals, ss$`Sum Sq`[1] / sum(ss$`Sum Sq`))
+        }
+        if (!is.null(fit_a)) {
+          ss <- summary(fit_a)[[1]]
+          after_vals <- c(after_vals, ss$`Sum Sq`[1] / sum(ss$`Sum Sq`))
+        }
+      }
+    }
+    if (length(before_vals) == 0 || length(after_vals) == 0) next
+    before_med <- median(before_vals, na.rm = TRUE)
+    after_med <- median(after_vals, na.rm = TRUE)
+    if (!is.finite(before_med) || before_med <= 0) next
+    ratio <- clamp01(after_med / before_med)
+    detail <- rbind(detail, data.frame(Variable = var, Before = before_med, After = after_med, Ratio = ratio))
+    scores <- c(scores, ratio)
+  }
+  if (length(scores) == 0) return(list(score = 1, detail = detail))
+  list(score = mean(scores, na.rm = TRUE), detail = detail)
+}
+
+compute_batch_stability <- function(betas, targets, batch_col, covariates, group_col, max_probes = 5000) {
+  if (is.null(batch_col) || !(batch_col %in% colnames(targets))) return(NA_real_)
+  overlap_batches <- identify_overlap_batches(targets, batch_col, group_col)
+  if (length(overlap_batches) < 2) return(NA_real_)
+  vars <- apply(betas, 1, var, na.rm = TRUE)
+  top_idx <- head(order(vars, decreasing = TRUE), min(max_probes, nrow(betas)))
+  eff_list <- list()
+  for (b in overlap_batches) {
+    idx <- targets[[batch_col]] == b
+    sub_targets <- targets[idx, , drop = FALSE]
+    sub_betas <- betas[top_idx, idx, drop = FALSE]
+    covars <- intersect(covariates, colnames(sub_targets))
+    formula_str <- "~ 0 + primary_group"
+    if (length(covars) > 0) formula_str <- paste(formula_str, "+", paste(covars, collapse = " + "))
+    design <- model.matrix(as.formula(formula_str), data = sub_targets)
+    colnames(design) <- gsub("primary_group", "", colnames(design))
+    group_cols <- make.names(levels(sub_targets$primary_group))
+    design_ld <- drop_linear_dependencies(design, group_cols = group_cols)
+    design <- design_ld$mat
+    if (ncol(design) < 2) next
+    m_vals <- logit_offset(sub_betas)
+    fit <- lmFit(m_vals, design)
+    contrast_str <- paste0(group_cols[2], "-", group_cols[1])
+    cm <- makeContrasts(contrasts = contrast_str, levels = design)
+    fit2 <- contrasts.fit(fit, cm)
+    fit2 <- eBayes(fit2)
+    eff_list[[b]] <- fit2$coefficients[, 1]
+  }
+  if (length(eff_list) < 2) return(NA_real_)
+  batches <- names(eff_list)
+  cors <- numeric(0)
+  for (i in seq_len(length(batches) - 1)) {
+    for (j in (i + 1):length(batches)) {
+      a <- eff_list[[batches[i]]]
+      b <- eff_list[[batches[j]]]
+      cors <- c(cors, suppressWarnings(cor(a, b, use = "pairwise.complete.obs")))
+    }
+  }
+  if (length(cors) == 0) return(NA_real_)
+  clamp01((median(cors, na.rm = TRUE) + 1) / 2)
+}
+
+run_permutation_uniformity <- function(betas, targets, group_col, covariates, batch_col, perm_n, vp_top) {
+  if (perm_n <= 0) return(NULL)
+  top_perm <- head(order(apply(betas, 1, var), decreasing = TRUE), min(vp_top, nrow(betas)))
+  m_perm <- logit_offset(betas[top_perm, , drop = FALSE])
+  perm_results <- data.frame(run = integer(0), ks_p = numeric(0), lambda = numeric(0))
+  perm_group_cols <- make.names(levels(targets[[group_col]]))
+  for (i in seq_len(perm_n)) {
+    perm_labels <- targets[[group_col]]
+    if (!is.null(batch_col) && batch_col %in% colnames(targets)) {
+      idx_list <- split(seq_len(nrow(targets)), targets[[batch_col]])
+      perm_labels <- perm_labels
+      for (idx in idx_list) {
+        perm_labels[idx] <- sample(perm_labels[idx])
+      }
+    } else {
+      perm_labels <- sample(perm_labels)
+    }
+    perm_df <- data.frame(perm_labels = perm_labels)
+    perm_design <- model.matrix(~ 0 + perm_labels, data = perm_df)
+    colnames(perm_design) <- gsub("perm_labels", "", colnames(perm_design))
+    if (length(covariates) > 0) {
+      cov_formula <- as.formula(paste("~ 0 +", paste(covariates, collapse = " + ")))
+      cov_mat <- model.matrix(cov_formula, data = targets)
+      perm_design <- cbind(perm_design, cov_mat)
+    }
+    perm_ld <- drop_linear_dependencies(perm_design, group_cols = perm_group_cols)
+    perm_design <- perm_ld$mat
+    if (ncol(perm_design) < 2) next
+    cont_vec <- rep(0, ncol(perm_design))
+    cont_vec[2] <- 1; cont_vec[1] <- -1
+    cm_perm <- matrix(cont_vec, ncol = 1)
+    rownames(cm_perm) <- colnames(perm_design)
+    fitp <- lmFit(m_perm, perm_design)
+    fitp2 <- contrasts.fit(fitp, cm_perm)
+    fitp2 <- eBayes(fitp2)
+    resp <- topTable(fitp2, coef = 1, number = Inf, adjust.method = "BH")
+    pvals <- resp$P.Value
+    ks_p <- tryCatch(ks.test(pvals, "punif")$p.value, error = function(e) NA_real_)
+    chisq_vals <- qchisq(1 - pvals, 1)
+    lambda_val <- median(chisq_vals) / qchisq(0.5, 1)
+    perm_results <- rbind(perm_results, data.frame(run = i, ks_p = ks_p, lambda = lambda_val))
+  }
+  perm_results
+}
+
+select_batch_strategy <- function(betas, targets, batch_col, batch_tier, covariate_sets, group_col,
+                                  config_settings, scoring_preset, perm_n, vp_top, prefix, out_dir) {
+  methods <- c("none", "combat", "limma", "sva")
+  if (is.null(batch_col) || nrow(targets) < 4) {
+    return(list(best_method = "none", best_covariates = covariate_sets[[1]], candidates = NULL))
+  }
+  if (!is.null(batch_tier) && batch_tier == 3) {
+    return(list(best_method = "none", best_covariates = covariate_sets[[1]], candidates = NULL))
+  }
+  batch_vals <- targets[[batch_col]]
+  M_mat <- logit_offset(betas)
+  bio_vars <- detect_bio_controls(targets)
+  cand_rows <- data.frame()
+  for (set_name in names(covariate_sets)) {
+    cov_set <- covariate_sets[[set_name]]
+    base_res <- eval_batch_method(M_mat, targets, group_col = group_col, batch_col = batch_col, covariates = cov_set, method = "none")
+    base_pca <- safe_prcomp(t(base_res$M_corr), label = paste("Batch eval", set_name, "baseline"), scale. = TRUE)
+    base_pc_r2 <- if (!is.null(base_pca)) compute_pc_batch_r2(base_pca$x, batch_vals) else NA_real_
+    base_mix <- if (!is.null(base_pca)) compute_knn_mixing(base_pca$x, batch_vals) else NA_real_
+    for (m in methods) {
+      if (!is.null(batch_tier) && batch_tier == 2 && m == "limma") {
+        # keep limma but mark as restricted in notes
+      }
+      res <- eval_batch_method(M_mat, targets, group_col = group_col, batch_col = batch_col, covariates = cov_set, method = m)
+      pca_after <- safe_prcomp(t(res$M_corr), label = paste("Batch eval", set_name, m), scale. = TRUE)
+      pc_r2_after <- if (!is.null(pca_after)) compute_pc_batch_r2(pca_after$x, batch_vals) else NA_real_
+      mix_after <- if (!is.null(pca_after)) compute_knn_mixing(pca_after$x, batch_vals) else NA_real_
+      bio_pres <- compute_bio_preservation(base_pca, pca_after, targets, bio_vars)
+      batch_red <- mean(c(
+        reduction_score(base_res$batch_var, res$batch_var),
+        reduction_score(base_res$prop_batch_sig, res$prop_batch_sig),
+        reduction_score(base_res$n_pc_batch_sig, res$n_pc_batch_sig)
+      ), na.rm = TRUE)
+      pc_r2_red <- reduction_score(base_pc_r2, pc_r2_after)
+      mix_score <- NA_real_
+      if (is.finite(base_mix) && is.finite(mix_after)) {
+        mix_score <- clamp01((mix_after - base_mix) / max(1e-6, 1 - base_mix))
+      }
+      batch_score <- mean(c(batch_red, pc_r2_red, mix_score), na.rm = TRUE)
+      bio_score <- bio_pres$score
+      cal_score <- NA_real_
+      stab_score <- NA_real_
+      total_pre <- scoring_preset$weights$batch * ifelse(is.finite(batch_score), batch_score, 0.5) +
+        scoring_preset$weights$bio * ifelse(is.finite(bio_score), bio_score, 0.5) +
+        scoring_preset$weights$cal * 0.5 +
+        scoring_preset$weights$stab * 0.5
+      cand_rows <- rbind(cand_rows, data.frame(
+        cov_set = set_name,
+        method = m,
+        batch_score = batch_score,
+        batch_reduction = batch_red,
+        pc_r2_reduction = pc_r2_red,
+        mix_improve = mix_score,
+        bio_score = bio_score,
+        cal_score = cal_score,
+        stab_score = stab_score,
+        total_score = total_pre,
+        status = "PENDING",
+        stringsAsFactors = FALSE
+      ))
+    }
+  }
+  if (nrow(cand_rows) == 0) {
+    return(list(best_method = "none", best_covariates = covariate_sets[[1]], candidates = NULL))
+  }
+  top_k <- scoring_preset$top_k
+  cand_rows <- cand_rows[order(-cand_rows$total_score), ]
+  eval_idx <- seq_len(min(top_k, nrow(cand_rows)))
+  for (i in eval_idx) {
+    row <- cand_rows[i, ]
+    cov_set <- covariate_sets[[row$cov_set]]
+    formula_str <- "~ 0 + primary_group"
+    if (length(cov_set) > 0) formula_str <- paste(formula_str, "+", paste(cov_set, collapse = " + "))
+    design <- model.matrix(as.formula(formula_str), data = targets)
+    colnames(design) <- gsub("primary_group", "", colnames(design))
+    group_cols <- make.names(levels(targets[[group_col]]))
+    design_ld <- drop_linear_dependencies(design, group_cols = group_cols)
+    design <- design_ld$mat
+    betas_corr <- betas
+    if (row$method %in% c("combat", "limma")) {
+      bc_res <- apply_batch_correction(betas, row$method, batch_col, cov_set, targets, design)
+      betas_corr <- bc_res$betas
+    }
+    stab <- compute_batch_stability(betas_corr, targets, batch_col, cov_set, group_col)
+    perm_res <- run_permutation_uniformity(betas_corr, targets, group_col, cov_set, batch_col, perm_n, vp_top)
+    ks_p_med <- if (!is.null(perm_res) && nrow(perm_res) > 0) median(perm_res$ks_p, na.rm = TRUE) else NA_real_
+    cal_score <- ifelse(is.finite(ks_p_med), clamp01(ks_p_med / config_settings$calibration$ks_p), NA_real_)
+    total_score <- scoring_preset$weights$batch * ifelse(is.finite(row$batch_score), row$batch_score, 0.5) +
+      scoring_preset$weights$bio * ifelse(is.finite(row$bio_score), row$bio_score, 0.5) +
+      scoring_preset$weights$cal * ifelse(is.finite(cal_score), cal_score, 0.5) +
+      scoring_preset$weights$stab * ifelse(is.finite(stab), stab, 0.5)
+    guard_batch <- is.finite(row$batch_score) && row$batch_score >= scoring_preset$guards$batch_reduction_min
+    guard_bio <- is.finite(row$bio_score) && row$bio_score >= scoring_preset$guards$bio_min
+    guard_cal <- is.finite(ks_p_med) && ks_p_med >= config_settings$calibration$ks_p
+    if (guard_batch && guard_bio && guard_cal) {
+      borderline <- 0
+      if (row$batch_score < (scoring_preset$guards$batch_reduction_min + 0.05)) borderline <- borderline + 1
+      if (row$bio_score < (scoring_preset$guards$bio_min + 0.05)) borderline <- borderline + 1
+      if (ks_p_med < (config_settings$calibration$ks_p * 1.5)) borderline <- borderline + 1
+      status <- if (borderline >= 2) "YELLOW" else "GREEN"
+    } else {
+      status <- "RED"
+    }
+    cand_rows$stab_score[i] <- stab
+    cand_rows$cal_score[i] <- cal_score
+    cand_rows$total_score[i] <- total_score
+    cand_rows$status[i] <- status
+    if (!is.null(perm_res) && nrow(perm_res) > 0) {
+      write.csv(perm_res, file.path(out_dir, paste0(prefix, "_PermUniformity_", row$cov_set, "_", row$method, ".csv")),
+                row.names = FALSE)
+    }
+  }
+  cand_rows <- cand_rows[order(-cand_rows$total_score), ]
+  best_rows <- cand_rows[cand_rows$status != "RED", , drop = FALSE]
+  if (nrow(best_rows) == 0) best_rows <- cand_rows
+  best <- best_rows[1, ]
+  list(best_method = best$method, best_covariates = covariate_sets[[best$cov_set]], candidates = cand_rows)
+}
+
 # M-value transformation with a small offset to avoid log(0)
 # Following Du et al. (2010) BMC Bioinformatics approach
 logit_offset <- function(betas, offset = LOGIT_OFFSET) {
@@ -489,6 +938,90 @@ filter_covariates <- function(targets, covariates, group_col) {
   list(keep = keep, dropped = drops)
 }
 
+apply_covariate_governance <- function(targets, covariates, forced_covariates, config_settings, drop_log) {
+  forced_cfg <- config_settings$forced_adjust
+  allowed_cfg <- config_settings$allowed_adjust
+  do_not_cfg <- config_settings$do_not_adjust
+  if (length(forced_cfg) > 0) {
+    present_force <- intersect(forced_cfg, colnames(targets))
+    missing_force <- setdiff(forced_cfg, present_force)
+    if (length(missing_force) > 0) {
+      drop_log <- rbind(drop_log, data.frame(Variable = missing_force, Reason = "forced_not_in_config"))
+    }
+    covariates <- unique(c(covariates, present_force))
+    forced_covariates <- unique(c(forced_covariates, present_force))
+  }
+  if (length(allowed_cfg) > 0) {
+    covariates <- intersect(covariates, allowed_cfg)
+  }
+  if (length(do_not_cfg) > 0) {
+    blocked <- intersect(covariates, do_not_cfg)
+    if (length(blocked) > 0) {
+      drop_log <- rbind(drop_log, data.frame(Variable = blocked, Reason = "do_not_adjust"))
+      covariates <- setdiff(covariates, blocked)
+    }
+  }
+  max_frac <- config_settings$missingness$max_frac
+  impute_frac <- config_settings$missingness$impute_max_frac
+  for (cv in covariates) {
+    vals <- targets[[cv]]
+    miss_mask <- is.na(vals) | (is.character(vals) & trimws(vals) == "")
+    miss_frac <- mean(miss_mask)
+    if (!is.finite(miss_frac)) miss_frac <- 0
+    if (miss_frac > max_frac) {
+      drop_log <- rbind(drop_log, data.frame(Variable = cv, Reason = "missingness_high"))
+      covariates <- setdiff(covariates, cv)
+      forced_covariates <- setdiff(forced_covariates, cv)
+      next
+    }
+    if (miss_frac > 0 && miss_frac <= impute_frac) {
+      if (is.numeric(vals) || is.integer(vals)) {
+        imp <- median(vals, na.rm = TRUE)
+        vals[miss_mask] <- imp
+      } else {
+        vals <- as.character(vals)
+        vals[miss_mask] <- "Unknown"
+        vals <- as.factor(vals)
+      }
+      targets[[cv]] <- vals
+      drop_log <- rbind(drop_log, data.frame(Variable = cv, Reason = "imputed_missing"))
+    } else if (miss_frac > 0) {
+      drop_log <- rbind(drop_log, data.frame(Variable = cv, Reason = "missingness_not_imputed"))
+      covariates <- setdiff(covariates, cv)
+      forced_covariates <- setdiff(forced_covariates, cv)
+    }
+  }
+  num_covs <- covariates[vapply(covariates, function(x) {
+    vals <- targets[[x]]
+    is.numeric(vals) || is.integer(vals)
+  }, logical(1))]
+  cor_thresh <- config_settings$collinearity$cor_threshold
+  if (length(num_covs) >= 2) {
+    num_mat <- targets[, num_covs, drop = FALSE]
+    cor_mat <- suppressWarnings(cor(num_mat, use = "pairwise.complete.obs"))
+    if (is.matrix(cor_mat)) {
+      drop_set <- character(0)
+      for (i in seq_len(ncol(cor_mat) - 1)) {
+        for (j in (i + 1):ncol(cor_mat)) {
+          if (!is.finite(cor_mat[i, j])) next
+          if (abs(cor_mat[i, j]) >= cor_thresh) {
+            a <- colnames(cor_mat)[i]
+            b <- colnames(cor_mat)[j]
+            drop_choice <- if (a %in% forced_covariates && !(b %in% forced_covariates)) b else a
+            drop_set <- unique(c(drop_set, drop_choice))
+          }
+        }
+      }
+      if (length(drop_set) > 0) {
+        drop_log <- rbind(drop_log, data.frame(Variable = drop_set, Reason = "collinearity"))
+        covariates <- setdiff(covariates, drop_set)
+        forced_covariates <- setdiff(forced_covariates, drop_set)
+      }
+    }
+  }
+  list(targets = targets, covariates = covariates, forced_covariates = forced_covariates, drop_log = drop_log)
+}
+
 rank_covariates <- function(targets, covariates, covar_log_df) {
   if (length(covariates) == 0) return(covariates)
   log_p <- numeric(0)
@@ -509,6 +1042,20 @@ rank_covariates <- function(targets, covariates, covar_log_df) {
     1 / lvls
   }, numeric(1))
   covariates[order(priorities, decreasing = TRUE)]
+}
+
+generate_covariate_sets <- function(targets, covariates, forced_covariates, covar_log_df) {
+  sets <- list(full = covariates)
+  if (length(covariates) >= 4) {
+    ranked <- rank_covariates(targets = targets, covariates = covariates, covar_log_df = covar_log_df)
+    keep_n <- max(1, floor(length(ranked) / 2))
+    reduced <- unique(c(forced_covariates, head(ranked, keep_n)))
+    sets$reduced <- reduced
+  }
+  if (length(forced_covariates) > 0) {
+    sets$forced <- forced_covariates
+  }
+  sets
 }
 
 cap_covariates_for_overcorrection <- function(targets, covariates, forced_covariates, covar_log_df, ratio = OVERCORRECTION_GUARD_RATIO) {
@@ -1760,6 +2307,174 @@ select_batch_factor <- function(meta, preferred = c("Sentrix_ID", "Sentrix_Posit
   return(NULL)
 }
 
+detect_batch_candidates <- function(meta, group_col, config_settings) {
+  cand <- character(0)
+  if (!is.null(config_settings$batch_candidates) && length(config_settings$batch_candidates) > 0) {
+    cand <- intersect(config_settings$batch_candidates, colnames(meta))
+  } else {
+    patterns <- config_settings$batch_candidate_patterns
+    if (length(patterns) > 0) {
+      pattern <- paste(patterns, collapse = "|")
+      cand <- colnames(meta)[grepl(pattern, tolower(colnames(meta)))]
+    }
+    cand <- unique(c(c("Sentrix_ID", "Sentrix_Position"), cand))
+    cand <- intersect(cand, colnames(meta))
+  }
+  cand <- setdiff(cand, group_col)
+  cand <- cand[vapply(cand, function(x) {
+    vals <- meta[[x]]
+    if (all(is.na(vals))) return(FALSE)
+    uniq <- length(unique(vals[!is.na(vals)]))
+    uniq > 1 && uniq < nrow(meta)
+  }, logical(1))]
+  cand
+}
+
+compute_cramers_v <- function(tbl) {
+  if (is.null(tbl) || any(dim(tbl) < 2)) return(NA_real_)
+  chi <- suppressWarnings(chisq.test(tbl, correct = FALSE))
+  if (is.null(chi$statistic) || !is.finite(chi$statistic)) return(NA_real_)
+  n <- sum(tbl)
+  if (n <= 0) return(NA_real_)
+  r <- nrow(tbl)
+  c <- ncol(tbl)
+  denom <- n * (min(r - 1, c - 1))
+  if (denom <= 0) return(NA_real_)
+  sqrt(as.numeric(chi$statistic) / denom)
+}
+
+assess_batch_confounding <- function(meta, batch_cols, group_col, config_settings) {
+  out <- data.frame(
+    batch = character(0),
+    voi_type = character(0),
+    n_samples = integer(0),
+    n_batch_levels = integer(0),
+    n_voi_levels = integer(0),
+    min_cell_count = integer(0),
+    pct_empty = numeric(0),
+    min_balance = numeric(0),
+    chi_p = numeric(0),
+    cramer_v = numeric(0),
+    r2 = numeric(0),
+    tier = integer(0),
+    identifiability_warning = character(0),
+    stringsAsFactors = FALSE
+  )
+  if (length(batch_cols) == 0) return(out)
+  min_overlap <- config_settings$min_overlap_per_cell
+  t1_v <- config_settings$confounding$tier1_v
+  t2_v <- config_settings$confounding$tier2_v
+  t1_r2 <- config_settings$confounding$tier1_r2
+  t2_r2 <- config_settings$confounding$tier2_r2
+  for (batch_col in batch_cols) {
+    if (!(batch_col %in% colnames(meta)) || !(group_col %in% colnames(meta))) next
+    vals <- meta[[batch_col]]
+    voi <- meta[[group_col]]
+    cc <- complete.cases(vals, voi)
+    if (sum(cc) < 2) next
+    vals <- vals[cc]
+    voi <- voi[cc]
+    n <- length(voi)
+    voi_is_num <- (is.numeric(voi) || is.integer(voi)) && length(unique(voi)) > 2
+    if (voi_is_num) {
+      batch_f <- as.factor(vals)
+      counts <- table(batch_f)
+      min_cell <- suppressWarnings(min(counts))
+      r2 <- tryCatch(summary(lm(voi ~ batch_f))$r.squared, error = function(e) NA_real_)
+      tier <- 0
+      if (!is.na(r2) && r2 >= t2_r2) tier <- 2 else if (!is.na(r2) && r2 >= t1_r2) tier <- 1
+      if (!is.na(min_cell) && min_cell < min_overlap) tier <- 3
+      out <- rbind(out, data.frame(
+        batch = batch_col,
+        voi_type = "continuous",
+        n_samples = n,
+        n_batch_levels = length(unique(batch_f)),
+        n_voi_levels = length(unique(voi)),
+        min_cell_count = ifelse(is.na(min_cell), 0L, as.integer(min_cell)),
+        pct_empty = 0,
+        min_balance = NA_real_,
+        chi_p = NA_real_,
+        cramer_v = NA_real_,
+        r2 = r2,
+        tier = tier,
+        identifiability_warning = ifelse(tier == 3, "non_identifiable", ""),
+        stringsAsFactors = FALSE
+      ))
+    } else {
+      batch_f <- as.factor(vals)
+      voi_f <- as.factor(voi)
+      tbl <- table(batch_f, voi_f)
+      min_cell <- suppressWarnings(min(tbl))
+      pct_empty <- sum(tbl == 0) / length(tbl)
+      min_balance <- suppressWarnings(min(apply(prop.table(tbl, 1), 1, function(x) min(x))))
+      chi_p <- tryCatch(suppressWarnings(chisq.test(tbl)$p.value), error = function(e) NA_real_)
+      cramer_v <- compute_cramers_v(tbl)
+      voi_in_batch <- apply(tbl, 2, function(x) sum(x > 0))
+      batch_in_voi <- apply(tbl, 1, function(x) sum(x > 0))
+      tier3 <- any(batch_in_voi == 1) || any(voi_in_batch == 1) ||
+        (!is.na(min_cell) && min_cell < min_overlap)
+      tier <- 0
+      if (!is.na(cramer_v) && cramer_v >= t2_v) tier <- 2 else if (!is.na(cramer_v) && cramer_v >= t1_v) tier <- 1
+      if (tier3) tier <- 3
+      out <- rbind(out, data.frame(
+        batch = batch_col,
+        voi_type = "categorical",
+        n_samples = n,
+        n_batch_levels = length(unique(batch_f)),
+        n_voi_levels = length(unique(voi_f)),
+        min_cell_count = ifelse(is.na(min_cell), 0L, as.integer(min_cell)),
+        pct_empty = pct_empty,
+        min_balance = min_balance,
+        chi_p = chi_p,
+        cramer_v = cramer_v,
+        r2 = NA_real_,
+        tier = tier,
+        identifiability_warning = ifelse(tier == 3, "non_identifiable", ""),
+        stringsAsFactors = FALSE
+      ))
+    }
+  }
+  out
+}
+
+plot_confounding_heatmap <- function(meta, batch_col, group_col, prefix, out_dir) {
+  if (!(batch_col %in% colnames(meta)) || !(group_col %in% colnames(meta))) return(NULL)
+  tbl <- table(meta[[batch_col]], meta[[group_col]])
+  df <- as.data.frame(tbl)
+  colnames(df) <- c("Batch", "VOI", "Count")
+  p <- ggplot(df, aes(x = VOI, y = Batch, fill = Count, text = Count)) +
+    geom_tile() +
+    geom_text(aes(label = Count), size = 3, color = "black") +
+    scale_fill_gradient(low = "white", high = "#2c7fb8") +
+    theme_minimal() +
+    labs(title = paste(prefix, "Batch-VOI Overlap:", batch_col), x = group_col, y = batch_col)
+  save_interactive_plot(p, paste0(prefix, "_BatchVOI_Heatmap_", batch_col, ".html"), out_dir)
+  save_static_plot(p, paste0(prefix, "_BatchVOI_Heatmap_", batch_col, ".png"), out_dir, width = 6, height = 4)
+  p
+}
+
+plot_confounding_summary <- function(conf_df, prefix, out_dir) {
+  if (is.null(conf_df) || nrow(conf_df) == 0) return(NULL)
+  df <- conf_df
+  df$metric <- ifelse(df$voi_type == "continuous", df$r2, df$cramer_v)
+  df$metric_label <- ifelse(df$voi_type == "continuous", "R2", "CramersV")
+  p <- ggplot(df, aes(x = batch, y = metric, fill = as.factor(tier), text = metric)) +
+    geom_col() +
+    theme_minimal() +
+    labs(title = paste(prefix, "Confounding Summary"), x = "Batch candidate", y = "Association strength", fill = "Tier")
+  save_interactive_plot(p, paste0(prefix, "_Confounding_Summary.html"), out_dir)
+  save_static_plot(p, paste0(prefix, "_Confounding_Summary.png"), out_dir, width = 6, height = 4)
+  p
+}
+
+identify_overlap_batches <- function(meta, batch_col, group_col) {
+  if (is.null(batch_col) || !(batch_col %in% colnames(meta))) return(character(0))
+  tbl <- table(meta[[batch_col]], meta[[group_col]])
+  if (nrow(tbl) == 0 || ncol(tbl) == 0) return(character(0))
+  keep <- rownames(tbl)[apply(tbl, 1, function(x) sum(x > 0) >= 2)]
+  keep
+}
+
 is_batch_confounded <- function(meta, batch_col, group_col, p_thresh = 1e-6) {
   if (is.null(batch_col) || is.null(group_col)) return(FALSE)
   if (!(batch_col %in% colnames(meta)) || !(group_col %in% colnames(meta))) return(FALSE)
@@ -1908,7 +2623,7 @@ eval_batch_method <- function(M_mat, meta, group_col, batch_col, covariates, met
   if (is.na(batch_var)) batch_var <- 0
   if (is.na(group_var)) group_var <- 0
   if (is.na(prop_batch_sig)) prop_batch_sig <- 0
-  score <- batch_var + prop_batch_sig + 0.1 * n_pc_batch_sig - 0.5 * group_var
+  score <- batch_var + prop_batch_sig + 0.1 * n_pc_batch_sig
   
   list(
     method = method,
@@ -1954,6 +2669,268 @@ apply_batch_correction <- function(betas, method, batch_col, covariates, targets
   betas_corr <- 2^M_corr / (1 + 2^M_corr)
   betas_corr <- pmin(pmax(betas_corr, LOGIT_OFFSET), 1 - LOGIT_OFFSET)
   list(betas = betas_corr, method = method)
+}
+
+meta_analysis_fixed <- function(effects, ses) {
+  w <- 1 / (ses ^ 2)
+  w[!is.finite(w)] <- 0
+  effects[!is.finite(effects)] <- NA
+  w[is.na(effects)] <- 0
+  w_sum <- rowSums(w)
+  k_eff <- rowSums(w > 0)
+  meta_beta <- rowSums(w * effects, na.rm = TRUE) / w_sum
+  meta_se <- sqrt(1 / w_sum)
+  z <- meta_beta / meta_se
+  p <- 2 * pnorm(-abs(z))
+  q <- rowSums(w * (effects - meta_beta) ^ 2, na.rm = TRUE)
+  i2 <- ifelse(q > 0, pmax(0, (q - (k_eff - 1)) / q), NA_real_)
+  meta_beta[k_eff < 2] <- NA_real_
+  meta_se[k_eff < 2] <- NA_real_
+  p[k_eff < 2] <- NA_real_
+  q[k_eff < 2] <- NA_real_
+  i2[k_eff < 2] <- NA_real_
+  list(beta = meta_beta, se = meta_se, p = p, q = q, i2 = i2, k = k_eff)
+}
+
+run_stratified_meta_analysis <- function(betas, targets, batch_col, group_col, covariates,
+                                         prefix, out_dir, pval_thresh, lfc_thresh, delta_beta_thresh) {
+  if (is.null(batch_col) || !(batch_col %in% colnames(targets))) return(NULL)
+  overlap_batches <- identify_overlap_batches(targets, batch_col, group_col)
+  if (length(overlap_batches) < 2) {
+    message("  Stratified meta-analysis skipped: insufficient overlap strata.")
+    return(NULL)
+  }
+  message(paste("  Tier3 fallback: stratified EWAS + meta-analysis across", length(overlap_batches), "batches."))
+  strata <- overlap_batches
+  effects <- list()
+  ses <- list()
+  for (b in strata) {
+    idx <- targets[[batch_col]] == b
+    sub_targets <- targets[idx, , drop = FALSE]
+    sub_betas <- betas[, idx, drop = FALSE]
+    group_levels <- levels(sub_targets[[group_col]])
+    if (length(group_levels) < 2) next
+    if (sum(sub_targets[[group_col]] == group_levels[1]) < 1 ||
+        sum(sub_targets[[group_col]] == group_levels[2]) < 1) {
+      next
+    }
+    sub_covars <- intersect(covariates, colnames(sub_targets))
+    formula_str <- "~ 0 + primary_group"
+    if (length(sub_covars) > 0) formula_str <- paste(formula_str, "+", paste(sub_covars, collapse = " + "))
+    design <- model.matrix(as.formula(formula_str), data = sub_targets)
+    colnames(design) <- gsub("primary_group", "", colnames(design))
+    design <- design[, unique(colnames(design)), drop = FALSE]
+    group_cols <- make.names(levels(sub_targets$primary_group))
+    design_ld <- drop_linear_dependencies(design, group_cols = group_cols)
+    design <- design_ld$mat
+    if (ncol(design) < 2) next
+    m_vals <- logit_offset(sub_betas)
+    fit <- lmFit(m_vals, design)
+    contrast_str <- paste0(group_cols[2], "-", group_cols[1])
+    cm <- makeContrasts(contrasts = contrast_str, levels = design)
+    fit2 <- contrasts.fit(fit, cm)
+    fit2 <- eBayes(fit2)
+    coef_idx <- 1
+    eff <- fit2$coefficients[, coef_idx]
+    se <- fit2$stdev.unscaled[, coef_idx] * fit2$sigma
+    effects[[b]] <- eff
+    ses[[b]] <- se
+    out_df <- data.frame(CpG = rownames(fit2$coefficients), logFC = eff, SE = se)
+    write.csv(out_df, file.path(out_dir, paste0(prefix, "_Stratum_", b, "_EWAS.csv")), row.names = FALSE)
+  }
+  if (length(effects) < 2) return(NULL)
+  eff_mat <- do.call(cbind, effects)
+  se_mat <- do.call(cbind, ses)
+  meta <- meta_analysis_fixed(eff_mat, se_mat)
+  meta_df <- data.frame(
+    CpG = rownames(betas),
+    logFC = meta$beta,
+    SE = meta$se,
+    P.Value = meta$p,
+    Q = meta$q,
+    I2 = meta$i2,
+    k = meta$k
+  )
+  meta_df$adj.P.Val <- p.adjust(meta_df$P.Value, "BH")
+  meta_df <- meta_df[order(meta_df$P.Value), ]
+  write.csv(meta_df, file.path(out_dir, paste0(prefix, "_Stratified_Meta_DMPs.csv")), row.names = FALSE)
+  save_datatable(head(meta_df, min(10000, nrow(meta_df))), paste0(prefix, "_Stratified_Meta_DMPs.html"), out_dir)
+  top_n <- min(10, nrow(meta_df))
+  if (top_n > 0) {
+    top_cpgs <- meta_df$CpG[1:top_n]
+    forest_df <- data.frame()
+    for (b in names(effects)) {
+      eff_vec <- effects[[b]][top_cpgs]
+      se_vec <- ses[[b]][top_cpgs]
+      forest_df <- rbind(forest_df, data.frame(CpG = top_cpgs, Stratum = b, logFC = eff_vec, SE = se_vec))
+    }
+    forest_df <- rbind(forest_df, data.frame(CpG = top_cpgs, Stratum = "META", logFC = meta_df$logFC[1:top_n], SE = meta_df$SE[1:top_n]))
+    p_forest <- ggplot(forest_df, aes(x = logFC, y = Stratum)) +
+      geom_point() +
+      geom_errorbarh(aes(xmin = logFC - 1.96 * SE, xmax = logFC + 1.96 * SE), height = 0.2) +
+      facet_wrap(~ CpG, scales = "free_x") +
+      theme_minimal() +
+      labs(title = paste(prefix, "Meta-analysis Forest Plot"), x = "Effect (logFC)", y = "Stratum")
+    save_interactive_plot(p_forest, paste0(prefix, "_Meta_Forest.html"), out_dir)
+    save_static_plot(p_forest, paste0(prefix, "_Meta_Forest.png"), out_dir, width = 8, height = 5)
+  }
+  if (any(is.finite(meta_df$I2))) {
+    i2_df <- data.frame(I2 = meta_df$I2)
+    p_i2 <- ggplot(i2_df, aes(x = I2)) +
+      geom_histogram(bins = 30, fill = "#4c78a8", color = "white") +
+      theme_minimal() +
+      labs(title = paste(prefix, "Heterogeneity (I2)"), x = "I2", y = "Count")
+    save_interactive_plot(p_i2, paste0(prefix, "_Meta_I2.html"), out_dir)
+    save_static_plot(p_i2, paste0(prefix, "_Meta_I2.png"), out_dir, width = 6, height = 4)
+  }
+  meta_df
+}
+
+run_pooled_batch_model <- function(betas, targets, batch_col, covariates, prefix, out_dir) {
+  if (is.null(batch_col) || !(batch_col %in% colnames(targets))) return(NULL)
+  if (length(unique(targets[[batch_col]])) < 2) return(NULL)
+  covars <- intersect(covariates, colnames(targets))
+  formula_str <- paste("~ 0 + primary_group +", batch_col)
+  if (length(covars) > 0) formula_str <- paste(formula_str, "+", paste(covars, collapse = " + "))
+  design <- model.matrix(as.formula(formula_str), data = targets)
+  colnames(design) <- gsub("primary_group", "", colnames(design))
+  group_cols <- make.names(levels(targets$primary_group))
+  design_ld <- drop_linear_dependencies(design, group_cols = group_cols)
+  design <- design_ld$mat
+  if (ncol(design) < 2) return(NULL)
+  m_vals <- logit_offset(betas)
+  fit <- lmFit(m_vals, design)
+  contrast_str <- paste0(group_cols[2], "-", group_cols[1])
+  cm <- makeContrasts(contrasts = contrast_str, levels = design)
+  fit2 <- contrasts.fit(fit, cm)
+  fit2 <- eBayes(fit2)
+  res <- topTable(fit2, coef = 1, number = Inf, adjust.method = "BH")
+  res$CpG <- rownames(res)
+  write.csv(res, file.path(out_dir, paste0(prefix, "_Pooled_Batch_DMPs.csv")), row.names = FALSE)
+  save_datatable(head(res, min(10000, nrow(res))), paste0(prefix, "_Pooled_Batch_DMPs.html"), out_dir)
+  res
+}
+
+run_overlap_restricted_analysis <- function(betas, targets, batch_col, group_col, covariates, prefix, out_dir) {
+  overlap_batches <- identify_overlap_batches(targets, batch_col, group_col)
+  if (length(overlap_batches) == 0) return(NULL)
+  idx <- targets[[batch_col]] %in% overlap_batches
+  sub_targets <- targets[idx, , drop = FALSE]
+  sub_betas <- betas[, idx, drop = FALSE]
+  covars <- intersect(covariates, colnames(sub_targets))
+  formula_str <- "~ 0 + primary_group"
+  if (length(covars) > 0) formula_str <- paste(formula_str, "+", paste(covars, collapse = " + "))
+  design <- model.matrix(as.formula(formula_str), data = sub_targets)
+  colnames(design) <- gsub("primary_group", "", colnames(design))
+  group_cols <- make.names(levels(sub_targets$primary_group))
+  design_ld <- drop_linear_dependencies(design, group_cols = group_cols)
+  design <- design_ld$mat
+  if (ncol(design) < 2) return(NULL)
+  m_vals <- logit_offset(sub_betas)
+  fit <- lmFit(m_vals, design)
+  contrast_str <- paste0(group_cols[2], "-", group_cols[1])
+  cm <- makeContrasts(contrasts = contrast_str, levels = design)
+  fit2 <- contrasts.fit(fit, cm)
+  fit2 <- eBayes(fit2)
+  res <- topTable(fit2, coef = 1, number = Inf, adjust.method = "BH")
+  res$CpG <- rownames(res)
+  write.csv(res, file.path(out_dir, paste0(prefix, "_Overlap_Restricted_DMPs.csv")), row.names = FALSE)
+  save_datatable(head(res, min(10000, nrow(res))), paste0(prefix, "_Overlap_Restricted_DMPs.html"), out_dir)
+  res
+}
+
+run_limma_dmp <- function(betas, design, group_levels) {
+  if (is.null(design) || ncol(design) < 2) return(NULL)
+  if (length(group_levels) < 2) return(NULL)
+  contrast_str <- paste0(group_levels[2], "-", group_levels[1])
+  cm <- makeContrasts(contrasts = contrast_str, levels = design)
+  m_vals <- logit_offset(betas)
+  fit <- lmFit(m_vals, design)
+  fit2 <- contrasts.fit(fit, cm)
+  fit2 <- eBayes(fit2)
+  res <- topTable(fit2, coef = 1, number = Inf, adjust.method = "BH")
+  res$CpG <- rownames(res)
+  res
+}
+
+run_method_sensitivity <- function(betas, targets_base, design_base, targets_sva, design_sva,
+                                   batch_col, covariates, methods, prefix, out_dir, pval_thresh, lfc_thresh) {
+  if (length(methods) == 0) return(NULL)
+  if (!is.null(design_base)) {
+    design_base <- drop_linear_dependencies(design_base, group_cols = make.names(levels(targets_base$primary_group)))$mat
+  }
+  if (!is.null(design_sva)) {
+    design_sva <- drop_linear_dependencies(design_sva, group_cols = make.names(levels(targets_sva$primary_group)))$mat
+  }
+  res_list <- list()
+  for (m in methods) {
+    if (m == "sva") {
+      res <- run_limma_dmp(betas, design_sva, make.names(levels(targets_sva$primary_group)))
+      if (!is.null(res)) res_list[[m]] <- res
+      next
+    }
+    design_use <- design_base
+    targets_use <- targets_base
+    betas_use <- betas
+    if (m %in% c("combat", "limma")) {
+      bc_res <- apply_batch_correction(betas, m, batch_col, covariates, targets_use, design_use)
+      betas_use <- bc_res$betas
+    }
+    res <- run_limma_dmp(betas_use, design_use, make.names(levels(targets_use$primary_group)))
+    if (!is.null(res)) res_list[[m]] <- res
+  }
+  if (length(res_list) < 2) return(NULL)
+  methods_used <- names(res_list)
+  pair_metrics <- data.frame()
+  for (i in seq_len(length(methods_used) - 1)) {
+    for (j in (i + 1):length(methods_used)) {
+      m1 <- methods_used[i]
+      m2 <- methods_used[j]
+      a <- res_list[[m1]][, c("CpG", "logFC", "adj.P.Val")]
+      b <- res_list[[m2]][, c("CpG", "logFC", "adj.P.Val")]
+      merged <- merge(a, b, by = "CpG", suffixes = c(paste0(".", m1), paste0(".", m2)))
+      corr <- suppressWarnings(cor(merged[[paste0("logFC.", m1)]], merged[[paste0("logFC.", m2)]], use = "complete.obs"))
+      sig1 <- merged[[paste0("adj.P.Val.", m1)]] < pval_thresh & abs(merged[[paste0("logFC.", m1)]]) > lfc_thresh
+      sig2 <- merged[[paste0("adj.P.Val.", m2)]] < pval_thresh & abs(merged[[paste0("logFC.", m2)]]) > lfc_thresh
+      overlap <- sum(sig1 & sig2, na.rm = TRUE)
+      jaccard <- if (sum(sig1 | sig2, na.rm = TRUE) > 0) overlap / sum(sig1 | sig2, na.rm = TRUE) else NA_real_
+      pair_metrics <- rbind(pair_metrics, data.frame(method_a = m1, method_b = m2,
+                                                     logFC_correlation = corr, jaccard_overlap = jaccard,
+                                                     n_overlap = overlap))
+      flip_idx <- (sign(merged[[paste0("logFC.", m1)]]) != sign(merged[[paste0("logFC.", m2)]])) & (sig1 | sig2)
+      if (any(flip_idx, na.rm = TRUE)) {
+        flip_df <- merged[flip_idx, , drop = FALSE]
+        out_name <- paste0(prefix, "_Method_Flips_", m1, "_vs_", m2, ".csv")
+        write.csv(flip_df, file.path(out_dir, out_name), row.names = FALSE)
+      }
+    }
+  }
+  write.csv(pair_metrics, file.path(out_dir, paste0(prefix, "_Method_Sensitivity.csv")), row.names = FALSE)
+  invisible(res_list)
+}
+
+run_batch_pseudo_voi <- function(betas, targets, batch_col, covariates, prefix, out_dir) {
+  if (is.null(batch_col) || !(batch_col %in% colnames(targets))) return(NULL)
+  if (length(unique(targets[[batch_col]])) < 2) return(NULL)
+  covars <- intersect(covariates, colnames(targets))
+  formula_str <- paste("~ 0 +", batch_col)
+  if (length(covars) > 0) formula_str <- paste(formula_str, "+", paste(covars, collapse = " + "))
+  if ("primary_group" %in% colnames(targets)) formula_str <- paste(formula_str, "+ primary_group")
+  design <- model.matrix(as.formula(formula_str), data = targets)
+  m_vals <- logit_offset(betas)
+  fit <- lmFit(m_vals, design)
+  batch_cols <- grep(paste0("^", batch_col), colnames(design))
+  if (length(batch_cols) == 0) return(NULL)
+  contrast_batch <- diag(ncol(design))[, batch_cols, drop = FALSE]
+  fit_con <- contrasts.fit(fit, contrast_batch)
+  fit_con <- eBayes(fit_con)
+  p_batch <- fit_con$F.p.value
+  fdr_batch <- p.adjust(p_batch, "BH")
+  sig_count <- sum(fdr_batch < 0.05, na.rm = TRUE)
+  out <- data.frame(metric = c("batch_pseudo_voi_sig_count", "batch_pseudo_voi_min_p"),
+                    value = c(sig_count, min(p_batch, na.rm = TRUE)))
+  write.csv(out, file.path(out_dir, paste0(prefix, "_Batch_PseudoVOI.csv")), row.names = FALSE)
+  out
 }
 
 # --- 1. Load and Prepare Data ---
@@ -2672,6 +3649,8 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   
   best_method <- "none"
   batch_evaluated <- FALSE
+  batch_candidates_df <- NULL
+  best_candidate_score <- NA_real_
   common_ids <- intersect(rownames(betas), rownames(annotation_df))
   betas <- betas[common_ids, , drop = FALSE]
   curr_anno <- annotation_df[common_ids, , drop = FALSE]
@@ -2789,6 +3768,12 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
       covariates <- unique(c(covariates, varying_cells))
     }
   }
+
+  gov <- apply_covariate_governance(targets, covariates, forced_covariates, config_settings, drop_log)
+  targets <- gov$targets
+  covariates <- gov$covariates
+  forced_covariates <- gov$forced_covariates
+  drop_log <- gov$drop_log
   
   if (length(covariates) > 0) {
     message(paste("  Covariate candidates after filtering:", paste(covariates, collapse = ", ")))
@@ -2851,6 +3836,8 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
       message(paste("  Overcorrection guard (post-NA) dropped forced covariates:", paste(guard_cov_post$forced_dropped, collapse = ", ")))
     }
   }
+
+  covariate_sets <- generate_covariate_sets(targets, covariates, forced_covariates, covar_log_df)
   
   # PVCA before model fitting to quantify variance explained by group/batch factors
   pvca_factors <- unique(c("primary_group", covariates))
@@ -2859,69 +3846,73 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     compute_epigenetic_clocks(betas, targets, id_col = gsm_col, prefix = prefix, out_dir = out_dir, tissue = tissue_use)
   }
 
-  # Compare batch correction strategies (none/ComBat/removeBatchEffect/SVA)
-  batch_col <- select_batch_factor(targets, preferred = c("Sentrix_ID", "Sentrix_Position"))
-  if (!is.null(batch_col) && is_batch_confounded(targets, batch_col, "primary_group")) {
-    message(paste("  WARNING: Batch factor", batch_col, "is confounded with primary_group; skipping batch correction."))
-    batch_col <- NULL
+  # Batch–VOI confounding detection and candidate selection
+  batch_candidates <- detect_batch_candidates(targets, "primary_group", config_settings)
+  conf_df <- assess_batch_confounding(targets, batch_candidates, "primary_group", config_settings)
+  if (nrow(conf_df) > 0) {
+    write.csv(conf_df, file.path(out_dir, paste0(prefix, "_Batch_Confounding.csv")), row.names = FALSE)
+    for (bc in conf_df$batch) {
+      plot_confounding_heatmap(targets, bc, "primary_group", prefix, out_dir)
+    }
+    plot_confounding_summary(conf_df, prefix, out_dir)
+  }
+  tier3_batches <- conf_df$batch[conf_df$tier == 3]
+  tier3_batch <- if (length(tier3_batches) > 0) tier3_batches[1] else NULL
+  if (length(tier3_batches) > 0) {
+    log_decision("confounding", "tier3_batch", paste(tier3_batches, collapse = ","),
+                 reason = "non_identifiable_overlap")
+  }
+  conf_df$effect_strength <- ifelse(conf_df$voi_type == "continuous", conf_df$r2, conf_df$cramer_v)
+  eligible_df <- conf_df[conf_df$tier < 3, , drop = FALSE]
+  if (nrow(eligible_df) > 0) {
+    eligible_df <- eligible_df[order(eligible_df$tier, -eligible_df$effect_strength), ]
+  }
+  batch_col <- if (nrow(eligible_df) > 0) eligible_df$batch[1] else NULL
+  batch_tier <- if (!is.null(batch_col) && batch_col %in% conf_df$batch) conf_df$tier[match(batch_col, conf_df$batch)] else NA_integer_
+  if (!is.null(batch_col)) {
+    message(paste("  Selected batch candidate:", batch_col, "(tier", batch_tier, ")"))
+    log_decision("confounding", "batch_candidate", batch_col,
+                 reason = paste("tier", batch_tier))
+  } else {
+    message("  No eligible batch candidate found after confounding checks.")
   }
   if (!is.null(batch_col) && nrow(targets) >= 4) {
     message(paste("  Evaluating batch correction methods using batch factor:", batch_col))
-    M_mat <- logit_offset(betas)
-    methods <- c("none", "combat", "limma", "sva")
-    batch_results <- lapply(methods, function(m) {
-      tryCatch(eval_batch_method(M_mat, targets, group_col = "primary_group", batch_col = batch_col, covariates = covariates, method = m),
-               error = function(e) { message("    - ", m, " failed: ", e$message); NULL })
-    })
-    batch_results <- batch_results[!vapply(batch_results, is.null, logical(1))]
-    if (length(batch_results) > 0) {
+    covariates_full <- covariates
+    sel <- select_batch_strategy(
+      betas = betas,
+      targets = targets,
+      batch_col = batch_col,
+      batch_tier = batch_tier,
+      covariate_sets = covariate_sets,
+      group_col = "primary_group",
+      config_settings = config_settings,
+      scoring_preset = scoring_preset,
+      perm_n = perm_n,
+      vp_top = vp_top,
+      prefix = prefix,
+      out_dir = out_dir
+    )
+    best_method <- sel$best_method
+    if (!is.null(sel$candidates)) {
       batch_evaluated <- TRUE
-      batch_df <- do.call(rbind, lapply(batch_results, function(x) {
-        data.frame(method = x$method,
-                   score = x$score,
-                   batch_var = x$batch_var,
-                   group_var = x$group_var,
-                   n_pc_batch_sig = x$n_pc_batch_sig,
-                   prop_batch_sig = x$prop_batch_sig)
-      }))
+      batch_candidates_df <- sel$candidates
+      if (nrow(batch_candidates_df) > 0) {
+        best_candidate_score <- batch_candidates_df$total_score[1]
+      }
       out_batch_path <- file.path(out_dir, paste0(prefix, "_BatchMethodComparison.csv"))
-      write.csv(batch_df, out_batch_path, row.names = FALSE)
-      best_idx <- which.min(batch_df$score)
-      best_method <- batch_df$method[best_idx]
-      message(paste("  Best batch method by score:", best_method, "(saved to", out_batch_path, ")"))
-      
-      # Visualization: Batch Method Comparison
-      tryCatch({
-        plot_df <- batch_df[, c("method", "batch_var", "group_var", "score")]
-        # Normalize/Scale for visualization if needed, but raw values are informative enough for relative comparison
-        # Reshape to long (avoid extra package dependencies)
-        long_df <- rbind(
-          data.frame(method = plot_df$method, variable = "batch_var", value = plot_df$batch_var),
-          data.frame(method = plot_df$method, variable = "group_var", value = plot_df$group_var),
-          data.frame(method = plot_df$method, variable = "score", value = plot_df$score)
-        )
-        
-        # Add a flag for the best method
-        long_df$is_best <- long_df$method == best_method
-        
-        p_comp <- ggplot(long_df, aes(x = method, y = value, fill = variable, alpha = is_best)) +
-          geom_bar(stat = "identity", position = "dodge") +
-          scale_alpha_manual(values = c("FALSE"=0.6, "TRUE"=1.0), guide="none") +
-          scale_fill_manual(values = c("batch_var"="#e74c3c", "group_var"="#3498db", "score"="#95a5a6"),
-                            labels = c("Batch Residual (Lower is better)", "Group Signal (Higher is better)", "Combined Score (Lower is better)")) +
-          labs(title = paste(prefix, "Batch Correction Method Evaluation"),
-               subtitle = paste("Selected Best Method:", best_method),
-               y = "Metric Value", x = "Method", fill = "Metric") +
-          theme_minimal()
-          
-        save_interactive_plot(p_comp, paste0(prefix, "_Batch_Method_Comparison.html"), out_dir)
-        save_static_plot(p_comp, paste0(prefix, "_Batch_Method_Comparison.png"), out_dir, width = 7, height = 4)
-      }, error = function(e) {
-        message("  - Failed to generate batch comparison plot: ", e$message)
-      })
-    } else {
-      message("  Batch method comparison skipped: no results.")
+      write.csv(sel$candidates, out_batch_path, row.names = FALSE)
     }
+    if (length(sel$best_covariates) > 0) {
+      covariates <- sel$best_covariates
+      drop_covs <- setdiff(covariates_full, covariates)
+      if (length(drop_covs) > 0) {
+        drop_log <- rbind(drop_log, data.frame(Variable = drop_covs, Reason = "covariate_set_selection"))
+      }
+      log_decision("covariates", "selected_set", paste(covariates, collapse = ","), reason = "batch_opt")
+    }
+    message(paste("  Selected batch method:", best_method))
+    log_decision("batch_opt", "method", best_method, reason = "scored_selection")
   } else if (!is.null(batch_col)) {
     message("  Skipping batch method comparison (too few samples for stable evaluation).")
   } else {
@@ -2935,6 +3926,8 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   colnames(design) <- gsub("primary_group", "", colnames(design))
   colnames(design) <- make.unique(make.names(colnames(design)))
   group_cols <- make.names(levels(targets$primary_group))
+  design_base <- design
+  targets_base <- targets
   
   svobj <- NULL
   sv_cols <- character(0)
@@ -3142,6 +4135,17 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     run_pvca_assessment(clean_betas, targets, pvca_factors, paste0(prefix, "_AfterCorrection"), out_dir, threshold = 0.6, max_probes = 5000, sample_ids = colnames(clean_betas))
   }
 
+  betas_pre_correction <- betas
+  lambda_raw <- NA_real_
+  if (!is.null(design_base)) {
+    raw_res <- run_limma_dmp(betas_pre_correction, design_base, make.names(levels(targets_base$primary_group)))
+    if (!is.null(raw_res) && nrow(raw_res) > 0) {
+      pvals_raw <- raw_res$P.Value
+      chisq_vals_raw <- qchisq(1 - pvals_raw, 1)
+      lambda_raw <- median(chisq_vals_raw) / qchisq(0.5, 1)
+    }
+  }
+
   # Apply the selected batch correction method to the modeling matrix
   betas_for_model <- betas
   applied_batch_method <- "none"
@@ -3167,7 +4171,15 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   groups <- levels(targets$primary_group)
   if (length(groups) < 2) {
       message("Skipping stats: Not enough groups.")
-      return(list(res = NULL, n_con = n_con_local, n_test = n_test_local, n_samples = nrow(targets)))
+      branch_summary <- list(
+        pipeline = prefix,
+        n_samples = nrow(targets),
+        n_cpgs = nrow(betas),
+        batch_candidate = ifelse(is.null(batch_col), "", batch_col),
+        batch_tier = ifelse(is.na(batch_tier), "", batch_tier),
+        best_method = best_method
+      )
+      return(list(res = NULL, n_con = n_con_local, n_test = n_test_local, n_samples = nrow(targets), summary = branch_summary))
   }
   contrast_str <- paste0(groups[2], "-", groups[1])
   message(paste("  - Contrast:", contrast_str))
@@ -3753,12 +4765,21 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
       message(paste("  Running", perm_n, "permutations for null DMP counts (top", vp_top, "CpGs)..."))
       top_perm <- head(order(apply(betas, 1, var), decreasing = TRUE), min(vp_top, nrow(betas)))
       m_perm <- logit_offset(betas[top_perm, , drop=FALSE])
-      perm_results <- data.frame(run = integer(0), sig_count = integer(0), min_p = numeric(0))
+      perm_results <- data.frame(run = integer(0), sig_count = integer(0), min_p = numeric(0),
+                                 ks_p = numeric(0), lambda = numeric(0))
       perm_group_cols <- make.names(levels(targets$primary_group))
       perm_start <- Sys.time()
       
       for (i in seq_len(perm_n)) {
-          perm_labels <- sample(targets$primary_group)
+          perm_labels <- targets$primary_group
+          if (!is.null(batch_col) && batch_col %in% colnames(targets)) {
+              idx_list <- split(seq_len(nrow(targets)), targets[[batch_col]])
+              for (idx in idx_list) {
+                  perm_labels[idx] <- sample(perm_labels[idx])
+              }
+          } else {
+              perm_labels <- sample(perm_labels)
+          }
           perm_df <- data.frame(perm_labels = perm_labels)
           perm_design <- model.matrix(~ 0 + perm_labels, data = perm_df)
           colnames(perm_design) <- gsub("perm_labels", "", colnames(perm_design))
@@ -3798,7 +4819,12 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
           }
           sig <- sum(resp$adj.P.Val < pval_thresh & abs(resp$logFC) > lfc_thresh & delta_pass_perm, na.rm=TRUE)
           minp <- suppressWarnings(min(resp$P.Value, na.rm=TRUE))
-          perm_results <- rbind(perm_results, data.frame(run = i, sig_count = sig, min_p = minp))
+          pvals <- resp$P.Value
+          ks_p <- tryCatch(ks.test(pvals, "punif")$p.value, error = function(e) NA_real_)
+          chisq_vals <- qchisq(1 - pvals, 1)
+          lambda_val <- median(chisq_vals) / qchisq(0.5, 1)
+          perm_results <- rbind(perm_results, data.frame(run = i, sig_count = sig, min_p = minp,
+                                                         ks_p = ks_p, lambda = lambda_val))
           
           # Progress every 10 permutations (and at the end)
           if (i %% 10 == 0 || i == perm_n) {
@@ -3808,9 +4834,10 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
           }
       }
       perm_summary <- data.frame(
-        stat = c("mean_sig", "median_sig", "max_sig", "min_p_median"),
+        stat = c("mean_sig", "median_sig", "max_sig", "min_p_median", "ks_p_median", "lambda_median"),
         value = c(mean(perm_results$sig_count), median(perm_results$sig_count),
-                  max(perm_results$sig_count), median(perm_results$min_p))
+                  max(perm_results$sig_count), median(perm_results$min_p),
+                  median(perm_results$ks_p, na.rm = TRUE), median(perm_results$lambda, na.rm = TRUE))
       )
       write.csv(perm_results, file.path(out_dir, paste0(prefix, "_Permutation_Results.csv")), row.names = FALSE)
       write.csv(perm_summary, file.path(out_dir, paste0(prefix, "_Permutation_Summary.csv")), row.names = FALSE)
@@ -3859,6 +4886,35 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
       }
   }
   
+  if (!is.null(tier3_batch)) {
+    msg <- paste("Tier3 confounding detected for", tier3_batch, "- running stratified/meta analyses.")
+    message(paste("  ", msg))
+    log_decision("tier3", "fallback", tier3_batch, reason = "non_identifiable_batch")
+    ident_lines <- c(
+      paste("Tier3 confounding detected for batch variable:", tier3_batch),
+      "Primary VOI effect is not globally identifiable under batch removal.",
+      "Primary inference uses stratified EWAS + meta-analysis across overlap strata.",
+      "Pooled batch model and overlap-restricted analysis are reported as sensitivity checks."
+    )
+    writeLines(ident_lines, file.path(out_dir, paste0(prefix, "_Identifiability.txt")))
+    meta_res <- run_stratified_meta_analysis(
+      betas_pre_correction, targets, tier3_batch, "primary_group",
+      used_covariates, prefix, out_dir, pval_thresh, lfc_thresh, delta_beta_thresh
+    )
+    pooled_res <- run_pooled_batch_model(betas_pre_correction, targets, tier3_batch, used_covariates, prefix, out_dir)
+    overlap_res <- run_overlap_restricted_analysis(betas_pre_correction, targets, tier3_batch, "primary_group",
+                                                   used_covariates, prefix, out_dir)
+  }
+
+  if (!is.null(batch_candidates_df) && nrow(batch_candidates_df) > 0) {
+    top_methods <- batch_candidates_df$method[order(-batch_candidates_df$total_score)]
+    top_methods <- unique(top_methods)
+    top_methods <- head(top_methods, 3)
+    run_method_sensitivity(betas_pre_correction, targets_base, design_base, targets, design,
+                           batch_col, used_covariates, top_methods,
+                           prefix, out_dir, pval_thresh, lfc_thresh)
+  }
+
   # Metrics summary for reviewers
   exclude_batch <- c("primary_group", grep("^SV", rownames(pvals_before), value=TRUE))
   batch_before <- summarize_pvals(pvals_before, exclude = exclude_batch)
@@ -3869,13 +4925,16 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   }, error=function(e) NA)
   
   metrics <- data.frame(
-    metric = c("pipeline", "lambda", "batch_method_applied", "n_samples", "n_cpgs", "n_covariates_used", "covariates_used", "n_sv_used", "sv_used",
+    metric = c("pipeline", "lambda", "batch_method_applied", "batch_candidate", "batch_tier", "n_samples", "n_cpgs", "n_covariates_used", "covariates_used", "n_sv_used", "sv_used",
                "batch_sig_p_lt_0.05_before", "batch_min_p_before",
                "batch_sig_p_lt_0.05_after", "batch_min_p_after",
                "group_min_p_before", "group_min_p_after",
                "dropped_covariates",
-               "perm_mean_sig", "perm_max_sig", "vp_primary_group_mean"),
-    value = c(prefix, lambda_val, applied_batch_method, nrow(targets), nrow(betas), length(used_covariates),
+               "perm_mean_sig", "perm_max_sig", "perm_ks_p_median", "perm_lambda_median", "vp_primary_group_mean"),
+    value = c(prefix, lambda_val, applied_batch_method,
+              ifelse(is.null(batch_col), "", batch_col),
+              ifelse(is.na(batch_tier), "", batch_tier),
+              nrow(targets), nrow(betas), length(used_covariates),
               paste(used_covariates, collapse=";"),
               length(sv_cols), paste(sv_cols, collapse=";"),
               batch_before$sig_count, batch_before$min_p,
@@ -3884,10 +4943,23 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
               paste(unique(drop_log$Variable), collapse=";"),
               if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat=="mean_sig"] else NA,
               if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat=="max_sig"] else NA,
+              if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat=="ks_p_median"] else NA,
+              if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat=="lambda_median"] else NA,
               vp_primary)
   )
   metrics_path <- file.path(out_dir, paste0(prefix, "_Metrics.csv"))
   write.csv(metrics, metrics_path, row.names = FALSE)
+
+  ablation_df <- data.frame(
+    metric = c("lambda", "batch_sig_p_lt_0.05", "batch_min_p"),
+    raw = c(lambda_raw, batch_before$sig_count, batch_before$min_p),
+    corrected = c(lambda_val, batch_after$sig_count, batch_after$min_p)
+  )
+  write.csv(ablation_df, file.path(out_dir, paste0(prefix, "_Ablation_Summary.csv")), row.names = FALSE)
+
+  if (!is.null(batch_col)) {
+    run_batch_pseudo_voi(betas, targets, batch_col, used_covariates, prefix, out_dir)
+  }
   
   # Positive Control Check
   if (!is.null(opt$positive_controls)) {
@@ -3923,7 +4995,21 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
       }
   }
   
-  return(list(res = res, n_con = n_con_local, n_test = n_test_local, n_samples = nrow(targets)))
+  branch_summary <- list(
+    pipeline = prefix,
+    n_samples = nrow(targets),
+    n_cpgs = nrow(betas),
+    batch_candidate = ifelse(is.null(batch_col), "", batch_col),
+    batch_tier = ifelse(is.na(batch_tier), "", batch_tier),
+    best_method = best_method,
+    best_candidate_score = best_candidate_score,
+    covariates_used = used_covariates,
+    sv_used = sv_cols,
+    permutations = perm_n,
+    perm_ks_p_median = if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat == "ks_p_median"] else NA,
+    perm_lambda_median = if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat == "lambda_median"] else NA
+  )
+  return(list(res = res, n_con = n_con_local, n_test = n_test_local, n_samples = nrow(targets), summary = branch_summary))
 }
 
 run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
@@ -4016,6 +5102,33 @@ run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
     save_interactive_plot(p_ov, paste0(prefix, "_Significant_Overlap.html"), out_dir)
     save_static_plot(p_ov, paste0(prefix, "_Significant_Overlap.png"), out_dir, width = 7, height = 4)
 
+    discordant <- concord[
+      (sig_minfi & !sig_sesame) | (!sig_minfi & sig_sesame) |
+        (sign(concord$logFC.Minfi) != sign(concord$logFC.Sesame)),
+      , drop = FALSE
+    ]
+    if (nrow(discordant) > 0) {
+      write.csv(discordant, file.path(out_dir, paste0(prefix, "_Discordant_Probes.csv")), row.names = FALSE)
+      enrich_fields <- c("Region.Minfi", "Island_Context.Minfi")
+      for (fld in enrich_fields) {
+        if (fld %in% colnames(discordant)) {
+          vals <- as.character(discordant[[fld]])
+          tbl <- sort(table(vals), decreasing = TRUE)
+          enrich_df <- data.frame(Category = names(tbl), Count = as.integer(tbl),
+                                  Fraction = as.numeric(tbl) / nrow(discordant))
+          out_name <- paste0(prefix, "_Discordant_Enrichment_", gsub("[^A-Za-z0-9]", "_", fld), ".csv")
+          write.csv(enrich_df, file.path(out_dir, out_name), row.names = FALSE)
+        }
+      }
+    }
+    logfc_corr <- suppressWarnings(cor(concord$logFC.Minfi, concord$logFC.Sesame, use = "complete.obs"))
+    jaccard <- if (sum(sig_minfi | sig_sesame) > 0) n_both / sum(sig_minfi | sig_sesame) else NA_real_
+    comp_metrics <- data.frame(
+      metric = c("logFC_correlation", "jaccard_overlap", "n_both"),
+      value = c(logfc_corr, jaccard, n_both)
+    )
+    write.csv(comp_metrics, file.path(out_dir, paste0(prefix, "_Comparison_Metrics.csv")), row.names = FALSE)
+
   }, error = function(e) {
     message("Warning: Consensus (Intersection) outputs failed: ", e$message)
   })
@@ -4024,6 +5137,10 @@ run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
 
 minfi_out <- run_pipeline(beta_minfi, "Minfi", anno_df)
 res_minfi <- if (!is.null(minfi_out)) minfi_out$res else NULL
+minfi_summary <- if (!is.null(minfi_out)) minfi_out$summary else NULL
+if (!is.null(minfi_summary)) {
+  write_yaml_safe(minfi_summary, file.path(results_dirs$minfi, "branch_summary.yaml"))
+}
 rm(minfi_out, beta_minfi)
 invisible(gc())
 
@@ -4032,6 +5149,10 @@ res_sesame <- NULL
 if (!is.null(beta_sesame_strict)) {
   sesame_out <- run_pipeline(beta_sesame_strict, "Sesame", anno_df, targets_override = targets_sesame)
   res_sesame <- if (!is.null(sesame_out)) sesame_out$res else NULL
+  sesame_summary <- if (!is.null(sesame_out)) sesame_out$summary else NULL
+  if (!is.null(sesame_summary)) {
+    write_yaml_safe(sesame_summary, file.path(results_dirs$sesame, "branch_summary.yaml"))
+  }
   rm(sesame_out, beta_sesame_strict)
   invisible(gc())
 } else {
@@ -4043,6 +5164,10 @@ res_sesame_native <- NULL
 if (!is.null(beta_sesame_native)) {
   sesame_native_out <- run_pipeline(beta_sesame_native, "Sesame_Native", anno_df, targets_override = targets_sesame)
   res_sesame_native <- if (!is.null(sesame_native_out)) sesame_native_out$res else NULL
+  sesame_native_summary <- if (!is.null(sesame_native_out)) sesame_native_out$summary else NULL
+  if (!is.null(sesame_native_summary)) {
+    write_yaml_safe(sesame_native_summary, file.path(results_dirs$sesame_native, "branch_summary.yaml"))
+  }
   rm(sesame_native_out, beta_sesame_native)
   invisible(gc())
 } else {
@@ -4070,6 +5195,22 @@ summary_n_con <- n_con
 summary_n_test <- n_test
 
 tryCatch({
+  branch_df <- data.frame(
+    branch = c("Minfi", "Sesame", "Sesame_Native"),
+    best_candidate_score = c(
+      if (!is.null(minfi_summary)) minfi_summary$best_candidate_score else NA,
+      if (!is.null(sesame_summary)) sesame_summary$best_candidate_score else NA,
+      if (!is.null(sesame_native_summary)) sesame_native_summary$best_candidate_score else NA
+    ),
+    stringsAsFactors = FALSE
+  )
+  branch_df <- branch_df[!is.na(branch_df$best_candidate_score), , drop = FALSE]
+  primary_branch <- if (nrow(branch_df) > 0) branch_df$branch[which.max(branch_df$best_candidate_score)] else "Minfi"
+  branch_df$primary <- branch_df$branch == primary_branch
+  write.csv(branch_df, file.path(results_dirs$consensus, "comparison_metrics.csv"), row.names = FALSE)
+  log_decision("consensus", "primary_branch", primary_branch, reason = "best_candidate_score")
+  writeLines(primary_branch, file.path(results_dirs$consensus, "primary_branch.txt"))
+
   summary_json <- sprintf(
     paste0(
       '{"n_con": %d, "n_test": %d, ',
@@ -4089,10 +5230,25 @@ tryCatch({
   
   writeLines(summary_json, file.path(out_dir, "summary.json"))
   message("Summary statistics saved to summary.json")
+
+  consensus_files <- c(
+    "Intersection_Consensus_DMPs.csv",
+    "Intersection_Native_Consensus_DMPs.csv",
+    "Intersection_Discordant_Probes.csv",
+    "Intersection_Native_Discordant_Probes.csv",
+    "Intersection_Comparison_Metrics.csv",
+    "Intersection_Native_Comparison_Metrics.csv"
+  )
+  for (cf in consensus_files) {
+    src <- file.path(out_dir, cf)
+    if (file.exists(src)) {
+      file.copy(src, results_dirs$consensus, overwrite = TRUE)
+    }
+  }
   
   sva_rule <- ifelse(disable_sva, "disabled", "best_method_or_no_batch")
   params_json <- sprintf(
-    '{"pval_threshold": %.3f, "lfc_threshold": %.2f, "delta_beta_threshold": %.3f, "snp_maf": %.3f, "qc_intensity_threshold": %.1f, "detection_p_threshold": %.3f, "tissue": "%s", "tissue_source": "%s", "array_type": "%s", "cell_reference": "%s", "cell_reference_platform": "%s", "auto_covariate_alpha": %.3f, "auto_covariate_max_pcs": %d, "sesame_native_na_max_frac": %.2f, "sesame_native_impute_method": "%s", "sesame_native_knn_k": %d, "sesame_native_knn_max_rows": %d, "sesame_native_knn_ref_rows": %d, "sesame_cell_reference": "%s", "overcorrection_guard_ratio": %.2f, "undercorrection_guard_min_sv": %d, "sva_enabled": %s, "sva_inclusion_rule": "%s", "clock_covariates_enabled": %s, "sv_group_p_threshold": %.1e, "sv_group_eta2_threshold": %.2f, "pvca_min_samples": %d, "permutations": %d, "vp_top": %d, "dmr_maxgap": %d, "dmr_p_cutoff": %.3f, "logit_offset": %.6f, "seed": %d}',
+    '{"pval_threshold": %.3f, "lfc_threshold": %.2f, "delta_beta_threshold": %.3f, "snp_maf": %.3f, "qc_intensity_threshold": %.1f, "detection_p_threshold": %.3f, "tissue": "%s", "tissue_source": "%s", "array_type": "%s", "cell_reference": "%s", "cell_reference_platform": "%s", "auto_covariate_alpha": %.3f, "auto_covariate_max_pcs": %d, "sesame_native_na_max_frac": %.2f, "sesame_native_impute_method": "%s", "sesame_native_knn_k": %d, "sesame_native_knn_max_rows": %d, "sesame_native_knn_ref_rows": %d, "sesame_cell_reference": "%s", "overcorrection_guard_ratio": %.2f, "undercorrection_guard_min_sv": %d, "sva_enabled": %s, "sva_inclusion_rule": "%s", "clock_covariates_enabled": %s, "sv_group_p_threshold": %.1e, "sv_group_eta2_threshold": %.2f, "pvca_min_samples": %d, "permutations": %d, "vp_top": %d, "dmr_maxgap": %d, "dmr_p_cutoff": %.3f, "logit_offset": %.6f, "seed": %d, "preset": "%s", "config_yaml": "%s", "min_overlap_per_cell": %d, "confounding_tier1_v": %.2f, "confounding_tier2_v": %.2f, "confounding_tier1_r2": %.2f, "confounding_tier2_r2": %.2f, "calibration_ks_p": %.2f}',
     pval_thresh, lfc_thresh, delta_beta_thresh, SNP_MAF_THRESHOLD, QC_MEDIAN_INTENSITY_THRESHOLD,
     QC_DETECTION_P_THRESHOLD, tissue_use, tissue_source,
     ifelse(is.na(array_type), "", array_type), cell_reference, cell_reference_platform,
@@ -4100,7 +5256,11 @@ tryCatch({
     sesame_native_impute_method, SESAME_NATIVE_KNN_K, SESAME_NATIVE_KNN_MAX_ROWS, SESAME_NATIVE_KNN_REF_ROWS,
     sesame_cell_reference,
     OVERCORRECTION_GUARD_RATIO, UNDERCORRECTION_GUARD_MIN_SV, ifelse(disable_sva, "false", "true"), sva_rule, ifelse(include_clock_covariates, "true", "false"),
-    SV_GROUP_P_THRESHOLD, SV_GROUP_ETA2_THRESHOLD, PVCA_MIN_SAMPLES, perm_n, vp_top, DMR_MAXGAP, dmr_p_cutoff, LOGIT_OFFSET, 12345
+    SV_GROUP_P_THRESHOLD, SV_GROUP_ETA2_THRESHOLD, PVCA_MIN_SAMPLES, perm_n, vp_top, DMR_MAXGAP, dmr_p_cutoff, LOGIT_OFFSET, 12345,
+    preset_name, config_yaml_path, config_settings$min_overlap_per_cell,
+    config_settings$confounding$tier1_v, config_settings$confounding$tier2_v,
+    config_settings$confounding$tier1_r2, config_settings$confounding$tier2_r2,
+    config_settings$calibration$ks_p
   )
   writeLines(params_json, file.path(out_dir, "analysis_parameters.json"))
   message("Analysis parameters saved to analysis_parameters.json")
@@ -4116,6 +5276,30 @@ tryCatch({
 
 message("Saving session info...")
 writeLines(capture.output(sessionInfo()), file.path(out_dir, "sessionInfo.txt"))
+
+config_used <- list(
+  preset = preset_name,
+  config_yaml = ifelse(file.exists(config_yaml_path), config_yaml_path, ""),
+  min_overlap_per_cell = config_settings$min_overlap_per_cell,
+  confounding = config_settings$confounding,
+  batch_candidate_patterns = config_settings$batch_candidate_patterns,
+  forced_adjust = config_settings$forced_adjust,
+  allowed_adjust = config_settings$allowed_adjust,
+  do_not_adjust = config_settings$do_not_adjust,
+  calibration = config_settings$calibration,
+  scoring_preset = scoring_preset,
+  permutations = perm_n
+)
+write_yaml_safe(config_used, file.path(out_dir, "config_used.yaml"))
+if (nrow(decision_log) > 0) {
+  write.table(decision_log, file.path(out_dir, "decision_ledger.tsv"), sep = "\t", row.names = FALSE, col.names = TRUE)
+}
+file.copy(file.path(out_dir, "analysis_parameters.json"), results_dirs$logs, overwrite = TRUE)
+file.copy(file.path(out_dir, "sessionInfo.txt"), results_dirs$logs, overwrite = TRUE)
+file.copy(file.path(out_dir, "config_used.yaml"), results_dirs$logs, overwrite = TRUE)
+if (file.exists(file.path(out_dir, "decision_ledger.tsv"))) {
+  file.copy(file.path(out_dir, "decision_ledger.tsv"), results_dirs$logs, overwrite = TRUE)
+}
 
 tryCatch({
   qc_path <- file.path(out_dir, "QC_Summary.csv")
@@ -4201,7 +5385,10 @@ tryCatch({
     "- Sesame pipelines attempt Sesame-native cell composition; if unavailable, they try EpiDISH (Blood) or RefFreeEWAS on Sesame betas, and fall back to Minfi-derived covariates if needed.",
     sprintf("- Surrogate variable analysis (SVA): enabled unless `--disable_sva`; SVs are estimated on top-variable probes and included in the model only when selected as the best batch strategy or when no batch factor is evaluated (to avoid double correction). SVs strongly associated with the group (P < %.1e or Eta^2 > %.2f) are excluded to avoid over-correction.", SV_GROUP_P_THRESHOLD, SV_GROUP_ETA2_THRESHOLD),
     "- Epigenetic clock covariates: when `--include_clock_covariates` is enabled, clock outputs are merged into metadata and considered by auto covariate selection (clocks with missing/constant values are excluded).",
-    "- Batch method comparison: if a suitable unconfounded batch factor exists, multiple correction strategies are evaluated and a best method is chosen for modeling.",
+    "- Batch method comparison: batch candidates are screened for VOI confounding (Cramer's V / R2 and overlap tiers). Tier 3 triggers stratified/meta-analysis fallbacks; Tier 0-2 proceed to scoring.",
+    sprintf("- Optimization preset: `%s` (weights on batch removal, biology preservation, calibration, stability).", preset_name),
+    "- Calibration: permutation tests shuffle labels within batch strata to assess p-value uniformity (KS) and inflation.",
+    "- Decision ledger: automated decisions (covariates, batch choice, method) are logged with reasons.",
     "",
     "## Differential methylation (DMP)",
     sprintf("- Beta values are transformed to M-values with a logit offset of %.6f.", LOGIT_OFFSET),
@@ -4215,11 +5402,14 @@ tryCatch({
     "- Consensus DMPs are defined as CpGs significant in **both** minfi and sesame with the **same direction** under the same thresholds.",
     "- Consensus is computed for both the strict (Minfi-aligned) and native Sesame views.",
     "- Consensus outputs: `Intersection_Consensus_DMPs.*` and `Intersection_Native_Consensus_DMPs.*`, plus concordance/overlap plots.",
+    "- Primary branch is selected by the optimization score (see `results/consensus/primary_branch.txt`); the other branch is reported as sensitivity.",
     "",
     "## Reproducibility artifacts",
     "- `analysis_parameters.json`: run parameters and thresholds.",
     "- `sessionInfo.txt`: full R session/package versions.",
     "- `code_version.txt`: git commit hash (when available).",
+    "- `config_used.yaml`: resolved config and preset details.",
+    "- `decision_ledger.tsv`: auditable record of automated decisions.",
     "",
     "## QC summary (from QC_Summary.csv)",
     sprintf("- Total_samples_input: %s", qc_val("Total_samples_input", NA)),
@@ -4230,6 +5420,7 @@ tryCatch({
   )
   writeLines(methods_lines, file.path(out_dir, "methods.md"))
   message("Methods summary saved to methods.md")
+  file.copy(file.path(out_dir, "methods.md"), results_dirs$reports, overwrite = TRUE)
 }, error = function(e) {
   message("Warning: failed to write methods.md: ", e$message)
 })

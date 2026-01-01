@@ -585,6 +585,7 @@ def run_analysis(args):
         "--pval", str(args.pval),
         "--lfc", str(args.lfc),
         "--delta_beta", str(args.delta_beta),
+        "--permutations", str(args.permutations),
         "--min_total_size", str(args.min_total_size),
         "--qc_intensity_threshold", str(args.qc_intensity_threshold)
     ]
@@ -632,8 +633,10 @@ def run_analysis(args):
         cmd.extend(["--positive_controls", args.positive_controls])
     if args.skip_sesame:
         cmd.append("--skip-sesame")
-    if args.permutations and args.permutations > 0:
-        cmd.extend(["--permutations", str(args.permutations)])
+    if args.config_yaml:
+        cmd.extend(["--config_yaml", args.config_yaml])
+    if args.preset:
+        cmd.extend(["--preset", args.preset])
     if args.vp_top:
         cmd.extend(["--vp_top", str(args.vp_top)])
     if args.id_column:
@@ -1395,7 +1398,11 @@ def main():
     parser_analysis.add_argument("--cell-reference-platform", type=str, help="Reference platform for cell reference (e.g. IlluminaHumanMethylationEPIC or IlluminaHumanMethylation450k)")
     parser_analysis.add_argument("--positive_controls", type=str, help="Comma-separated list of known marker genes to verify (e.g. 'AHRR,CYP1A1')")
     parser_analysis.add_argument("--skip-sesame", action="store_true", help="Skip Sesame pipeline (Minfi only)")
-    parser_analysis.add_argument("--permutations", type=int, default=0, help="Number of label permutations for null DMP counts (0 to skip)")
+    parser_analysis.add_argument("--permutations", type=int, default=20,
+                                 help="Number of label permutations for null DMP counts (set 0 to use config minimum; set calibration.permutations_min=0 to disable)")
+    parser_analysis.add_argument("--config-yaml", type=str, help="Optional YAML config (default: config.yaml next to configure.tsv)")
+    parser_analysis.add_argument("--preset", type=str, default="conservative", choices=["conservative", "aggressive"],
+                                 help="Optimization preset (conservative or aggressive)")
     parser_analysis.add_argument("--vp-top", type=int, default=5000, help="Top-variable CpGs for variancePartition (default: 5000)")
     parser_analysis.add_argument("--id-column", type=str, help="Column in configure.tsv to treat as sample ID (useful for non-GEO datasets)")
     parser_analysis.add_argument("--min-total-size", type=int, default=6, help="Minimum total sample size required to proceed (default: 6)")

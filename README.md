@@ -544,9 +544,35 @@ Open the generated HTML:
 ## Usage
 
 ### Search GEO for IDAT-enabled datasets
+Beginner-friendly flow:
+1) Activate your environment (conda or venv).
+2) Run a search with simple keywords.
+3) Open the TSV and pick a GSE ID to analyze.
+
 ```bash
+# Required: --keywords (use quotes for multi-word queries)
 python3 illusearch.py --keywords "breast cancer" --email your_email@example.com -o search_results.tsv
+
+# Faster (skip FTP supplement checks)
+python3 illusearch.py --keywords "breast cancer" --no-check-suppl -o search_results.tsv
 ```
+Output columns:
+- `gse_id`: GEO Series ID to use with `illumeta.py download`
+- `platform_type`: 450k / 850k / 950k
+- `suppl_has_idat`: yes/no/error (only if supplement checks are enabled)
+
+If you see `Error: Python package 'requests' is missing`, install it via:
+`pip install -r requirements.txt` (inside your env).
+
+### Check installation (illumeta doctor)
+Use this before a first run or when something looks wrong. It does not install anything.
+```bash
+python3 illumeta.py doctor
+```
+How to read the output:
+- **Core R packages: OK** = ready to run analysis.
+- **Optional R packages missing** = some optional features (e.g., clocks) are disabled; this is safe for most users.
+
 
 ### Analyze your own IDATs (non-GEO)
 1. Create `my_project/idat/` and place `_Grn.idat` / `_Red.idat` pairs there.
@@ -599,7 +625,27 @@ python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_te
 
 # Mixed-array safeguard override (only if you know what you're doing)
 python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --force-idat
+
+# Permutation-based null test ("perm")
+# Note: there is no `illumeta perm` command; use --permutations with analysis.
+python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --permutations 50
 ```
+
+### Permutation test ("perm") for beginners
+This checks how many significant DMPs you would get by chance if labels were shuffled.
+
+How to run it:
+```bash
+python3 illumeta.py analysis \
+  -i projects/GSE12345 \
+  --group_con Control \
+  --group_test Case \
+  --permutations 50
+```
+Tips:
+- Start small (e.g., 10–50). Larger values take longer.
+- Results are saved as `*_Permutation_Results.csv` and `*_Permutation_Summary.csv`.
+- The dashboard shows **Perm mean/max sig (null)** so you can compare against real results.
 
 ## Outputs (what to use in a paper)
 

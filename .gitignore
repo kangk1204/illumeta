@@ -11,10 +11,14 @@ __pycache__/
 .r-lib/
 # Local R library path marker
 .illumeta_r_lib_path
+# R setup marker (local)
+.r_setup_done
 # Local analysis outputs / scratch
 projects/
 *_results/
+*_results_*/
 *_results_index.html
+*_results*_index.html
 batch_report.csv
 batch_runner.py
 cancer_candidates.tsv

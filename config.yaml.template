@@ -1,0 +1,44 @@
+# IlluMeta config template (copy to config.yaml or pass via --config-yaml)
+preset: conservative
+min_overlap_per_cell: 2
+
+qc:
+  detection_p_threshold: 0.01
+  sample_fail_frac: 0.05
+
+dmr:
+  min_cpgs: 2
+
+confounding:
+  tier1_v: 0.2
+  tier2_v: 0.4
+  tier1_r2: 0.1
+  tier2_r2: 0.25
+
+batch_candidate_patterns: ["sentrix", "slide", "array", "plate", "chip", "batch"]
+batch_candidates: []  # Optional explicit list, e.g. ["Sentrix_ID", "Sentrix_Position"]
+
+forced_adjust: []
+allowed_adjust: []
+do_not_adjust: []
+
+missingness:
+  max_frac: 0.2
+  impute_max_frac: 0.1
+
+collinearity:
+  cor_threshold: 0.9
+
+calibration:
+  ks_p: 0.05
+  permutations_min: 20
+
+scoring_presets:
+  conservative:
+    weights: {batch: 0.20, bio: 0.35, cal: 0.25, stab: 0.20}
+    guards: {batch_reduction_min: 0.20, pc_batch_r2_reduction: 0.30, bio_min: 0.85}
+    top_k: 5
+  aggressive:
+    weights: {batch: 0.35, bio: 0.25, cal: 0.15, stab: 0.25}
+    guards: {batch_reduction_min: 0.25, mix_improve: 0.05, bio_min: 0.80}
+    top_k: 5

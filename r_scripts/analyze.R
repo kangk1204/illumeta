@@ -135,6 +135,12 @@ option_list <- list(
               help="Minimum total sample size required to proceed (default: 6)."),
   make_option(c("--qc_intensity_threshold"), type="double", default=10.5,
               help="Median M/U signal intensity threshold for sample QC (log2). Set <=0 to disable intensity-based sample drop (default: 10.5)"),
+  make_option(c("--qc_detection_p_threshold"), type="double", default=NA_real_,
+              help="Detection P-value threshold for sample/probe QC (default: 0.01)."),
+  make_option(c("--qc_sample_fail_frac"), type="double", default=NA_real_,
+              help="Sample fail fraction for detection P-value QC (default: 0.05)."),
+  make_option(c("--dmr_min_cpgs"), type="integer", default=NA_integer_,
+              help="Minimum CpGs per DMR to retain (default: 2)."),
   make_option(c("--force_idat"), action="store_true", default=FALSE,
               help="Force reading IDATs when array sizes differ but types are similar (passes force=TRUE to read.metharray).")
 )
@@ -171,6 +177,7 @@ PVCA_MIN_SAMPLES <- 8
 DMR_MAXGAP <- 500
 DMR_P_CUTOFF_DEFAULT <- 0.05
 DMR_LABEL_TOP_N <- 15
+DMR_MIN_CPGS <- 2
 BATCH_EVAL_TOP_VAR <- 20000
 MIN_GROUP_SIZE_WARN <- 3
 MIN_TOTAL_SIZE_STOP <- NULL
@@ -178,6 +185,13 @@ MIN_TOTAL_SIZE_STOP <- NULL
 CONFIG_DEFAULTS <- list(
   preset = "conservative",
   min_overlap_per_cell = 2,
+  qc = list(
+    detection_p_threshold = 0.01,
+    sample_fail_frac = 0.05
+  ),
+  dmr = list(
+    min_cpgs = 2
+  ),
   confounding = list(
     tier1_v = 0.2,
     tier2_v = 0.4,
@@ -340,6 +354,16 @@ id_col_override <- opt$id_column
 MIN_TOTAL_SIZE_STOP <- max(2, opt$min_total_size)
 force_idat <- opt$force_idat
 QC_MEDIAN_INTENSITY_THRESHOLD <- ifelse(opt$qc_intensity_threshold <= 0, -Inf, opt$qc_intensity_threshold)
+qc_det_p <- config_settings$qc$detection_p_threshold
+if (!is.na(opt$qc_detection_p_threshold)) qc_det_p <- opt$qc_detection_p_threshold
+QC_DETECTION_P_THRESHOLD <- qc_det_p
+qc_fail_frac <- config_settings$qc$sample_fail_frac
+if (!is.na(opt$qc_sample_fail_frac)) qc_fail_frac <- opt$qc_sample_fail_frac
+QC_SAMPLE_DET_FAIL_FRAC <- qc_fail_frac
+dmr_min_cpgs <- config_settings$dmr$min_cpgs
+if (!is.na(opt$dmr_min_cpgs)) dmr_min_cpgs <- opt$dmr_min_cpgs
+if (!is.finite(dmr_min_cpgs) || dmr_min_cpgs < 1) dmr_min_cpgs <- 1
+DMR_MIN_CPGS <- as.integer(dmr_min_cpgs)
 dmr_p_cutoff <- pval_thresh
 if (!is.finite(dmr_p_cutoff) || dmr_p_cutoff <= 0) {
   dmr_p_cutoff <- DMR_P_CUTOFF_DEFAULT
@@ -2933,6 +2957,46 @@ run_batch_pseudo_voi <- function(betas, targets, batch_col, covariates, prefix, 
   out
 }
 
+profile_input_columns <- function(df) {
+  cols <- colnames(df)
+  out <- lapply(cols, function(col) {
+    vals <- df[[col]]
+    vals_chr <- if (is.character(vals)) vals else as.character(vals)
+    vals_chr <- trimws(vals_chr)
+    missing <- is.na(vals) | vals_chr == ""
+    non_missing <- vals_chr[!missing]
+    dtype <- if (is.numeric(vals) || is.integer(vals)) "numeric" else "categorical"
+    data.frame(
+      column = col,
+      dtype_guess = dtype,
+      missing_count = sum(missing),
+      missing_frac = ifelse(length(vals) > 0, sum(missing) / length(vals), 0),
+      unique_non_missing = length(unique(non_missing)),
+      example_values = paste(head(non_missing, 3), collapse = ";"),
+      stringsAsFactors = FALSE
+    )
+  })
+  do.call(rbind, out)
+}
+
+write_input_profile <- function(targets, out_dir) {
+  if (is.null(targets) || nrow(targets) == 0) return(invisible(NULL))
+  prof <- profile_input_columns(targets)
+  write.csv(prof, file.path(out_dir, "Input_Profile.csv"), row.names = FALSE)
+  high_missing <- prof$column[prof$missing_frac >= 0.5]
+  constant_cols <- prof$column[prof$unique_non_missing <= 1]
+  if (length(high_missing) > 0) {
+    message(paste("Warning: high missingness columns (>=50%):", paste(head(high_missing, 8), collapse = ", ")))
+  }
+  if (length(constant_cols) > 0) {
+    message(paste("Warning: constant columns will be ignored:", paste(head(constant_cols, 8), collapse = ", ")))
+  }
+  grp_tbl <- table(targets$primary_group, useNA = "ifany")
+  grp_df <- data.frame(group = names(grp_tbl), n = as.integer(grp_tbl), stringsAsFactors = FALSE)
+  write.csv(grp_df, file.path(out_dir, "Input_Group_Distribution.csv"), row.names = FALSE)
+  invisible(prof)
+}
+
 # --- 1. Load and Prepare Data ---
 
 set.seed(12345) # Ensure reproducibility
@@ -2946,6 +3010,7 @@ if ("Sentrix_Position" %in% colnames(targets)) targets$Sentrix_Position <- as.fa
 
 if (!"primary_group" %in% colnames(targets)) stop("configure.tsv missing 'primary_group' column.")
 targets$primary_group <- trimws(targets$primary_group) # remove whitespace
+write_input_profile(targets, out_dir)
 
 arg_tissue_norm <- normalize_tissue(opt$tissue)
 if (!is.na(arg_tissue_norm)) tissue_use <- arg_tissue_norm
@@ -4470,6 +4535,12 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
       )
       
       if (nrow(dmr_res) > 0) {
+          if (DMR_MIN_CPGS > 1) {
+            dmr_before <- nrow(dmr_res)
+            dmr_res <- dmr_res[dmr_res$n >= DMR_MIN_CPGS, , drop = FALSE]
+            message(paste("    - Filtered DMRs by min CpGs >=", DMR_MIN_CPGS, ":", dmr_before, "->", nrow(dmr_res)))
+          }
+          if (nrow(dmr_res) > 0) {
           dmr_res <- annotate_dmr(dmr_res, curr_anno)
           dmr_res <- compute_dmr_delta_beta(dmr_res, dmr_anno, dmr_mean_con, dmr_mean_test)
           dmr_res <- dmr_res[order(dmr_res$p.value, dmr_res$p.adjust, na.last = TRUE), ]
@@ -4660,6 +4731,9 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
                save_static_plot(p_heat_dmr, paste0(prefix, "_Top_DMRs_Heatmap.png"), out_dir, width = 8, height = 8)
           }
           
+      } else {
+          message("    - No DMRs remain after min CpG filter.")
+      }
       } else {
           message("    - No DMRs found.")
       }
@@ -5248,15 +5322,15 @@ tryCatch({
   
   sva_rule <- ifelse(disable_sva, "disabled", "best_method_or_no_batch")
   params_json <- sprintf(
-    '{"pval_threshold": %.3f, "lfc_threshold": %.2f, "delta_beta_threshold": %.3f, "snp_maf": %.3f, "qc_intensity_threshold": %.1f, "detection_p_threshold": %.3f, "tissue": "%s", "tissue_source": "%s", "array_type": "%s", "cell_reference": "%s", "cell_reference_platform": "%s", "auto_covariate_alpha": %.3f, "auto_covariate_max_pcs": %d, "sesame_native_na_max_frac": %.2f, "sesame_native_impute_method": "%s", "sesame_native_knn_k": %d, "sesame_native_knn_max_rows": %d, "sesame_native_knn_ref_rows": %d, "sesame_cell_reference": "%s", "overcorrection_guard_ratio": %.2f, "undercorrection_guard_min_sv": %d, "sva_enabled": %s, "sva_inclusion_rule": "%s", "clock_covariates_enabled": %s, "sv_group_p_threshold": %.1e, "sv_group_eta2_threshold": %.2f, "pvca_min_samples": %d, "permutations": %d, "vp_top": %d, "dmr_maxgap": %d, "dmr_p_cutoff": %.3f, "logit_offset": %.6f, "seed": %d, "preset": "%s", "config_yaml": "%s", "min_overlap_per_cell": %d, "confounding_tier1_v": %.2f, "confounding_tier2_v": %.2f, "confounding_tier1_r2": %.2f, "confounding_tier2_r2": %.2f, "calibration_ks_p": %.2f}',
+    '{"pval_threshold": %.3f, "lfc_threshold": %.2f, "delta_beta_threshold": %.3f, "snp_maf": %.3f, "qc_intensity_threshold": %.1f, "detection_p_threshold": %.3f, "qc_sample_fail_frac": %.3f, "tissue": "%s", "tissue_source": "%s", "array_type": "%s", "cell_reference": "%s", "cell_reference_platform": "%s", "auto_covariate_alpha": %.3f, "auto_covariate_max_pcs": %d, "sesame_native_na_max_frac": %.2f, "sesame_native_impute_method": "%s", "sesame_native_knn_k": %d, "sesame_native_knn_max_rows": %d, "sesame_native_knn_ref_rows": %d, "sesame_cell_reference": "%s", "overcorrection_guard_ratio": %.2f, "undercorrection_guard_min_sv": %d, "sva_enabled": %s, "sva_inclusion_rule": "%s", "clock_covariates_enabled": %s, "sv_group_p_threshold": %.1e, "sv_group_eta2_threshold": %.2f, "pvca_min_samples": %d, "permutations": %d, "vp_top": %d, "dmr_maxgap": %d, "dmr_p_cutoff": %.3f, "dmr_min_cpgs": %d, "logit_offset": %.6f, "seed": %d, "preset": "%s", "config_yaml": "%s", "min_overlap_per_cell": %d, "confounding_tier1_v": %.2f, "confounding_tier2_v": %.2f, "confounding_tier1_r2": %.2f, "confounding_tier2_r2": %.2f, "calibration_ks_p": %.2f}',
     pval_thresh, lfc_thresh, delta_beta_thresh, SNP_MAF_THRESHOLD, QC_MEDIAN_INTENSITY_THRESHOLD,
-    QC_DETECTION_P_THRESHOLD, tissue_use, tissue_source,
+    QC_DETECTION_P_THRESHOLD, QC_SAMPLE_DET_FAIL_FRAC, tissue_use, tissue_source,
     ifelse(is.na(array_type), "", array_type), cell_reference, cell_reference_platform,
     AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION, SESAME_NATIVE_NA_MAX_FRAC,
     sesame_native_impute_method, SESAME_NATIVE_KNN_K, SESAME_NATIVE_KNN_MAX_ROWS, SESAME_NATIVE_KNN_REF_ROWS,
     sesame_cell_reference,
     OVERCORRECTION_GUARD_RATIO, UNDERCORRECTION_GUARD_MIN_SV, ifelse(disable_sva, "false", "true"), sva_rule, ifelse(include_clock_covariates, "true", "false"),
-    SV_GROUP_P_THRESHOLD, SV_GROUP_ETA2_THRESHOLD, PVCA_MIN_SAMPLES, perm_n, vp_top, DMR_MAXGAP, dmr_p_cutoff, LOGIT_OFFSET, 12345,
+    SV_GROUP_P_THRESHOLD, SV_GROUP_ETA2_THRESHOLD, PVCA_MIN_SAMPLES, perm_n, vp_top, DMR_MAXGAP, dmr_p_cutoff, DMR_MIN_CPGS, LOGIT_OFFSET, 12345,
     preset_name, config_yaml_path, config_settings$min_overlap_per_cell,
     config_settings$confounding$tier1_v, config_settings$confounding$tier2_v,
     config_settings$confounding$tier1_r2, config_settings$confounding$tier2_r2,
@@ -5281,6 +5355,8 @@ config_used <- list(
   preset = preset_name,
   config_yaml = ifelse(file.exists(config_yaml_path), config_yaml_path, ""),
   min_overlap_per_cell = config_settings$min_overlap_per_cell,
+  qc = config_settings$qc,
+  dmr = config_settings$dmr,
   confounding = config_settings$confounding,
   batch_candidate_patterns = config_settings$batch_candidate_patterns,
   forced_adjust = config_settings$forced_adjust,
@@ -5396,7 +5472,7 @@ tryCatch({
     "- Multiple testing is controlled by Benjamini–Hochberg FDR.",
     "",
     "## Differentially methylated regions (DMR)",
-    sprintf("- DMRs are called with `dmrff` (maxgap=%d; p.cutoff=%.3f).", DMR_MAXGAP, dmr_p_cutoff),
+    sprintf("- DMRs are called with `dmrff` (maxgap=%d; p.cutoff=%.3f; min_cpgs=%d).", DMR_MAXGAP, dmr_p_cutoff, DMR_MIN_CPGS),
     "",
     "## Consensus (intersection) call set",
     "- Consensus DMPs are defined as CpGs significant in **both** minfi and sesame with the **same direction** under the same thresholds.",

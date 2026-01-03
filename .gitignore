@@ -13,6 +13,8 @@ __pycache__/
 .illumeta_r_lib_path
 # Local analysis outputs / scratch
 projects/
+*_results/
+*_results_index.html
 batch_report.csv
 batch_runner.py
 cancer_candidates.tsv

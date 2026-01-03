@@ -40,6 +40,41 @@ def load_config_rows(path: str):
         rows = [row for row in reader]
     return rows, reader.fieldnames or [], delim
 
+def is_number(value: str) -> bool:
+    try:
+        float(value)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+def profile_columns(rows, headers):
+    profiles = []
+    for col in headers:
+        raw_vals = [row.get(col, "") for row in rows]
+        vals = []
+        for v in raw_vals:
+            if v is None:
+                vals.append("")
+            elif isinstance(v, str):
+                vals.append(v.strip())
+            else:
+                vals.append(str(v).strip())
+        missing = [v == "" for v in vals]
+        non_missing = [v for v, m in zip(vals, missing) if not m]
+        unique_vals = set(non_missing)
+        numeric_count = sum(1 for v in non_missing if is_number(v))
+        numeric_frac = numeric_count / len(non_missing) if non_missing else 0.0
+        dtype = "numeric" if numeric_frac >= 0.9 else "categorical"
+        profiles.append({
+            "column": col,
+            "missing_count": sum(missing),
+            "missing_frac": (sum(missing) / len(vals)) if vals else 0.0,
+            "unique_non_missing": len(unique_vals),
+            "dtype_guess": dtype,
+            "example_values": non_missing[:3],
+        })
+    return profiles
+
 def resolve_id_column(headers, override=None):
     if override:
         if override not in headers:
@@ -145,7 +180,11 @@ def preflight_analysis(config_path: str, idat_dir: str, group_con: str, group_te
 
     con_lower = (group_con or "").strip().lower()
     test_lower = (group_test or "").strip().lower()
+    if con_lower == test_lower:
+        raise ValueError("Control and test group labels are identical; please provide distinct labels.")
     group_vals = [(row.get("primary_group") or "").strip().lower() for row in rows]
+    if any(g == "" for g in group_vals):
+        raise ValueError("primary_group column contains missing/empty values. Please fill before analysis.")
     n_con = sum(1 for g in group_vals if g == con_lower)
     n_test = sum(1 for g in group_vals if g == test_lower)
     n_total = n_con + n_test
@@ -154,11 +193,50 @@ def preflight_analysis(config_path: str, idat_dir: str, group_con: str, group_te
     if min_total_size and n_total < min_total_size:
         raise ValueError(f"Too few samples after group selection: {n_total} < min_total_size ({min_total_size}).")
 
+    warnings = []
+    other_groups = sorted(set(g for g in group_vals if g and g not in {con_lower, test_lower}))
+    if other_groups:
+        preview = ", ".join(other_groups[:5])
+        warnings.append(
+            f"Found {len(other_groups)} additional group label(s) that will be ignored "
+            f"({preview}{'...' if len(other_groups) > 5 else ''})."
+        )
+    batch_patterns = r"(sentrix|slide|array|plate|chip|batch)"
+    batch_candidates = [h for h in headers if re.search(batch_patterns, h, flags=re.IGNORECASE)]
+    if not batch_candidates:
+        warnings.append(
+            "No batch candidate columns detected (e.g., Sentrix_ID/Position/plate). "
+            "Batch correction may be limited."
+        )
+    profiles = profile_columns(rows, headers)
+    high_missing = [p["column"] for p in profiles
+                    if p["missing_frac"] >= 0.5 and p["column"] not in (id_col, "Basename", "primary_group")]
+    if high_missing:
+        warnings.append(
+            "High missingness columns (>=50% empty): " + ", ".join(high_missing[:8]) +
+            ("..." if len(high_missing) > 8 else "")
+        )
+    constant_cols = [p["column"] for p in profiles
+                     if p["unique_non_missing"] <= 1 and p["column"] not in (id_col, "Basename", "primary_group")]
+    if constant_cols:
+        warnings.append(
+            "Constant columns will be ignored: " + ", ".join(constant_cols[:8]) +
+            ("..." if len(constant_cols) > 8 else "")
+        )
+
     return {
         "idat_dir": idat_dir,
         "sample_count": len(rows),
         "group_con": n_con,
         "group_test": n_test,
+        "warnings": warnings,
+        "column_profile": profiles,
+        "batch_candidates": batch_candidates,
+        "group_labels": {
+            "control": group_con,
+            "test": group_test,
+            "other": other_groups,
+        },
     }
 
 def detect_r_major_minor(env=None):
@@ -610,6 +688,30 @@ def run_analysis(args):
         )
         log(f"[*] Preflight OK: samples={preflight['sample_count']}, "
             f"{args.group_con}={preflight['group_con']}, {args.group_test}={preflight['group_test']}")
+        if preflight.get("warnings"):
+            log("[!] Preflight warnings:")
+            for warn in preflight["warnings"]:
+                log(f"    - {warn}")
+        preflight_report_path = os.path.join(output_dir, "preflight_report.json")
+        with open(preflight_report_path, "w", encoding="utf-8") as handle:
+            json.dump(
+                {
+                    "config_path": config_path,
+                    "idat_dir": preflight.get("idat_dir"),
+                    "sample_count": preflight.get("sample_count"),
+                    "group_counts": {
+                        "control": preflight.get("group_con"),
+                        "test": preflight.get("group_test"),
+                    },
+                    "group_labels": preflight.get("group_labels", {}),
+                    "batch_candidates": preflight.get("batch_candidates", []),
+                    "warnings": preflight.get("warnings", []),
+                    "column_profile": preflight.get("column_profile", []),
+                },
+                handle,
+                indent=2,
+                ensure_ascii=True,
+            )
     except ValueError as e:
         log_err(f"[!] Preflight check failed: {e}")
         sys.exit(1)
@@ -637,6 +739,12 @@ def run_analysis(args):
         cmd.extend(["--config_yaml", args.config_yaml])
     if args.preset:
         cmd.extend(["--preset", args.preset])
+    if args.qc_detection_p_threshold is not None:
+        cmd.extend(["--qc_detection_p_threshold", str(args.qc_detection_p_threshold)])
+    if args.qc_sample_fail_frac is not None:
+        cmd.extend(["--qc_sample_fail_frac", str(args.qc_sample_fail_frac)])
+    if args.dmr_min_cpgs is not None:
+        cmd.extend(["--dmr_min_cpgs", str(args.dmr_min_cpgs)])
     if args.vp_top:
         cmd.extend(["--vp_top", str(args.vp_top)])
     if args.id_column:
@@ -1407,6 +1515,12 @@ def main():
     parser_analysis.add_argument("--id-column", type=str, help="Column in configure.tsv to treat as sample ID (useful for non-GEO datasets)")
     parser_analysis.add_argument("--min-total-size", type=int, default=6, help="Minimum total sample size required to proceed (default: 6)")
     parser_analysis.add_argument("--qc-intensity-threshold", type=float, default=10.5, help="Median M/U intensity threshold (log2). Set <=0 to disable intensity-based sample drop (default: 10.5)")
+    parser_analysis.add_argument("--qc-detection-p-threshold", type=float, default=None,
+                                 help="Detection P-value threshold for sample/probe QC (default: 0.01 in config).")
+    parser_analysis.add_argument("--qc-sample-fail-frac", type=float, default=None,
+                                 help="Sample-level fail fraction (probes with P>threshold) to exclude samples (default: 0.05).")
+    parser_analysis.add_argument("--dmr-min-cpgs", type=int, default=None,
+                                 help="Minimum CpGs per DMR to retain (default: 2).")
     parser_analysis.add_argument("--force-idat", action="store_true", help="Force reading IDATs if array sizes differ but types are similar")
 
     # Doctor Command

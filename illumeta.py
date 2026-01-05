@@ -139,7 +139,9 @@ def has_idat_pair(basename: str) -> bool:
 
 def preflight_analysis(config_path: str, idat_dir: str, group_con: str, group_test: str,
                        min_total_size: int, id_column: str = None):
-    rows, headers, _ = load_config_rows(config_path)
+    rows, headers, delim = load_config_rows(config_path)
+    if delim != "\t":
+        raise ValueError("configure.tsv must be tab-delimited (TSV). CSV/other delimiters are not supported.")
     if not headers:
         raise ValueError("configure.tsv appears empty or unreadable.")
     if "primary_group" not in headers:

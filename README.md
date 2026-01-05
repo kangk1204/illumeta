@@ -518,6 +518,7 @@ python3 illumeta.py download GSE121633 -o projects/GSE121633
 
 ### 2) Assign groups
 Edit `projects/GSE121633/configure.tsv` and fill in `primary_group` (e.g., `Control` / `Case`).
+`configure.tsv` must be **tab-delimited (TSV)**; CSV is not supported.
 
 ### 3) Run analysis
 ```bash
@@ -576,7 +577,7 @@ How to read the output:
 
 ### Analyze your own IDATs (non-GEO)
 1. Create `my_project/idat/` and place `_Grn.idat` / `_Red.idat` pairs there.
-2. Create `my_project/configure.tsv` with at least:
+2. Create `my_project/configure.tsv` with at least (tab-delimited TSV; CSV is not supported):
    - `Basename` (e.g., `idat/Sample1_R01C01`)
    - `primary_group` (e.g., `Treated`, `Untreated`)
    - Optional: `tissue` (e.g., `Blood`, `CordBlood`, `Placenta`) to auto-select reference
@@ -712,6 +713,7 @@ Common issues:
 - **Missing IDAT pairs**: see `Preflight_IDAT_Pairs.csv` and ensure each basename has both `_Grn.idat` and `_Red.idat` (or `.gz`) files.
 - **Reference package unavailable** (e.g., FlowSorted.* not in your Bioconductor): IlluMeta falls back to RefFreeEWAS; consider `--cell-reference` or upgrading R/Bioconductor.
 - **Sesame: `No normalization control probes found!`**: some EPIC IDATs do not include normalization controls or the cache is stale. IlluMeta now attempts a one-time refresh of `EPIC.1.SigDF` and retries automatically; you can also run `R -q -e 'library(sesame); sesameDataCache("EPIC.1.SigDF")'` manually. If it persists, IlluMeta continues without dye bias correction (or use `--skip-sesame`).
+- **CSV configure file**: IlluMeta requires `configure.tsv` to be **tab-delimited**. Convert CSV to TSV and retry.
 
 ## Citation
 See `CITATION.cff`.

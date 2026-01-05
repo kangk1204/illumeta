@@ -3002,6 +3002,10 @@ write_input_profile <- function(targets, out_dir) {
 set.seed(12345) # Ensure reproducibility
 
 message("Loading configuration...")
+first_line <- tryCatch(readLines(config_file, n = 1, warn = FALSE), error = function(e) "")
+if (!length(first_line) || !grepl("\t", first_line)) {
+  stop("configure.tsv must be tab-delimited (TSV). CSV/other delimiters are not supported.")
+}
 targets <- read.delim(config_file, stringsAsFactors = FALSE)
 
 # Force Batch/ID columns to be factors (categorical)

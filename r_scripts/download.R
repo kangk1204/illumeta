@@ -12,7 +12,10 @@ option_list <- list(
   make_option(c("-g", "--gse"), type="character", default=NULL, 
               help="GEO Series ID (e.g., GSE86831)", metavar="character"),
   make_option(c("-o", "--out"), type="character", default=".", 
-              help="Output directory", metavar="character")
+              help="Output directory", metavar="character"),
+  make_option(c("--platform"), type="character", default="",
+              help="Optional platform ID (e.g., GPL21145) to force selection when multiple platforms exist",
+              metavar="character")
 )
 
 opt_parser <- OptionParser(option_list=option_list)
@@ -40,7 +43,14 @@ if (!dir.exists(idat_dir)) {
 
 message(paste("Fetching metadata for:", gse_id))
 
-retry_run <- function(fn, label = "request", attempts = 3, wait = 3) {
+retry_attempts <- suppressWarnings(as.integer(Sys.getenv("ILLUMETA_DOWNLOAD_RETRIES", "3")))
+if (!is.finite(retry_attempts) || retry_attempts < 1) retry_attempts <- 3
+retry_wait <- suppressWarnings(as.numeric(Sys.getenv("ILLUMETA_DOWNLOAD_WAIT", "3")))
+if (!is.finite(retry_wait) || retry_wait < 0) retry_wait <- 3
+retry_backoff <- suppressWarnings(as.numeric(Sys.getenv("ILLUMETA_DOWNLOAD_BACKOFF", "1")))
+if (!is.finite(retry_backoff) || retry_backoff < 1) retry_backoff <- 1
+
+retry_run <- function(fn, label = "request", attempts = retry_attempts, wait = retry_wait, backoff = retry_backoff) {
   last_err <- NULL
   last_msg <- ""
   for (i in seq_len(attempts)) {
@@ -54,31 +64,55 @@ retry_run <- function(fn, label = "request", attempts = 3, wait = 3) {
       last_msg <- "returned NULL"
     }
     message(sprintf("[%s] attempt %d/%d failed: %s", label, i, attempts, last_msg))
-    if (i < attempts) Sys.sleep(wait)
+    if (i < attempts) Sys.sleep(wait * (backoff ^ (i - 1)))
   }
   stop(sprintf("%s failed after %d attempts: %s", label, attempts, last_msg))
 }
 
 # Fetch GEO series (possibly multi-platform)
 gse_list <- retry_run(function() getGEO(gse_id, GSEMatrix = TRUE), label = "getGEO")
+platform_override <- toupper(trimws(opt$platform))
 if (length(gse_list) > 1) {
   message(sprintf("Multiple platforms detected (%d). Selecting the one with IDAT evidence...", length(gse_list)))
-  idat_counts <- vapply(gse_list, function(eset) {
-    pdat <- pData(eset)
-    supp_cols <- grep("supplementary_file", colnames(pdat), value = TRUE)
-    if (length(supp_cols) == 0) return(0L)
-    vals <- as.character(unlist(pdat[, supp_cols, drop = FALSE]))
-    sum(grepl("\\.idat(\\.gz)?$", vals, ignore.case = TRUE))
-  }, integer(1))
-  best_idx <- if (all(idat_counts == 0)) 1 else which.max(idat_counts)
-  if (all(idat_counts == 0)) {
-    message("  No platform showed explicit IDAT links; defaulting to the first.")
-  } else {
-    message(sprintf("  Choosing platform %d (IDAT hits: %d)", best_idx, idat_counts[best_idx]))
+  chosen_idx <- NULL
+  if (nzchar(platform_override)) {
+    match_idx <- which(vapply(gse_list, function(eset) {
+      ann <- tryCatch(annotation(eset), error = function(e) "")
+      toupper(trimws(as.character(ann))) == platform_override
+    }, logical(1)))
+    if (length(match_idx) > 0) {
+      chosen_idx <- match_idx[1]
+      message(sprintf("  Platform override requested: %s (selected index %d).", platform_override, chosen_idx))
+    } else {
+      message(sprintf("WARNING: platform override %s not found; falling back to IDAT evidence.", platform_override))
+    }
   }
-  gse <- gse_list[[best_idx]]
+  if (is.null(chosen_idx)) {
+    idat_counts <- vapply(gse_list, function(eset) {
+      pdat <- pData(eset)
+      supp_cols <- grep("supplementary_file", colnames(pdat), value = TRUE)
+      if (length(supp_cols) == 0) return(0L)
+      vals <- as.character(unlist(pdat[, supp_cols, drop = FALSE]))
+      sum(grepl("\\.idat(\\.gz)?$", vals, ignore.case = TRUE))
+    }, integer(1))
+    best_idx <- if (all(idat_counts == 0)) 1 else which.max(idat_counts)
+    if (all(idat_counts == 0)) {
+      message("  No platform showed explicit IDAT links; defaulting to the first.")
+    } else {
+      message(sprintf("  Choosing platform %d (IDAT hits: %d)", best_idx, idat_counts[best_idx]))
+    }
+    chosen_idx <- best_idx
+  }
+  gse <- gse_list[[chosen_idx]]
 } else {
   gse <- gse_list[[1]]
+  if (nzchar(platform_override)) {
+    ann <- tryCatch(annotation(gse), error = function(e) "")
+    if (!identical(toupper(trimws(as.character(ann))), platform_override)) {
+      message(sprintf("WARNING: platform override %s does not match single-platform annotation (%s).",
+                      platform_override, as.character(ann)))
+    }
+  }
 }
 
 meta <- pData(gse)
@@ -111,46 +145,54 @@ if (length(existing_idats) > 0) {
     geo_group_from_gse <- function(gse_id) {
         num <- suppressWarnings(as.integer(gsub("[^0-9]", "", gse_id)))
         if (is.na(num)) return(NULL)
-        sprintf("GSE%03dnnn", floor(num / 1000))
+        grp_num <- floor(num / 1000)
+        unique(c(
+            paste0("GSE", grp_num, "nnn"),
+            sprintf("GSE%03dnnn", grp_num)
+        ))
     }
 
     manual_download_suppl <- function(gse_id, out_dir, pattern = "[Rr][Aa][Ww]\\.tar(\\.gz)?$") {
-        grp <- geo_group_from_gse(gse_id)
-        if (is.null(grp)) return(NULL)
-        base_url <- sprintf("https://ftp.ncbi.nlm.nih.gov/geo/series/%s/%s/suppl", grp, gse_id)
-        filelist_url <- paste0(base_url, "/filelist.txt")
-        tmp <- tempfile(fileext = ".txt")
-        files <- character(0)
-        ok <- tryCatch({
-            utils::download.file(filelist_url, tmp, quiet = TRUE, mode = "wb")
-            TRUE
-        }, error = function(e) FALSE)
-        if (ok) {
-            lines <- readLines(tmp, warn = FALSE)
-            files <- sub("\\s+.*$", "", lines)
-            files <- files[grepl(pattern, files)]
-        }
-        if (length(files) == 0) {
-            files <- c(paste0(gse_id, "_RAW.tar"), paste0(gse_id, "_RAW.tar.gz"))
-        }
+        grps <- geo_group_from_gse(gse_id)
+        if (is.null(grps) || length(grps) == 0) return(NULL)
         dl_dir <- file.path(out_dir, gse_id)
         if (!dir.exists(dl_dir)) dir.create(dl_dir, recursive = TRUE)
-        downloaded <- character(0)
-        for (fname in unique(files)) {
-            url <- paste0(base_url, "/", fname)
-            dest <- file.path(dl_dir, fname)
+        for (grp in grps) {
+            base_url <- sprintf("https://ftp.ncbi.nlm.nih.gov/geo/series/%s/%s/suppl", grp, gse_id)
+            filelist_url <- paste0(base_url, "/filelist.txt")
+            tmp <- tempfile(fileext = ".txt")
+            files <- character(0)
             ok <- tryCatch({
-                utils::download.file(url, dest, quiet = TRUE, mode = "wb")
-                file.exists(dest) && file.info(dest)$size > 0
+                utils::download.file(filelist_url, tmp, quiet = TRUE, mode = "wb")
+                TRUE
             }, error = function(e) FALSE)
             if (ok) {
-                downloaded <- c(downloaded, dest)
-            } else if (file.exists(dest)) {
-                unlink(dest)
+                lines <- readLines(tmp, warn = FALSE)
+                files <- sub("\\s+.*$", "", lines)
+                files <- files[grepl(pattern, files)]
+            }
+            if (length(files) == 0) {
+                files <- c(paste0(gse_id, "_RAW.tar"), paste0(gse_id, "_RAW.tar.gz"))
+            }
+            downloaded <- character(0)
+            for (fname in unique(files)) {
+                url <- paste0(base_url, "/", fname)
+                dest <- file.path(dl_dir, fname)
+                ok <- tryCatch({
+                    utils::download.file(url, dest, quiet = TRUE, mode = "wb")
+                    file.exists(dest) && file.info(dest)$size > 0
+                }, error = function(e) FALSE)
+                if (ok) {
+                    downloaded <- c(downloaded, dest)
+                } else if (file.exists(dest)) {
+                    unlink(dest)
+                }
+            }
+            if (length(downloaded) > 0) {
+                return(downloaded)
             }
         }
-        if (length(downloaded) == 0) return(NULL)
-        downloaded
+        NULL
     }
     
     tryCatch({
@@ -208,13 +250,18 @@ if (length(existing_idats) > 0) {
         }
         
         if (length(files) > 0) {
-            # Move files to idat_dir
+            # Copy files to idat_dir (safer than rename across filesystems)
             # We strictly look for .idat or .idat.gz
             valid_idats <- files[grepl("idat(\\.gz)?$", files, ignore.case=TRUE)]
             
             if (length(valid_idats) > 0) {
-                file.rename(valid_idats, file.path(idat_dir, basename(valid_idats)))
-                message(paste("Downloaded and moved", length(valid_idats), "IDAT files to", idat_dir))
+                target_paths <- file.path(idat_dir, basename(valid_idats))
+                copied <- file.copy(valid_idats, target_paths, overwrite = TRUE)
+                if (!all(copied)) {
+                    bad <- basename(valid_idats)[!copied]
+                    stop("Failed to copy IDAT files: ", paste(bad, collapse = ", "))
+                }
+                message(paste("Downloaded and copied", length(valid_idats), "IDAT files to", idat_dir))
                 
                 # Clean up GSE folder and tar files if desired
                 unlink(downloaded_dir, recursive = TRUE)
@@ -329,4 +376,4 @@ config_path <- file.path(out_dir, "configure.tsv")
 write.table(filtered_meta, config_path, sep = "\t", quote = FALSE, row.names = FALSE)
 
 message("Metadata saved.")
-message("IMPORTANT: You must edit 'configure.tsv' and fill in the 'primary_group' column before running analysis.")
+message("IMPORTANT: Fill in 'primary_group' in configure.tsv before analysis (or use illumeta.py --auto-group to populate it).")

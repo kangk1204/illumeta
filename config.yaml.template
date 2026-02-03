@@ -1,13 +1,17 @@
 # IlluMeta config template (copy to config.yaml or pass via --config-yaml)
 preset: conservative
 min_overlap_per_cell: 2
+logit_offset: 0.0001
 
 qc:
-  detection_p_threshold: 0.01
-  sample_fail_frac: 0.05
+  detection_p_threshold: 0.05
+  sample_fail_frac: 0.20
 
 dmr:
   min_cpgs: 2
+  maxgap: 500
+
+beginner_safe_delta_beta: 0.05
 
 confounding:
   tier1_v: 0.2
@@ -22,6 +26,10 @@ forced_adjust: []
 allowed_adjust: []
 do_not_adjust: []
 
+batch_override:
+  column: ""  # Optional batch column override (skips auto selection)
+  method: ""  # Optional batch method override: none|combat|limma|sva
+
 missingness:
   max_frac: 0.2
   impute_max_frac: 0.1
@@ -32,6 +40,148 @@ collinearity:
 calibration:
   ks_p: 0.05
   permutations_min: 20
+
+unsafe:
+  skip_cross_reactive: false
+  skip_sex_check: false
+
+caf:
+  enabled: true
+  profile: auto  # auto | conservative | discovery
+  target_fpr: 0.05
+  weights:
+    conservative: {calibration: 0.40, preservation: 0.35, batch: 0.25}
+    discovery: {calibration: 0.25, preservation: 0.25, batch: 0.50}
+
+crf:
+  enabled: true
+  max_probes_mmc: 20000
+  max_probes_sss: 20000
+  housekeeping_path: ""  # Optional CpG list for housekeeping negative controls
+  ncs_lambda_ci:
+    enabled: true
+    n_boot: 200
+    sample_frac: 0.8
+  sample_tiers:
+    minimal:
+      threshold: 12
+      min_per_group: 3
+      mmc:
+        methods: ["none", "limma"]
+        concordance_levels: ["core", "discordant"]
+      ncs:
+        types: ["snp"]
+        lambda_range: [0.7, 1.3]
+        interpret: reference_only
+      sss:
+        mode: bootstrap
+        n_iterations: 100
+        top_k: [20, 50]
+        overlap_threshold: 0.20
+      warnings:
+        - "Very small sample size: interpret all results with extreme caution"
+        - "Statistical power severely limited"
+        - "Consider this analysis exploratory only"
+    small:
+      threshold: 24
+      min_per_group: 6
+      mmc:
+        methods: ["none", "combat_np", "limma"]
+        concordance_levels: ["core", "consensus", "weak"]
+      ncs:
+        types: ["snp"]
+        lambda_range: [0.8, 1.2]
+        interpret: cautious
+      sss:
+        mode: leave_pair_out
+        n_iterations: 50
+        top_k: [30, 100, 200]
+        overlap_threshold: 0.30
+      warnings:
+        - "Small sample size: results should be validated independently"
+        - "SVA excluded due to instability"
+    moderate:
+      threshold: 50
+      min_per_group: 12
+      mmc:
+        methods: ["none", "combat", "limma", "sva"]
+        concordance_levels: ["core", "consensus", "weak"]
+      ncs:
+        types: ["snp", "housekeeping"]
+        lambda_range: [0.9, 1.1]
+        interpret: standard
+      sss:
+        mode: split
+        n_iterations: 10
+        top_k: [50, 200, 500]
+        overlap_threshold: 0.40
+    large:
+      threshold: null  # >= 50
+      min_per_group: 25
+      mmc:
+        methods: ["none", "combat", "limma", "sva"]
+        concordance_levels: ["core", "consensus", "weak"]
+      ncs:
+        types: ["snp", "housekeeping"]
+        lambda_range: [0.9, 1.1]
+        interpret: standard
+      sss:
+        mode: split
+        n_iterations: 10
+        top_k: [100, 500, 1000]
+        overlap_threshold: 0.50
+
+lambda_guard:
+  enabled: true
+  threshold: 1.5
+  min_samples: 8
+  action: warn  # none | warn | warn_simplify | simplify
+
+sva:
+  group_p_threshold: 1.0e-6
+  group_eta2_threshold: 0.5
+
+variance_partition:
+  autoscale_numeric: true
+  autoscale_on_fail: true
+
+auto_covariates:
+  enabled: true
+  exclude_if_group_associated: true
+  group_assoc_p_threshold: 1.0e-3
+  max_cor: 0.9
+
+tier3_meta:
+  method: auto  # auto | fixed | random
+  i2_threshold: 0.5
+  min_total_n: 20
+  min_per_group_per_stratum: 5
+  on_fail: stop  # stop | skip
+  min_total_warn: 20
+  min_stratum_warn: 6
+
+markers:
+  path: ""  # Optional CpG marker list (TSV/CSV with CpG column or one CpG per line)
+
+cell_deconv:
+  ref_free_k: 5
+  ref_free_max_probes: 10000
+  confound_eta2_threshold: 0.5
+  confound_action: warn  # warn | drop
+
+cell_adjustment:
+  on_high_eta2: warn  # warn | stop
+
+cross_reactive:
+  enabled: true
+  path: ""  # Optional cross-reactive probe list (TSV/CSV with CpG column or one CpG per line)
+  local_dir: references/probe_blacklists
+  use_maxprobes: true
+
+sex_check:
+  enabled: true
+  action: stop  # stop | drop | ignore
+  column: ""  # Optional metadata column name for sex/gender
 
 scoring_presets:
   conservative:

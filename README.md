@@ -1,19 +1,75 @@
 # IlluMeta
 
 IlluMeta (Illuminating Methylation Analytics) is an end-to-end pipeline that transforms a GEO accession (or raw IDAT files) into publication-ready DNA methylation results and an interactive HTML dashboard.
-In addition to array-based DNA methylation analysis, IlluMeta is designed to support sequencing-based methylation data, including methyl-capture sequencing and whole-genome bisulfite sequencing (WGBS), enabling a unified and extensible framework for comprehensive DNA methylation analysis across multiple experimental platforms.
+IlluMeta currently supports Illumina array IDATs (450k/EPIC/EPIC v2). Sequencing-based methylation (WGBS/methyl-capture) is on the roadmap but not yet implemented.
 
 ## Highlights
-- **One-command workflow**: `download` → edit `configure.tsv` → `analysis`.
+- **One-command workflow**: `download` → (auto-group or edit `configure.tsv`) → `analysis`.
 - **Two independent pipelines**: **minfi (Noob)** and **sesame** run side-by-side; Sesame is reported in both **strict (Minfi-aligned)** and **native (pOOBAH-preserving)** views.
-- **Consensus (intersection) call set**: CpGs significant in **both** pipelines with the **same direction**. `Intersection_Native` is the recommended “golden set”; strict is the most conservative cross-check.
+- **High-confidence consensus set (intersection)**: CpGs significant in **both** pipelines with the **same direction**. This is a conservative subset and may miss signals present in only one pipeline; review Minfi/Sesame results for sensitivity.
 - **Sesame-native covariates**: when available, Sesame uses EpiDISH-based cell composition; otherwise Minfi-derived covariates are reused for stability.
 - **Batch handling**: evaluates correction strategies (SVA/ComBat/limma) when a batch factor exists.
-- **Paper-ready artifacts**: interactive HTML + static PNG figures, plus `methods.md`, `analysis_parameters.json`, `sessionInfo.txt`, and `code_version.txt`.
+- **Primary-branch selection**: uses a documented multi-criteria scoring heuristic (not a global optimum); weights are saved in `analysis_parameters.json`.
+- **CRF v2.1 robustness**: sample-size–adaptive robustness report (MMC/NCS/SSS) with tiered warnings plus lambda CI, MMC Spearman concordance, and SSS sign-consistency metrics.
+- **Defensive stats**: guards against low-variance or single-group covariates to prevent hard failures in small studies.
+- **Auto-group helper**: can populate `primary_group` from metadata when a reliable group column exists.
+- **Auto-group caution**: auto-grouping is heuristic; always verify group labels/counts (see `preflight_report.json`, `decision_ledger.tsv`).
+- **Paper-ready artifacts**: interactive HTML + static PNG figures, plus `methods.md`, `summary.json`, `analysis_parameters.json`, `sessionInfo.txt`, and `code_version.txt`.
+
+## Quick start (conda, recommended)
+1. Clone:
+```bash
+git clone https://github.com/kangk1204/illumeta.git
+cd illumeta
+```
+2. Full install (EPIC v2 + devtools + clocks):
+```bash
+./scripts/install_full.sh
+```
+If you need R 4.5:
+```bash
+./scripts/install_full.sh --r45
+```
+3. Activate the environment:
+```bash
+conda activate illumeta
+```
+If you used `--r45`, activate `illumeta-r45` instead.
+4. Run:
+```bash
+python3 illumeta.py download GSEXXXXX -o projects/GSEXXXXX
+python3 illumeta.py analysis -c projects/GSEXXXXX/configure.tsv --auto-group
+```
+
+## Scope and supported data
+- Supported: Illumina array IDATs (450k/EPIC/EPIC v2).
+- Not yet supported: WGBS or methyl-capture sequencing (planned extension).
+- Requirement: raw IDAT files must be available from GEO or provided manually.
+
+## Auto-group limitations (must-read)
+Auto-group is a convenience feature and **not** a substitute for manual group curation.
+- It relies on **heuristics/metadata text** and can mislabel samples if metadata is incomplete or ambiguous.
+- It is **not designed for multi-factor designs** (e.g., time-series + treatment + batch).
+- Always verify `primary_group` counts in `Input_Group_Distribution.csv` and spot-check sample metadata before interpreting results.
 
 ## Installation
 
 IlluMeta is easiest to install with **conda**. If you are on **Windows**, we strongly recommend using **WSL2 (Ubuntu)** for the most reliable R package installation.
+
+### Quick full install (conda, all OS)
+This script creates or updates the conda env, installs Python deps, runs `setup_env.R`, then finishes with `illumeta.py doctor`.
+It requires `conda` or `mamba` in your PATH (Miniforge recommended).
+```bash
+./scripts/install_full.sh
+```
+Options:
+- `--r45` uses `environment-r45.yml` (R 4.5).
+- `--env-file PATH` uses a custom conda env file.
+- `--env NAME` overrides the env name.
+- `--skip-doctor` skips the final `illumeta.py doctor` check.
+
+Logs are saved to `projects/illumeta_install_full_*.log`.
+If `illumeta.py doctor` reports missing **optional** packages, core features still work; those optional features will be skipped.
 
 Before you start (important):
 - **Pick one environment**: conda **or** system R. Do **not** mix them.
@@ -514,11 +570,25 @@ docker run --rm -it -v "$PWD":/app illumeta analysis \
 # - venv:  source .venv/bin/activate
 
 python3 illumeta.py download GSE121633 -o projects/GSE121633
+# If a GEO series has multiple platforms, force one by GPL ID:
+python3 illumeta.py download GSE121633 -o projects/GSE121633 --platform GPL21145
 ```
 
-### 2) Assign groups
+### 2) Assign groups (manual or auto)
+Option A (manual):
 Edit `projects/GSE121633/configure.tsv` and fill in `primary_group` (e.g., `Control` / `Case`).
 `configure.tsv` must be **tab-delimited (TSV)**; CSV is not supported.
+
+Option B (auto-group on analysis):
+```bash
+python3 illumeta.py analysis \
+  -i projects/GSE121633 \
+  --group_con Control \
+  --group_test Case \
+  --auto-group \
+  --group-column disease_state
+```
+If your grouping is encoded in GEO characteristics, you can use `--group-key` (e.g., `--group-key disease`).
 
 ### 3) Run analysis
 ```bash
@@ -527,7 +597,18 @@ python3 illumeta.py analysis \
   --group_con Control \
   --group_test Case
 ```
+If you chose auto-grouping above, include the same `--auto-group` flags here instead of editing the TSV.
 Note: the default output folder name is derived from the group labels. If it contains non-ASCII characters, IlluMeta normalizes it to a safe ASCII name for filesystem compatibility (the dashboard filename follows the folder name).
+Optional (signal preservation checks):
+```bash
+# Provide a CpG marker list (TSV/CSV with CpG column or one CpG per line)
+python3 illumeta.py analysis \
+  -i projects/GSE121633 \
+  --group_con Control \
+  --group_test Case \
+  --marker-list markers.tsv
+```
+This generates `*_Signal_Preservation.csv` and (if provided) `*_Known_Marker_Summary.csv`.
 
 ### 4) Open the dashboard
 Open the generated HTML:
@@ -535,7 +616,7 @@ Open the generated HTML:
 
 ### 5) Interpret results (beginner checklist)
 1. **QC first**: open `QC_Summary.csv`, `Sample_QC_DetectionP_FailFraction.html`, and `Sample_QC_Intensity_Medians.html`. If many samples fail QC, stop and fix QC before interpreting DMP/DMR.
-2. **Batch check**: compare `*_Batch_Evaluation_Before.html` vs `*_Batch_Evaluation_After.html`. After-correction should reduce batch association without erasing group signal.
+2. **Batch check**: compare `*_Batch_Evaluation_Before.html` vs `*_Batch_Evaluation_After.html`. After-correction should reduce batch association without erasing group signal. The chosen method (SVA/ComBat/limma/none) and covariates are logged in `decision_ledger.tsv`.
 3. **Consensus vs pipeline results**:  
    - **Consensus (Strict)** = Minfi ∩ Sesame (strict alignment); most conservative.  
    - **Consensus (Native)** = Minfi ∩ Sesame native; more sensitive to Sesame’s masking philosophy.  
@@ -552,15 +633,16 @@ Beginner-friendly flow:
 
 ```bash
 # Required: --keywords (use quotes for multi-word queries)
-python3 illusearch.py --keywords "breast cancer" --email your_email@example.com -o search_results.tsv
+python3 illumeta.py search --keywords "breast cancer" --email your_email@example.com -o search_results.tsv
 
 # Faster (skip FTP supplement checks)
-python3 illusearch.py --keywords "breast cancer" --no-check-suppl -o search_results.tsv
+python3 illumeta.py search --keywords "breast cancer" --no-check-suppl -o search_results.tsv
 ```
 Output columns:
 - `gse_id`: GEO Series ID to use with `illumeta.py download`
-- `platform_type`: 450k / 850k / 950k
+- `platform_type`: 450k / EPIC (850k) / EPIC v2 (~936k; sometimes called “950k”)
 - `suppl_has_idat`: yes/no/error (only if supplement checks are enabled)
+IlluMeta requires raw IDATs; `download` will stop if no IDATs are available.
 
 If you see `Error: Python package 'requests' is missing`, install it via:
 `pip install -r requirements.txt` (inside your env).
@@ -573,6 +655,7 @@ python3 illumeta.py doctor
 How to read the output:
 - **Core R packages: OK** = ready to run analysis.
 - **Optional R packages missing** = some optional features (e.g., clocks) are disabled; this is safe for most users.
+Note: For EPIC v2 (~936k) datasets, IlluMeta requires EPICv2 manifest/annotation packages and will stop if they are missing. If you plan to run EPIC v2, set `ILLUMETA_REQUIRE_EPICV2=1` before running setup.
 
 
 ### Analyze your own IDATs (non-GEO)
@@ -580,7 +663,7 @@ How to read the output:
 2. Create `my_project/configure.tsv` with at least (tab-delimited TSV; CSV is not supported):
    - `Basename` (e.g., `idat/Sample1_R01C01`)
    - `primary_group` (e.g., `Treated`, `Untreated`)
-   - Optional: `tissue` (e.g., `Blood`, `CordBlood`, `Placenta`) to auto-select reference
+   - Optional: `tissue` (e.g., `Blood`, `CordBlood`, `Placenta`) to auto-select reference (Placenta uses planet reference when available)
    - Example:
      ```tsv
      Basename	primary_group	SampleID	sex	age
@@ -588,18 +671,45 @@ How to read the output:
      idat/S1_R02C01	control	S2	F	47
      idat/S2_R01C01	case	S3	M	61
      ```
+   - If you prefer auto-grouping, you may leave `primary_group` empty and pass `--auto-group` with `--group-column` when running analysis.
 3. Run:
 ```bash
 python3 illumeta.py analysis -i my_project --group_con Untreated --group_test Treated
 ```
 
+### Auto-grouping (optional)
+If your metadata already contains a reliable group column, IlluMeta can populate `primary_group` automatically:
+```bash
+python3 illumeta.py analysis -i projects/GSE12345 \
+  --group_con Control --group_test Case \
+  --auto-group --group-column disease_state \
+  --group-map "normal=Control,tumor=Case"
+```
+For GEO characteristics, use a key (parsed from `key: value` patterns):
+```bash
+python3 illumeta.py analysis -i projects/GSE12345 \
+  --group_con Control --group_test Case \
+  --auto-group --group-key disease
+```
+Auto-detection is conservative and will stop if no clear group signal is found; in that case specify `--group-column` or edit `configure.tsv`.
+Auto-group decisions and warnings are recorded in `preflight_report.json` and `decision_ledger.tsv`.
+Auto-grouping is heuristic; always verify group counts and labels before interpreting results, especially when multiple categorical columns exist.
+Auto-group prioritizes columns with high coverage and low category counts; numeric-coded categories (e.g., 0/1) are supported, while highly fragmented columns or heavy missingness are rejected.
+
 ### Common analysis options
 ```bash
+# Auto-group from a metadata column
+python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case \
+  --auto-group --group-column disease_state --group-map "normal=Control,tumor=Case"
+
 # Tighten thresholds
 python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --pval 0.01 --lfc 1.0
 
 # Add an absolute Delta Beta filter
 python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --delta-beta 0.05
+
+# Beginner-safe mode (stricter group checks + conservative thresholds)
+python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --beginner-safe
 
 # Disable SVA (very small n)
 python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --disable-sva
@@ -610,7 +720,7 @@ python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_te
 # Use epigenetic clocks as candidate covariates (auto-selected if relevant)
 python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --include-clock-covariates
 
-# Placenta clocks (planet)
+# Placenta reference cell composition + clocks (planet)
 python3 illumeta.py analysis -i projects/GSE307314 --group_con control --group_test test --tissue Placenta
 
 # Auto tissue inference from configure.tsv (falls back to RefFreeEWAS)
@@ -623,6 +733,9 @@ python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_te
 # Custom cell reference with explicit platform string
 python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case \
   --tissue Blood --cell-reference refs/blood_ref.rds --cell-reference-platform IlluminaHumanMethylationEPIC
+
+# Enable sesame dyeBiasCorrTypeINorm (disabled by default for stability)
+python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --sesame-typeinorm
 
 # Mixed-array safeguard override (only if you know what you're doing)
 python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --force-idat
@@ -643,10 +756,126 @@ python3 illumeta.py analysis \
   --group_test Case \
   --permutations 50
 ```
+
+### Benchmarking & Robustness (Recommended for papers)
+Use these scripts to report objective QC, batch correction, and robustness metrics across datasets.
+
+```bash
+# 1) Build a benchmark summary table across multiple GSE runs
+python3 scripts/build_benchmark_table.py \
+  --input-tsv benchmarks/benchmark_inputs.tsv \
+  --projects-root projects \
+  --out benchmarks/benchmark_summary.tsv
+
+# 2) Generate a primary-branch summary table + figure
+python3 scripts/build_benchmark_figures.py \
+  --input-tsv benchmarks/benchmark_summary.tsv \
+  --out-dir benchmarks
+
+# 3) Quantify batch correction (PVCA before/after)
+python3 scripts/build_correction_summary.py \
+  --root projects \
+  --out-dir benchmarks/correction_summary
+
+# 4) Run ablation variants (SVA on/off, auto-covariates on/off, etc.)
+python3 scripts/ablation_runner.py \
+  -i projects/GSE12345 \
+  --group-con Control \
+  --group-test Case \
+  --out-root ablation_runs/GSE12345
+
+# Optional: include sesame TypeINorm variant (experimental)
+python3 scripts/ablation_runner.py \
+  -i projects/GSE12345 \
+  --group-con Control \
+  --group-test Case \
+  --variants baseline,sesame_typeinorm
+```
+
+Notes:
+- **TypeINorm is disabled by default** for stability (thread errors observed on some systems). Enable with `--sesame-typeinorm` when needed.
+- **Sesame runs single-thread by default** for stability. If you want multi-threading, set `ILLUMETA_SESAME_SINGLE_THREAD=0` in your shell.
+- **Auto-grouping is heuristic**: always verify group labels/counts before interpreting results.
+- **Small n**: consider `--disable-sva` and report this choice explicitly.
 Tips:
 - Start small (e.g., 10–50). Larger values take longer.
 - Results are saved as `*_Permutation_Results.csv` and `*_Permutation_Summary.csv`.
 - The dashboard shows **Perm mean/max sig (null)** so you can compare against real results.
+
+### Robustness / ablation (for manuscripts)
+IlluMeta writes per-pipeline metrics to help assess robustness:
+- `Minfi_Metrics.csv`, `Sesame_Metrics.csv`, `Sesame_Native_Metrics.csv` (lambda, batch stats, SV/covariate usage, permutation stats)
+- `*_Ablation_Summary.csv` (raw vs corrected batch metrics)
+- `*_Permutation_Results.csv` and `*_Permutation_Summary.csv` (null calibration)
+- `*_LambdaGuard_*` (only when lambda exceeds threshold; group-only check on pre-correction betas)
+
+To run a standard ablation suite:
+```bash
+python3 scripts/ablation_runner.py -i projects/GSE12345 \
+  --group-con Control --group-test Case
+```
+Outputs:
+- `ablation_manifest.tsv`: run status per variant
+- `ablation_counts.tsv`: DMP counts across pipelines
+- `ablation_metrics_long.tsv`: long-form metrics table
+- `ablation_parameters.json`: exact parameters per variant
+
+Lambda guard + variancePartition autoscale settings live in `config.yaml` (copy from `config.yaml.template`):
+```yaml
+lambda_guard:
+  enabled: true
+  threshold: 1.5
+  min_samples: 8
+  action: warn_simplify
+
+variance_partition:
+  autoscale_numeric: true
+  autoscale_on_fail: true
+```
+
+### Multi-GEO benchmark table
+Build a long-form benchmark table (one row per pipeline per dataset):
+```bash
+python3 scripts/build_benchmark_table.py \
+  --input-tsv geo_idat_methylation.tsv \
+  --projects-root projects/bench_top5 \
+  --output-tsv benchmarks/benchmark_summary.tsv \
+  --output-md benchmarks/benchmark_summary.md
+```
+Outputs:
+- `benchmarks/benchmark_summary.tsv`: metrics table for downstream plotting
+- `benchmarks/benchmark_summary.md`: quick stats + run metadata
+The summary table now includes objective QC/robustness indicators such as:
+- QC pass rate (samples) and probe retention
+- Batch signal reduction before/after correction
+- Lambda / permutation calibration (KS, lambda)
+- Variance partition signal for primary_group
+- Tier3/DMR status and primary-branch overrides (if any)
+
+### Paper-ready summary figure
+Generate a compact table + figure from the benchmark TSV (primary branch only by default):
+```bash
+python3 scripts/build_benchmark_figures.py \
+  --input-tsv benchmarks/benchmark_summary.tsv \
+  --out-dir benchmarks
+```
+Outputs:
+- `benchmarks/benchmark_primary_summary.tsv`
+- `benchmarks/benchmark_primary_summary.md`
+- `benchmarks/benchmark_primary_summary.png`
+Tip: add `--all-rows` to include every pipeline row instead of collapsing to the primary branch.
+
+### Smoke tests (multi-run)
+Prepare a TSV with columns `config`, `group_con`, `group_test` (optional: `name`, `output`, `extra_args`) and run:
+```bash
+python3 scripts/run_smoke_pipeline.py \
+  --jobs benchmarks/smoke_jobs.tsv \
+  --out-dir benchmarks/smoke_runs \
+  --illumeta illumeta.py
+```
+Outputs:
+- `benchmarks/smoke_runs/smoke_report.tsv`: per-run status summary
+- `benchmarks/smoke_runs/logs/*.log`: full stdout/stderr for each run
 
 ## Outputs (what to use in a paper)
 
@@ -654,9 +883,33 @@ IlluMeta writes results to the analysis output directory (default: `[input]/[tes
 
 ### Reproducibility
 - `methods.md`: auto-generated methods summary for the run.
-- `analysis_parameters.json`: thresholds and key settings.
+- `summary.json`: primary result mode (tier3 vs standard), Tier3 meta method (fixed/random/auto), lambda guard status, DMR status, and sesame normalization notes.
+- `analysis_parameters.json`: thresholds, presets, and scoring weights used for optimization.
+- `*_BetaMatrix.tsv.gz`: processed beta matrix used for modeling (one per pipeline: Minfi, Sesame, Sesame_Native).
+- `*_MvalueMatrix.tsv.gz`: processed M-value matrix (logit of the modeling betas) used for statistical tests.
+- `*_BetaMatrix_PreFilter.tsv.gz`: pre-filter beta matrix (after normalization, before sample/probe QC; all samples; Minfi + Sesame).
+- `*_MvalueMatrix_PreFilter.tsv.gz`: pre-filter M-value matrix (logit of pre-filter betas; before sample/probe QC; all samples; Minfi + Sesame).
+- `Minfi_MethylatedSignal_PreFilter.tsv.gz`: pre-filter methylated signal matrix (after normalization, before sample/probe QC; all samples).
+- `Minfi_UnmethylatedSignal_PreFilter.tsv.gz`: pre-filter unmethylated signal matrix (after normalization, before sample/probe QC; all samples).
+- `Minfi_DetectionP_PreFilter.tsv.gz`: pre-filter detection P-value matrix (all samples; GEO processed/normalized requirement).
+
+### GEO submission helper
+Generate a manifest (and optional bundle) of processed files for GEO:
+```bash
+python3 scripts/prepare_geo_submission.py \
+  --result-dir projects/GSE12345/Case_vs_Control_results \
+  --copy
+```
+Outputs:
+- `geo_submission/geo_submission_manifest.tsv` (file list + descriptions)
+- `geo_submission/*` (copied processed files when `--copy` is set)
 - `sessionInfo.txt`: full R session and package versions.
 - `code_version.txt`: git commit hash (when available).
+- `config_used.yaml`: resolved config and preset details.
+- `decision_ledger.tsv`: automated decision log (covariates, batch strategy, consensus branch).
+- `preflight_report.json`: preflight summary (includes auto-group info when used).
+- `Correction_Adequacy_Report.txt`: Correction Adequacy Framework (CAF) report for the primary branch.
+- `Correction_Adequacy_Summary.csv`: CAF component scores for the primary branch.
 
 ### QC
 - `Preflight_Summary.csv`: preflight checks and group counts before processing.
@@ -664,6 +917,7 @@ IlluMeta writes results to the analysis output directory (default: `[input]/[tes
 - `QC_Summary.csv`: sample/probe QC counts.
 - `Sample_QC_Metrics.csv`: per-sample QC metrics.
 - `Sample_QC_DetectionP_FailFraction.png` and `Sample_QC_Intensity_Medians.png`: static QC figures (HTML versions are also saved).
+- Defaults: detection P threshold 0.05, sample fail fraction 0.20, intensity median threshold log2 9.0 (override with `--qc-detection-p-threshold`, `--qc-sample-fail-frac`, `--qc-intensity-threshold`).
 
 ### Differential methylation (per pipeline)
 For each pipeline (`Minfi`, `Sesame` = strict/Minfi-aligned, `Sesame_Native` = native Sesame):
@@ -671,13 +925,14 @@ For each pipeline (`Minfi`, `Sesame` = strict/Minfi-aligned, `Sesame_Native` = n
 - `*_Volcano.html/.png`, `*_Manhattan.html/.png`, `*_QQPlot.html/.png`
 - `*_Top100_Heatmap.html/.png`
 - `*_DMR_Volcano.html/.png`, `*_DMR_Manhattan.html/.png`, `*_Top_DMRs_Heatmap.html/.png`
+- If Tier3 confounding is detected, DMRs are emitted from the stratified/meta primary results as `*_Tier3_Primary_DMRs.*`.
 
 ### Consensus (intersection) call set
 - `Intersection_Consensus_DMPs.csv` and `Intersection_Consensus_DMPs.html` (strict)
 - `Intersection_Native_Consensus_DMPs.csv` and `Intersection_Native_Consensus_DMPs.html` (native)
 - `Intersection*_LogFC_Concordance.html/.png` (minfi vs sesame logFC concordance)
 - `Intersection*_Significant_Overlap.html/.png` (significant counts and overlap)
-> Tip: use `Intersection_Native_*` as the main call set (“golden set”), and the strict version as a conservative check.
+> Tip: use `Intersection_Native_*` as a high-confidence subset and review Minfi/Sesame outputs for additional signals. The intersection is intentionally conservative.
 
 ## Troubleshooting
 
@@ -709,11 +964,15 @@ Common issues:
   `ILLUMETA_CLEAN_MISMATCHED_RLIB=1 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.
 - **`pandoc: command not found`**: install `pandoc` (Ubuntu: `sudo apt-get install pandoc`, macOS: `brew install pandoc`).
 - **Too few samples after QC**: IlluMeta stops if total n is too small for reliable stats; inspect `QC_Summary.csv` and consider adjusting `--qc-intensity-threshold` (or disable by setting `--qc-intensity-threshold 0`).
+- **ComBat covariate confounding** (`At least one covariate is confounded with batch`): IlluMeta now auto-drops batch-confounded covariates for ComBat and falls back to limma/none if needed. Check `*_BatchMethodComparison.csv` and `*_Metrics.csv` to see the applied method.
+- **Model matrix errors** (`contrasts can be applied only to factors with 2 or more levels`): IlluMeta drops single-level covariates after NA filtering and during batch evaluation. Check `decision_ledger.tsv` for dropped covariates; remove or merge constant columns in `configure.tsv` if the issue persists.
+- **`eBayes` failures** (`No finite residual standard deviations`): this can happen with very small n or near-zero variance after correction. IlluMeta skips stability scoring in those cases; consider reducing covariates or disabling batch correction for tiny cohorts.
 - **Mixed array sizes**: by default, IlluMeta drops samples that deviate from the modal array size; use `--force-idat` only when appropriate.
-- **Missing IDAT pairs**: see `Preflight_IDAT_Pairs.csv` and ensure each basename has both `_Grn.idat` and `_Red.idat` (or `.gz`) files.
+- **Missing IDAT pairs**: IlluMeta now auto-filters samples with incomplete `_Grn/_Red` pairs during preflight and logs the decision in `preflight_report.json`. If you prefer to fail instead, use `--keep-missing-idat`.
 - **Reference package unavailable** (e.g., FlowSorted.* not in your Bioconductor): IlluMeta falls back to RefFreeEWAS; consider `--cell-reference` or upgrading R/Bioconductor.
 - **Sesame: `No normalization control probes found!`**: some EPIC IDATs do not include normalization controls or the cache is stale. IlluMeta now attempts a one-time refresh of `EPIC.1.SigDF` and retries automatically; you can also run `R -q -e 'library(sesame); sesameDataCache("EPIC.1.SigDF")'` manually. If it persists, IlluMeta continues without dye bias correction (or use `--skip-sesame`).
 - **CSV configure file**: IlluMeta requires `configure.tsv` to be **tab-delimited**. Convert CSV to TSV and retry.
+- **Auto-group failed**: IlluMeta could not find a reliable grouping column; pass `--group-column` or `--group-key`, or edit `configure.tsv` manually.
 
 ## Citation
 See `CITATION.cff`.

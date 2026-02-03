@@ -699,6 +699,7 @@ bioc_pkgs <- c(
     "pvca",
     "impute",
     "EpiDISH",
+    "planet",
     "FlowSorted.Blood.EPIC",   # Cell type reference (EPIC/EPICv2)
     "FlowSorted.Blood.450k",   # Cell type reference (450k)
     "FlowSorted.CordBlood.EPIC",
@@ -710,7 +711,6 @@ bioc_pkgs <- c(
 
 clock_pkgs <- c(
     "wateRmelon",        # Epigenetic clocks (Horvath/Hannum/PhenoAge)
-    "planet",            # Placental DNA methylation clocks
     "methylclock",       # General epigenetic clocks
     "methylclockData"    # Data for methylclock
 )
@@ -724,6 +724,7 @@ cran_pkgs <- c(
     "stringi",
     "glue",
     "digest",
+    "jsonlite",
     "matrixStats",
     "fs",
     "quadprog",

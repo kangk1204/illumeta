@@ -4,8 +4,10 @@ import subprocess
 import os
 import sys
 import csv
+import html
 import json
 import re
+import statistics
 import time
 import unicodedata
 import xml.etree.ElementTree as ET
@@ -2111,6 +2113,161 @@ def generate_dashboard(output_dir, group_test, group_con):
                 pass
         return reasons
 
+    def load_csv_rows(path):
+        if not os.path.exists(path):
+            return []
+        try:
+            with open(path, newline="") as f:
+                reader = csv.DictReader(f)
+                return [row for row in reader]
+        except Exception:
+            return []
+
+    def load_crf_sample_tier():
+        rows = load_csv_rows(os.path.join(output_dir, "CRF_Sample_Tier.csv"))
+        return rows[0] if rows else {}
+
+    def load_crf_summary_file(name, primary_branch):
+        path = os.path.join(output_dir, name)
+        if os.path.exists(path):
+            return load_csv_rows(path)
+        if primary_branch:
+            prefixed = os.path.join(output_dir, f"{primary_branch}_{name}")
+            return load_csv_rows(prefixed)
+        return []
+
+    def summarize_mmc(rows):
+        if not rows:
+            return {}
+        def _top_k(row):
+            return safe_int(row.get("top_k")) if row.get("top_k") is not None else 0
+        row = max(rows, key=_top_k)
+        core = safe_int(row.get("core"))
+        total = safe_int(row.get("total_unique"))
+        core_pct = (core / total) if total else None
+        spearman = safe_float(row.get("spearman_mean")) if row.get("spearman_mean") is not None else safe_float(row.get("spearman_min"))
+        return {"core_pct": core_pct, "spearman": spearman, "top_k": safe_int(row.get("top_k")), "methods": safe_int(row.get("methods"))}
+
+    def summarize_sss(rows):
+        if not rows:
+            return {}
+        def _top_k(row):
+            return safe_int(row.get("top_k")) if row.get("top_k") is not None else 0
+        row = max(rows, key=_top_k)
+        overlap = safe_float(row.get("overlap_mean_corr"))
+        if overlap is None:
+            overlap = safe_float(row.get("overlap_mean_raw"))
+        sign = safe_float(row.get("sign_mean_corr"))
+        if sign is None:
+            sign = safe_float(row.get("sign_mean_raw"))
+        return {"overlap": overlap, "sign": sign, "top_k": safe_int(row.get("top_k"))}
+
+    def summarize_ncs(rows):
+        if not rows:
+            return {}
+        preferred = [r for r in rows if (r.get("stage") or "").lower() == "corrected"] or rows
+        preferred = [r for r in preferred if (r.get("type") or "").lower() == "snp"] or preferred
+        def _n(row):
+            nval = safe_int(row.get("n"))
+            return nval if nval is not None else 0
+        row = max(preferred, key=_n)
+        return {
+            "lambda": safe_float(row.get("lambda")),
+            "sig_rate": safe_float(row.get("sig_rate")),
+            "lambda_ci_low": safe_float(row.get("lambda_ci_low")),
+            "lambda_ci_high": safe_float(row.get("lambda_ci_high")),
+            "stage": row.get("stage"),
+            "type": row.get("type"),
+        }
+
+    def parse_gene_list(val):
+        if val is None:
+            return []
+        if not isinstance(val, str):
+            val = str(val)
+        val = val.strip()
+        if not val or val.lower() in ("nan", "na", "none"):
+            return []
+        parts = re.split(r"[;,|/]", val)
+        out = []
+        for p in parts:
+            p = p.strip()
+            if not p or p.lower() in ("nan", "na", "none"):
+                continue
+            out.append(p)
+        return out
+
+    def summarize_consensus(path):
+        if not os.path.exists(path):
+            return {}
+        gene_counts = {}
+        gene_sign = {}
+        abs_deltas = []
+        max_abs = None
+        with open(path, newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                gene_val = row.get("Gene") or row.get("UCSC_RefGene_Name") or row.get("gene") or ""
+                genes = parse_gene_list(gene_val)
+                logfc = safe_float(row.get("logFC_mean"))
+                if logfc is None:
+                    logfc = safe_float(row.get("logFC.Minfi"))
+                for g in genes:
+                    gene_counts[g] = gene_counts.get(g, 0) + 1
+                    if logfc is not None:
+                        gene_sign[g] = gene_sign.get(g, 0.0) + (1.0 if logfc >= 0 else -1.0)
+
+                deltas = []
+                for key in ("Delta_Beta", "Delta_Beta.Minfi", "Delta_Beta.Sesame", "delta_beta", "delta_beta_mean"):
+                    val = safe_float(row.get(key))
+                    if val is not None:
+                        deltas.append(val)
+                if deltas:
+                    mean_delta = sum(deltas) / len(deltas)
+                    abs_val = abs(mean_delta)
+                    abs_deltas.append(abs_val)
+                    if max_abs is None or abs_val > max_abs:
+                        max_abs = abs_val
+        return {"gene_counts": gene_counts, "gene_sign": gene_sign, "abs_deltas": abs_deltas, "max_abs": max_abs}
+
+    def effect_label(median_abs):
+        if median_abs is None:
+            return ""
+        if median_abs < 0.05:
+            return "small"
+        if median_abs < 0.15:
+            return "moderate"
+        return "large"
+
+    def classify_warnings(items):
+        buckets = {"critical": [], "important": [], "info": []}
+        for msg in items:
+            lower = msg.lower()
+            if "unsafe" in lower or "skipped (unsafe)" in lower or "critical" in lower:
+                buckets["critical"].append(msg)
+            elif "exploratory" in lower or "minimal" in lower or "low power" in lower or "inflation" in lower or "over-correction" in lower or "overcorrection" in lower:
+                buckets["important"].append(msg)
+            elif "mismatch" in lower or "confounding" in lower:
+                buckets["important"].append(msg)
+            else:
+                buckets["info"].append(msg)
+        return buckets
+
+    def compute_verdict(tier, min_per_group, mmc_core_pct, sss_overlap, warn_count, critical_count):
+        tier = (tier or "").lower()
+        if critical_count > 0:
+            return "EXPLORATORY"
+        if tier == "minimal" and (min_per_group is not None and min_per_group < 3):
+            return "EXPLORATORY"
+        can_high = tier in ("moderate", "large", "ample", "high")
+        if can_high and mmc_core_pct is not None and sss_overlap is not None and mmc_core_pct >= 0.60 and sss_overlap >= 0.40 and warn_count == 0:
+            return "HIGH"
+        if tier == "small" or (mmc_core_pct is not None and 0.40 <= mmc_core_pct < 0.60) or (sss_overlap is not None and 0.25 <= sss_overlap < 0.40) or warn_count in (1, 2):
+            return "MODERATE"
+        if tier == "minimal" or (mmc_core_pct is not None and mmc_core_pct < 0.40) or (sss_overlap is not None and sss_overlap < 0.25) or warn_count >= 3:
+            return "LOW"
+        return "MODERATE"
+
     def pill_link(filename, label):
         fpath = os.path.join(output_dir, filename)
         if os.path.exists(fpath):
@@ -2147,15 +2304,146 @@ def generate_dashboard(output_dir, group_test, group_con):
     cell_summary = load_cell_deconv_summary()
     cell_assoc = load_cell_assoc()
     warnings = collect_dashboard_warnings(stats, analysis_params, qc_summary, cell_summary, cell_assoc)
-    warnings_block = ""
-    if warnings:
-        warn_items = "".join([f"<li>{w}</li>" for w in warnings])
-        warnings_block = f"""
-        <div class="warning-panel">
-            <h3>Safety Warnings</h3>
-            <ul>{warn_items}</ul>
-        </div>
-        """
+
+    primary_branch = stats.get("primary_branch") or ""
+    primary_metrics = load_metrics(primary_branch) if primary_branch else {}
+    lam_primary = safe_float(primary_metrics.get("lambda")) if primary_metrics else None
+    if lam_primary is not None:
+        if lam_primary > 1.2:
+            warnings.append(f"Lambda={lam_primary:.2f} suggests p-value inflation; prioritize stronger effect sizes.")
+        elif lam_primary < 0.9:
+            warnings.append(f"Lambda={lam_primary:.2f} suggests potential over-correction; review batch settings.")
+
+    lg_status = (stats.get("primary_lambda_guard_status") or "").lower()
+    if lg_status in ("failed", "warn"):
+        warnings.append(f"Lambda guard status: {lg_status}. Consider stricter thresholds or manual review.")
+
+    tier_row = load_crf_sample_tier()
+    min_per_group = safe_int(tier_row.get("min_per_group")) if tier_row else None
+    tier_label = (analysis_params.get("crf_sample_tier") or stats.get("crf_sample_tier") or (tier_row.get("tier") if tier_row else "") or "").lower()
+
+    mmc_rows = load_crf_summary_file("CRF_MMC_Summary.csv", primary_branch)
+    ncs_rows = load_crf_summary_file("CRF_NCS_Summary.csv", primary_branch)
+    sss_rows = load_crf_summary_file("CRF_SSS_Summary.csv", primary_branch)
+    mmc_summary = summarize_mmc(mmc_rows)
+    ncs_summary = summarize_ncs(ncs_rows)
+    sss_summary = summarize_sss(sss_rows)
+
+    warnings_by_level = classify_warnings(warnings)
+    warn_critical = warnings_by_level["critical"]
+    warn_important = warnings_by_level["important"]
+    warn_info = warnings_by_level["info"]
+    warn_count = len(warn_critical) + len(warn_important)
+    verdict = compute_verdict(tier_label, min_per_group, mmc_summary.get("core_pct"), sss_summary.get("overlap"), warn_count, len(warn_critical))
+
+    verdict_class_map = {
+        "HIGH": "verdict-high",
+        "MODERATE": "verdict-moderate",
+        "LOW": "verdict-low",
+        "EXPLORATORY": "verdict-exploratory",
+    }
+    verdict_class = verdict_class_map.get(verdict, "verdict-moderate")
+
+    consensus_path = ""
+    for fname in ("Intersection_Native_Consensus_DMPs.csv", "Intersection_Consensus_DMPs.csv"):
+        path = os.path.join(output_dir, fname)
+        if os.path.exists(path):
+            consensus_path = path
+            break
+    consensus_summary = summarize_consensus(consensus_path) if consensus_path else {}
+    abs_deltas = consensus_summary.get("abs_deltas") or []
+    median_abs = None
+    max_abs = consensus_summary.get("max_abs")
+    if abs_deltas:
+        try:
+            median_abs = statistics.median(abs_deltas)
+        except Exception:
+            median_abs = None
+    effect_tag = effect_label(median_abs)
+
+    top_genes = []
+    gene_counts = consensus_summary.get("gene_counts") or {}
+    if gene_counts:
+        sorted_genes = sorted(gene_counts.items(), key=lambda kv: kv[1], reverse=True)
+        for gene, count in sorted_genes[:3]:
+            direction = ""
+            if consensus_summary.get("gene_sign") and gene in consensus_summary["gene_sign"]:
+                direction = "hyper" if consensus_summary["gene_sign"][gene] >= 0 else "hypo"
+            if direction:
+                top_genes.append(f"{gene} ({count} CpGs, {direction})")
+            else:
+                top_genes.append(f"{gene} ({count} CpGs)")
+
+    key_findings = []
+    if intersect_native_total:
+        key_findings.append(
+            f"{intersect_native_total} high-confidence DMPs (Intersection Native: ↑{intersect_native_up} ↓{intersect_native_down})."
+        )
+    elif intersect_total:
+        key_findings.append(
+            f"{intersect_total} high-confidence DMPs (Intersection Strict: ↑{intersect_up} ↓{intersect_down})."
+        )
+    else:
+        key_findings.append("No consensus DMPs passed the significance thresholds.")
+
+    if top_genes:
+        key_findings.append("Top genes: " + ", ".join(top_genes) + ".")
+    else:
+        key_findings.append("Top genes: not available (no gene annotations in consensus table).")
+
+    if median_abs is not None:
+        effect_bits = f"Median |Δβ|={median_abs:.3f}"
+        if max_abs is not None:
+            effect_bits += f", max |Δβ|={max_abs:.3f}"
+        if effect_tag:
+            effect_bits += f" ({effect_tag} effect sizes)"
+        key_findings.append(effect_bits + ".")
+    else:
+        key_findings.append("Effect size summary: not available.")
+
+    mmc_core_pct = mmc_summary.get("core_pct")
+    mmc_pct_display = f"{mmc_core_pct * 100:.0f}%" if mmc_core_pct is not None else "N/A"
+    mmc_spearman = mmc_summary.get("spearman")
+    mmc_spearman_display = f"{mmc_spearman:.2f}" if mmc_spearman is not None else "N/A"
+    mmc_bar = min(max(mmc_core_pct * 100, 0), 100) if mmc_core_pct is not None else 0
+
+    sss_overlap = sss_summary.get("overlap")
+    sss_overlap_display = f"{sss_overlap:.2f}" if sss_overlap is not None else "N/A"
+    sss_sign = sss_summary.get("sign")
+    sss_sign_display = f"{sss_sign * 100:.0f}%" if sss_sign is not None else "N/A"
+    sss_bar = min(max(sss_overlap * 100, 0), 100) if sss_overlap is not None else 0
+
+    ncs_lambda = ncs_summary.get("lambda") if ncs_summary else None
+    if ncs_lambda is None:
+        ncs_lambda = lam_primary
+    ncs_ci_low = ncs_summary.get("lambda_ci_low") if ncs_summary else None
+    ncs_ci_high = ncs_summary.get("lambda_ci_high") if ncs_summary else None
+    ncs_label = "N/A"
+    if ncs_lambda is not None:
+        ncs_label = f"λ={ncs_lambda:.2f}"
+        if ncs_ci_low is not None and ncs_ci_high is not None:
+            ncs_label += f" [{ncs_ci_low:.2f}, {ncs_ci_high:.2f}]"
+
+    def _progress_class(value):
+        if value is None:
+            return ""
+        if value >= 60:
+            return ""
+        if value >= 40:
+            return "warn"
+        return "danger"
+
+    mmc_progress_class = _progress_class(mmc_core_pct * 100 if mmc_core_pct is not None else None)
+    sss_progress_class = _progress_class(sss_overlap * 100 if sss_overlap is not None else None)
+
+    warn_detail_blocks = []
+    if warn_critical:
+        warn_detail_blocks.append("<strong>Critical</strong><ul>" + "".join([f"<li>{html.escape(w)}</li>" for w in warn_critical]) + "</ul>")
+    if warn_important:
+        warn_detail_blocks.append("<strong>Important</strong><ul>" + "".join([f"<li>{html.escape(w)}</li>" for w in warn_important]) + "</ul>")
+    if warn_info:
+        warn_detail_blocks.append("<strong>Info</strong><ul>" + "".join([f"<li>{html.escape(w)}</li>" for w in warn_info]) + "</ul>")
+    warn_details_html = "".join(warn_detail_blocks) if warn_detail_blocks else "<p>No warnings detected.</p>"
 
     # CSS Style Block (Using format to avoid curly brace hell)
     style_block = """
@@ -2289,6 +2577,60 @@ def generate_dashboard(output_dir, group_test, group_con):
             margin: 0;
             padding-left: 1.2rem;
         }
+
+        .summary-card {
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 22px;
+            padding: 1.6rem;
+            box-shadow: var(--shadow);
+            margin-bottom: 1.6rem;
+        }
+        .summary-grid {
+            display: grid;
+            grid-template-columns: minmax(240px, 0.9fr) minmax(260px, 1.1fr);
+            gap: 18px;
+            align-items: start;
+        }
+        .verdict-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 0.45rem 0.9rem;
+            border-radius: 12px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+        }
+        .verdict-high { background: #10B981; color: #fff; }
+        .verdict-moderate { background: #F59E0B; color: #fff; }
+        .verdict-low { background: #F97316; color: #fff; }
+        .verdict-exploratory { background: #EF4444; color: #fff; }
+        .summary-meta { margin-top: 0.6rem; color: var(--muted); font-size: 0.95rem; }
+        .summary-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-top: 1rem; }
+        .kpi-card { background: #f7f2ea; border-radius: 12px; padding: 0.7rem 0.9rem; }
+        .kpi-label { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
+        .kpi-value { font-weight: 700; margin-top: 0.2rem; }
+        .summary-list { margin: 0.4rem 0 0; padding-left: 1.2rem; color: var(--ink); }
+        .summary-list li { margin-bottom: 0.4rem; }
+        .summary-stats { margin-top: 1.2rem; display: grid; gap: 12px; }
+        .stat-row { display: grid; grid-template-columns: minmax(140px, 0.6fr) minmax(140px, 1.4fr); gap: 10px; align-items: center; }
+        .stat-label { font-weight: 600; color: var(--muted); font-size: 0.9rem; }
+        .stat-value { font-weight: 700; }
+        .progress-bar { width: 100%; height: 8px; border-radius: 999px; background: #e6dfd4; overflow: hidden; }
+        .progress-bar span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+        .progress-bar.warn span { background: var(--accent-2); }
+        .progress-bar.danger span { background: var(--rose); }
+
+        .warn-summary { margin-top: 1.2rem; }
+        .warn-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0.6rem 0; }
+        .warn-chip { padding: 0.35rem 0.7rem; border-radius: 999px; font-size: 0.85rem; font-weight: 700; }
+        .warn-critical { background: #fde2e2; color: #b91c1c; }
+        .warn-important { background: #fef3c7; color: #92400e; }
+        .warn-info { background: #dbeafe; color: #1d4ed8; }
+        .warn-details { background: #fdf9f2; border: 1px dashed var(--line); border-radius: 12px; padding: 0.8rem 1rem; }
+        .warn-details summary { cursor: pointer; font-weight: 700; }
 
         .step-card {
             background: var(--card);
@@ -2446,12 +2788,75 @@ def generate_dashboard(output_dir, group_test, group_con):
 </header>
 
 <div class="container">
-    {warnings_block}
     <div class="jump-bar">
+        <a href="#summary">Executive Summary</a>
         <a href="#start">Start Here</a>
         <a href="#controls">Run Controls & QC</a>
         <a href="#docs">Run Documentation</a>
         <a href="#pipelines">Results</a>
+    </div>
+""")
+
+    key_findings_html = "".join([f"<li>{html.escape(item)}</li>" for item in key_findings])
+    html_parts.append(f"""
+    <div id="summary" class="section-title">Executive Summary</div>
+    <div class="summary-card">
+        <div class="summary-grid">
+            <div>
+                <div class="verdict-badge {verdict_class}">{verdict} Confidence</div>
+                <div class="summary-meta">Samples: {total_samples} (Control {n_con} / Test {n_test}) · Tier: {tier_label.upper() if tier_label else "N/A"}</div>
+                <div class="summary-kpis">
+                    <div class="kpi-card">
+                        <div class="kpi-label">Primary Branch</div>
+                        <div class="kpi-value">{primary_branch or "N/A"}</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Intersection (Native)</div>
+                        <div class="kpi-value">{intersect_native_total}</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Pipelines</div>
+                        <div class="kpi-value">{minfi_total} / {sesame_total} / {sesame_native_total}</div>
+                    </div>
+                </div>
+            </div>
+            <div>
+                <div class="metrics-title">Key Findings</div>
+                <ul class="summary-list">{key_findings_html}</ul>
+            </div>
+        </div>
+        <div class="summary-stats">
+            <div class="stat-row">
+                <div class="stat-label">Method concordance</div>
+                <div>
+                    <div class="stat-value">{mmc_pct_display} core · ρ={mmc_spearman_display}</div>
+                    <div class="progress-bar {mmc_progress_class}"><span style="width:{mmc_bar:.0f}%"></span></div>
+                </div>
+            </div>
+            <div class="stat-row">
+                <div class="stat-label">Stability (SSS)</div>
+                <div>
+                    <div class="stat-value">Overlap {sss_overlap_display} · Sign {sss_sign_display}</div>
+                    <div class="progress-bar {sss_progress_class}"><span style="width:{sss_bar:.0f}%"></span></div>
+                </div>
+            </div>
+            <div class="stat-row">
+                <div class="stat-label">Negative control</div>
+                <div class="stat-value">{ncs_label}</div>
+            </div>
+        </div>
+        <div class="warn-summary">
+            <div class="metrics-title">Warnings & Recommendations</div>
+            <div class="warn-chips">
+                <span class="warn-chip warn-critical">Critical {len(warn_critical)}</span>
+                <span class="warn-chip warn-important">Important {len(warn_important)}</span>
+                <span class="warn-chip warn-info">Info {len(warn_info)}</span>
+            </div>
+            <details class="warn-details">
+                <summary>View details</summary>
+                {warn_details_html}
+            </details>
+        </div>
     </div>
 """)
 

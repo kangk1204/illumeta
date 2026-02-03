@@ -12,6 +12,7 @@ IlluMeta currently supports Illumina array IDATs (450k/EPIC/EPIC v2). Sequencing
 - **Primary-branch selection**: uses a documented multi-criteria scoring heuristic (not a global optimum); weights are saved in `analysis_parameters.json`.
 - **CRF v2.1 robustness**: sample-size–adaptive robustness report (MMC/NCS/SSS) with tiered warnings plus lambda CI, MMC Spearman concordance, and SSS sign-consistency metrics.
 - **Defensive stats**: guards against low-variance or single-group covariates to prevent hard failures in small studies.
+- **Executive summary dashboard**: verdict + CRF quick stats + warnings surfaced at the top for fast interpretation.
 - **Auto-group helper**: can populate `primary_group` from metadata when a reliable group column exists.
 - **Auto-group caution**: auto-grouping is heuristic; always verify group labels/counts (see `preflight_report.json`, `decision_ledger.tsv`).
 - **Paper-ready artifacts**: interactive HTML + static PNG figures, plus `methods.md`, `summary.json`, `analysis_parameters.json`, `sessionInfo.txt`, and `code_version.txt`.

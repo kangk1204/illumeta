@@ -2738,6 +2738,8 @@ def generate_dashboard(output_dir, group_test, group_con):
             header { padding: 2.6rem 1.4rem 3rem; }
             .hero { grid-template-columns: 1fr; }
             .container { margin-top: -1.6rem; }
+            .summary-grid { grid-template-columns: 1fr; }
+            .stat-row { grid-template-columns: 1fr; }
         }
     """
 

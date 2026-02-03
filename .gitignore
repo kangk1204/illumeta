@@ -15,6 +15,7 @@ __pycache__/
 .r_setup_done
 # Local analysis outputs / scratch
 projects/
+ablation_runs/
 *_results/
 *_results_*/
 *_results_index.html
@@ -22,3 +23,5 @@ projects/
 batch_report.csv
 batch_runner.py
 cancer_candidates.tsv
+benchmarks/benchmark_summary.tsv
+benchmarks/benchmark_summary.md

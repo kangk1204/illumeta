@@ -31,6 +31,7 @@ suppressPackageStartupMessages(library(data.table))
 suppressPackageStartupMessages(library(htmlwidgets))
 suppressPackageStartupMessages(library(dplyr))
 suppressPackageStartupMessages(library(stringr))
+suppressPackageStartupMessages(library(jsonlite))
 suppressPackageStartupMessages(library(ggrepel))
 suppressPackageStartupMessages(library(sva))
 suppressPackageStartupMessages(library(variancePartition))
@@ -39,6 +40,15 @@ suppressPackageStartupMessages(library(Biobase))
 suppressPackageStartupMessages(library(pvca))
 suppressPackageStartupMessages(library(RefFreeEWAS))
 suppressPackageStartupMessages(library(illuminaio))
+
+if (Sys.getenv("ILLUMETA_TRACEBACK", unset = "") == "1") {
+  options(error = function() {
+    tb <- capture.output(traceback(2))
+    message("TRACEBACK:")
+    message(paste(tb, collapse = "\n"))
+    quit(status = 1)
+  })
+}
 
 # Workaround for variancePartition / lme4 compatibility issue
 # variancePartition still calls lme4::findbars; in newer lme4 this may be a stub
@@ -97,6 +107,8 @@ option_list <- list(
               help="Path to IDAT directory (default: [config dir]/idat)", metavar="character"),
   make_option(c("--skip-sesame"), action="store_true", default=FALSE,
               help="Skip Sesame pipeline and intersection outputs (Minfi only)."),
+  make_option(c("--sesame_typeinorm"), action="store_true", default=FALSE,
+              help="Enable sesame dyeBiasCorrTypeINorm (default: disabled for stability)."),
   make_option(c("-m", "--max_plots"), type="integer", default=10000, 
               help="Max points for interactive plots (default: 10000)", metavar="integer"),
   make_option(c("-p", "--pval"), type="double", default=0.05, 
@@ -117,12 +129,30 @@ option_list <- list(
               help="Comma-separated covariate names to always try to include (if present)"),
   make_option(c("--include_clock_covariates"), action="store_true", default=FALSE,
               help="Compute epigenetic clocks and add them as metadata covariates for auto selection (writes *_configure_with_clocks.tsv)."),
+  make_option(c("--beginner_safe"), action="store_true", default=FALSE,
+              help="Enable beginner-safe mode (stricter group checks and conservative thresholds)."),
+  make_option(c("--marker_list"), type="character", default="",
+              help="Optional CpG marker list (TSV/CSV with CpG column or one CpG per line) for signal preservation checks"),
+  make_option(c("--cross_reactive_list"), type="character", default="",
+              help="Optional cross-reactive probe list (TSV/CSV with CpG column or one CpG per line) for filtering"),
+  make_option(c("--unsafe-skip-cross-reactive"), action="store_true", default=FALSE,
+              help="UNSAFE: skip mandatory cross-reactive probe filtering (requires explicit flag)."),
+  make_option(c("--disable_cross_reactive"), action="store_true", default=FALSE,
+              help="DEPRECATED: use --unsafe-skip-cross-reactive to skip filtering (not recommended)."),
+  make_option(c("--sex-mismatch-action"), type="character", default="",
+              help="Sex mismatch check action: stop|drop|ignore (default: stop)."),
+  make_option(c("--sex_check_action"), type="character", default="",
+              help="DEPRECATED alias for --sex-mismatch-action."),
+  make_option(c("--sex_check_column"), type="character", default="",
+              help="Metadata column to use for sex mismatch check (default: auto-detect)."),
+  make_option(c("--disable_sex_check"), action="store_true", default=FALSE,
+              help="DEPRECATED: use --sex-mismatch-action ignore (not recommended)."),
   make_option(c("--permutations"), type="integer", default=20,
               help="Number of label permutations for null DMP counts (default: 20; set 0 to use config minimum; set calibration.permutations_min=0 to disable)"),
   make_option(c("--vp_top"), type="integer", default=5000,
               help="Number of top-variable CpGs for variancePartition (default: 5000)"),
   make_option(c("--tissue"), type="character", default="Auto", 
-              help="Tissue type for cell deconvolution (default: Auto = reference-free). Supported: Auto (RefFreeEWAS), Blood, CordBlood, DLPFC"),
+              help="Tissue type for cell deconvolution (default: Auto = reference-free). Supported: Auto (RefFreeEWAS), Blood, CordBlood, DLPFC, Saliva, Placenta"),
   make_option(c("--cell_reference"), type="character", default="",
               help="Custom cell reference (package name, package::object, or .rds/.rda path)"),
   make_option(c("--cell_reference_platform"), type="character", default="",
@@ -133,20 +163,46 @@ option_list <- list(
               help="Column in configure.tsv to treat as sample ID (for non-GEO datasets). If empty, tries GSM/geo_accession."),
   make_option(c("--min_total_size"), type="integer", default=6,
               help="Minimum total sample size required to proceed (default: 6)."),
-  make_option(c("--qc_intensity_threshold"), type="double", default=10.5,
-              help="Median M/U signal intensity threshold for sample QC (log2). Set <=0 to disable intensity-based sample drop (default: 10.5)"),
+  make_option(c("--qc_intensity_threshold"), type="double", default=9.0,
+              help="Median M/U signal intensity threshold for sample QC (log2). Set <=0 to disable intensity-based sample drop (default: 9.0)"),
   make_option(c("--qc_detection_p_threshold"), type="double", default=NA_real_,
-              help="Detection P-value threshold for sample/probe QC (default: 0.01)."),
+              help="Detection P-value threshold for sample/probe QC (default: 0.05)."),
   make_option(c("--qc_sample_fail_frac"), type="double", default=NA_real_,
-              help="Sample fail fraction for detection P-value QC (default: 0.05)."),
+              help="Sample fail fraction for detection P-value QC (default: 0.20)."),
   make_option(c("--dmr_min_cpgs"), type="integer", default=NA_integer_,
               help="Minimum CpGs per DMR to retain (default: 2)."),
+  make_option(c("--dmr_maxgap"), type="integer", default=NA_integer_,
+              help="Maximum gap between CpGs for DMRs (default: 500 or config)."),
+  make_option(c("--beginner_safe_delta_beta"), type="double", default=NA_real_,
+              help="Minimum |DeltaBeta| enforced in beginner-safe mode (default: 0.05 or config)."),
+  make_option(c("--logit_offset"), type="double", default=NA_real_,
+              help="Logit offset for M-value transform (default: 1e-4 or config)."),
+  make_option(c("--batch_column"), type="character", default="",
+              help="Override batch column name for correction (skips auto selection)."),
+  make_option(c("--batch_method"), type="character", default="",
+              help="Override batch correction method: none|combat|limma|sva (skips auto selection)."),
+  make_option(c("--tier3-min-total-n"), type="integer", default=NA_integer_,
+              help="Tier3 minimum total N required to run stratified/meta (default: 20)."),
+  make_option(c("--tier3-min-per-group-per-stratum"), type="integer", default=NA_integer_,
+              help="Tier3 minimum samples per group per stratum (default: 5)."),
+  make_option(c("--tier3-on-fail"), type="character", default="",
+              help="Tier3 action when ineligible: stop|skip (default: stop)."),
+  make_option(c("--auto-covariates-enabled"), type="character", default="",
+              help="Enable/disable auto covariates (true/false); overrides config."),
+  make_option(c("--auto-covariates-exclude-group-associated"),
+              type="character", default="", help="Exclude covariates strongly associated with group (true/false)."),
+  make_option(c("--auto-covariates-group-assoc-p-threshold"),
+              type="double", default=NA_real_, help="P-value threshold for group association exclusion."),
+  make_option(c("--auto-covariates-max-cor"),
+              type="double", default=NA_real_, help="Max allowed absolute correlation among auto covariates."),
+  make_option(c("--cell-adjustment-on-high-eta2"),
+              type="character", default="", help="Action when cell vs group Eta^2 exceeds threshold: warn|stop."),
   make_option(c("--force_idat"), action="store_true", default=FALSE,
               help="Force reading IDATs when array sizes differ but types are similar (passes force=TRUE to read.metharray).")
 )
 
 opt_parser <- OptionParser(option_list=option_list)
-opt <- parse_args(opt_parser)
+opt <- parse_args(opt_parser, convert_hyphens_to_underscores = TRUE)
 
 # Timestamped messages for all logging in this script
 ts_message <- function(..., domain = NULL, appendLF = TRUE) {
@@ -156,9 +212,9 @@ ts_message <- function(..., domain = NULL, appendLF = TRUE) {
 message <- ts_message
 
 # QC and filtering thresholds (kept as constants for transparency/reuse)
-QC_MEDIAN_INTENSITY_THRESHOLD <- 10.5
-QC_DETECTION_P_THRESHOLD <- 0.01
-QC_SAMPLE_DET_FAIL_FRAC <- 0.05
+QC_MEDIAN_INTENSITY_THRESHOLD <- 9.0
+QC_DETECTION_P_THRESHOLD <- 0.05
+QC_SAMPLE_DET_FAIL_FRAC <- 0.20
 SNP_MAF_THRESHOLD <- 0.01
 LOGIT_OFFSET <- 1e-4
 BETA_RANGE_MIN <- 0.05
@@ -185,13 +241,16 @@ MIN_TOTAL_SIZE_STOP <- NULL
 CONFIG_DEFAULTS <- list(
   preset = "conservative",
   min_overlap_per_cell = 2,
+  logit_offset = 1e-4,
   qc = list(
-    detection_p_threshold = 0.01,
-    sample_fail_frac = 0.05
+    detection_p_threshold = 0.05,
+    sample_fail_frac = 0.20
   ),
   dmr = list(
-    min_cpgs = 2
+    min_cpgs = 2,
+    maxgap = 500
   ),
+  beginner_safe_delta_beta = 0.05,
   confounding = list(
     tier1_v = 0.2,
     tier2_v = 0.4,
@@ -200,12 +259,130 @@ CONFIG_DEFAULTS <- list(
   ),
   batch_candidate_patterns = c("sentrix", "slide", "array", "plate", "chip", "batch"),
   batch_candidates = NULL,
+  batch_override = list(
+    column = "",
+    method = ""
+  ),
   forced_adjust = character(0),
   allowed_adjust = character(0),
   do_not_adjust = character(0),
   missingness = list(max_frac = 0.2, impute_max_frac = 0.1),
   collinearity = list(cor_threshold = 0.9),
   calibration = list(ks_p = 0.05, permutations_min = 20),
+  unsafe = list(
+    skip_cross_reactive = FALSE,
+    skip_sex_check = FALSE
+  ),
+  caf = list(
+    enabled = TRUE,
+    profile = "auto",
+    target_fpr = 0.05,
+    weights = list(
+      conservative = list(calibration = 0.40, preservation = 0.35, batch = 0.25),
+      discovery = list(calibration = 0.25, preservation = 0.25, batch = 0.50)
+    )
+  ),
+  crf = list(
+    enabled = TRUE,
+    max_probes_mmc = 20000,
+    max_probes_sss = 20000,
+    housekeeping_path = "",
+    ncs_lambda_ci = list(
+      enabled = TRUE,
+      n_boot = 200,
+      sample_frac = 0.8
+    ),
+    sample_tiers = list(
+      minimal = list(
+        threshold = 12,
+        min_per_group = 3,
+        mmc = list(methods = c("none", "limma"), concordance_levels = c("core", "discordant")),
+        ncs = list(types = c("snp"), lambda_range = c(0.7, 1.3), interpret = "reference_only"),
+        sss = list(mode = "bootstrap", n_iterations = 100, top_k = c(20, 50), overlap_threshold = 0.20),
+        warnings = c("Very small sample size: interpret all results with extreme caution.",
+                     "Statistical power severely limited.",
+                     "Consider this analysis exploratory only.")
+      ),
+      small = list(
+        threshold = 24,
+        min_per_group = 6,
+        mmc = list(methods = c("none", "combat_np", "limma"), concordance_levels = c("core", "consensus", "weak")),
+        ncs = list(types = c("snp"), lambda_range = c(0.8, 1.2), interpret = "cautious"),
+        sss = list(mode = "leave_pair_out", n_iterations = 50, top_k = c(30, 100, 200), overlap_threshold = 0.30),
+        warnings = c("Small sample size: results should be validated independently.",
+                     "SVA excluded due to instability.")
+      ),
+      moderate = list(
+        threshold = 50,
+        min_per_group = 12,
+        mmc = list(methods = c("none", "combat", "limma", "sva"), concordance_levels = c("core", "consensus", "weak"),
+                   sva_note = "SVA may be slightly unstable."),
+        ncs = list(types = c("snp", "housekeeping"), lambda_range = c(0.9, 1.1), interpret = "standard"),
+        sss = list(mode = "split", n_iterations = 10, top_k = c(50, 200, 500), overlap_threshold = 0.40),
+        warnings = character(0)
+      ),
+      large = list(
+        threshold = NA,
+        min_per_group = 25,
+        mmc = list(methods = c("none", "combat", "limma", "sva"), concordance_levels = c("core", "consensus", "weak")),
+        ncs = list(types = c("snp", "housekeeping"), lambda_range = c(0.9, 1.1), interpret = "standard"),
+        sss = list(mode = "split", n_iterations = 10, top_k = c(100, 500, 1000), overlap_threshold = 0.50),
+        warnings = character(0)
+      )
+    )
+  ),
+  auto_covariates = list(
+    enabled = TRUE,
+    exclude_if_group_associated = TRUE,
+    group_assoc_p_threshold = 1e-3,
+    max_cor = 0.9
+  ),
+  lambda_guard = list(
+    enabled = TRUE,
+    threshold = 1.5,
+    min_samples = 8,
+    action = "warn"
+  ),
+  sva = list(
+    group_p_threshold = 1e-6,
+    group_eta2_threshold = 0.5
+  ),
+  variance_partition = list(
+    autoscale_numeric = TRUE,
+    autoscale_on_fail = TRUE
+  ),
+  tier3_meta = list(
+    method = "auto",
+    i2_threshold = 0.5,
+    min_total_n = 20,
+    min_per_group_per_stratum = 5,
+    on_fail = "stop",
+    min_total_warn = 20,
+    min_stratum_warn = 6
+  ),
+  cell_adjustment = list(
+    on_high_eta2 = "warn"
+  ),
+  cell_deconv = list(
+    ref_free_k = 5,
+    ref_free_max_probes = 10000,
+    confound_eta2_threshold = 0.5,
+    confound_action = "warn" # warn | drop
+  ),
+  markers = list(
+    path = ""
+  ),
+  cross_reactive = list(
+    enabled = TRUE,
+    path = "",
+    local_dir = "references/probe_blacklists",
+    use_maxprobes = TRUE
+  ),
+  sex_check = list(
+    enabled = TRUE,
+    action = "stop",
+    column = ""
+  ),
   scoring_presets = list(
     conservative = list(
       weights = list(batch = 0.20, bio = 0.35, cal = 0.25, stab = 0.20),
@@ -274,6 +451,16 @@ normalize_preset <- function(preset) {
   preset
 }
 
+parse_bool_flag <- function(x, default = NA) {
+  if (is.null(x)) return(default)
+  if (is.logical(x) && length(x) == 1) return(x)
+  if (!nzchar(as.character(x))) return(default)
+  val <- tolower(trimws(as.character(x)))
+  if (val %in% c("1", "true", "t", "yes", "y")) return(TRUE)
+  if (val %in% c("0", "false", "f", "no", "n")) return(FALSE)
+  default
+}
+
 decision_log <- data.frame(
   timestamp = character(0),
   stage = character(0),
@@ -308,7 +495,8 @@ if (is.null(opt$config) || is.null(opt$group_con) || is.null(opt$group_test)){
   stop("Configuration file, group_con, and group_test must be supplied", call.=FALSE)
 }
 
-config_file <- opt$config
+config_file <- normalizePath(opt$config, winslash = "/", mustWork = FALSE)
+project_dir <- dirname(config_file)
 config_yaml_path <- opt$config_yaml
 if (!nzchar(config_yaml_path)) {
   config_yaml_path <- file.path(dirname(config_file), "config.yaml")
@@ -328,9 +516,19 @@ out_dir <- opt$out
 max_points <- opt$max_plots
 pval_thresh <- opt$pval
 lfc_thresh <- opt$lfc
+beginner_safe <- isTRUE(opt$beginner_safe)
 delta_beta_thresh <- suppressWarnings(as.numeric(opt$delta_beta))
 if (!is.finite(delta_beta_thresh)) delta_beta_thresh <- 0
 delta_beta_thresh <- abs(delta_beta_thresh)
+beginner_safe_delta_beta <- suppressWarnings(as.numeric(if (!is.null(config_settings$beginner_safe_delta_beta))
+  config_settings$beginner_safe_delta_beta else 0.05))
+if (!is.na(opt$beginner_safe_delta_beta)) beginner_safe_delta_beta <- opt$beginner_safe_delta_beta
+if (!is.finite(beginner_safe_delta_beta) || beginner_safe_delta_beta < 0) {
+  beginner_safe_delta_beta <- 0.05
+}
+if (beginner_safe && (is.na(delta_beta_thresh) || delta_beta_thresh < beginner_safe_delta_beta)) {
+  delta_beta_thresh <- beginner_safe_delta_beta
+}
 group_con_in <- opt$group_con
 group_test_in <- opt$group_test
 perm_n <- opt$permutations
@@ -341,6 +539,105 @@ disable_auto_cov <- opt$disable_auto_covariates
 disable_sva <- opt$disable_sva
 include_cov <- ifelse(opt$include_covariates == "", character(0), trimws(strsplit(opt$include_covariates, ",")[[1]]))
 include_clock_covariates <- opt$include_clock_covariates
+marker_list_path <- opt$marker_list
+if (!nzchar(marker_list_path) && !is.null(config_settings$markers$path)) {
+  marker_list_path <- as.character(config_settings$markers$path)
+}
+if (nzchar(marker_list_path) && !grepl("^/", marker_list_path)) {
+  marker_list_path <- file.path(project_dir, marker_list_path)
+}
+if (nzchar(marker_list_path) && !file.exists(marker_list_path)) {
+  warning(sprintf("Marker list not found: %s (skipping marker preservation checks)", marker_list_path))
+  marker_list_path <- ""
+}
+cross_reactive_path <- opt$cross_reactive_list
+if (!nzchar(cross_reactive_path) && !is.null(config_settings$cross_reactive$path)) {
+  cross_reactive_path <- as.character(config_settings$cross_reactive$path)
+}
+if (nzchar(cross_reactive_path) && !grepl("^/", cross_reactive_path)) {
+  cross_reactive_path <- file.path(project_dir, cross_reactive_path)
+}
+if (nzchar(cross_reactive_path) && !file.exists(cross_reactive_path)) {
+  warning(sprintf("Cross-reactive probe list not found: %s", cross_reactive_path))
+  cross_reactive_path <- ""
+}
+cross_reactive_enabled <- isTRUE(config_settings$cross_reactive$enabled)
+cross_reactive_use_maxprobes <- isTRUE(config_settings$cross_reactive$use_maxprobes)
+cross_reactive_local_dir <- ""
+if (!is.null(config_settings$cross_reactive$local_dir)) {
+  cross_reactive_local_dir <- as.character(config_settings$cross_reactive$local_dir)
+}
+if (nzchar(cross_reactive_local_dir) && !grepl("^/", cross_reactive_local_dir)) {
+  cross_reactive_local_dir <- file.path(project_dir, cross_reactive_local_dir)
+}
+unsafe_skip_cross_reactive <- isTRUE(config_settings$unsafe$skip_cross_reactive)
+if (isTRUE(opt$unsafe_skip_cross_reactive)) {
+  unsafe_skip_cross_reactive <- TRUE
+}
+if (isTRUE(opt$disable_cross_reactive)) {
+  unsafe_skip_cross_reactive <- TRUE
+}
+if (!cross_reactive_enabled && !unsafe_skip_cross_reactive) {
+  message("  Cross-reactive filtering is mandatory; overriding config to enable it (use --unsafe-skip-cross-reactive to bypass).")
+  cross_reactive_enabled <- TRUE
+}
+if (nzchar(cross_reactive_path)) cross_reactive_enabled <- TRUE
+
+sex_check_enabled <- isTRUE(config_settings$sex_check$enabled)
+unsafe_skip_sex_check <- isTRUE(config_settings$unsafe$skip_sex_check)
+if (isTRUE(opt$disable_sex_check)) unsafe_skip_sex_check <- TRUE
+sex_check_action <- opt$sex_mismatch_action
+if (is.null(sex_check_action) || !nzchar(sex_check_action)) sex_check_action <- opt$sex_check_action
+if (!nzchar(sex_check_action) && !is.null(config_settings$sex_check$action)) {
+  sex_check_action <- as.character(config_settings$sex_check$action)
+}
+sex_check_action <- tolower(trimws(sex_check_action))
+if (!nzchar(sex_check_action)) sex_check_action <- "stop"
+if (!sex_check_action %in% c("stop", "drop", "ignore")) {
+  warning(sprintf("Unknown sex mismatch action '%s'; defaulting to 'stop'.", sex_check_action))
+  sex_check_action <- "stop"
+}
+if (unsafe_skip_sex_check) sex_check_action <- "ignore"
+if (!sex_check_enabled && !unsafe_skip_sex_check) {
+  message("  Sex check is mandatory for safety; overriding config to enable it (use --sex-mismatch-action ignore to bypass).")
+  sex_check_enabled <- TRUE
+}
+sex_check_column <- opt$sex_check_column
+if (is.null(sex_check_column) || !nzchar(sex_check_column)) {
+  sex_check_column <- ""
+}
+if (!nzchar(sex_check_column) && !is.null(config_settings$sex_check$column)) {
+  sex_check_column <- as.character(config_settings$sex_check$column)
+}
+
+auto_cov_enabled <- isTRUE(config_settings$auto_covariates$enabled)
+auto_cov_enabled_cli <- parse_bool_flag(opt$auto_covariates_enabled, default = NA)
+if (!is.na(auto_cov_enabled_cli)) auto_cov_enabled <- auto_cov_enabled_cli
+if (isTRUE(disable_auto_cov)) auto_cov_enabled <- FALSE
+auto_cov_exclude_group <- isTRUE(config_settings$auto_covariates$exclude_if_group_associated)
+auto_cov_exclude_cli <- parse_bool_flag(opt$auto_covariates_exclude_group_associated, default = NA)
+if (!is.na(auto_cov_exclude_cli)) auto_cov_exclude_group <- auto_cov_exclude_cli
+auto_cov_group_p <- suppressWarnings(as.numeric(config_settings$auto_covariates$group_assoc_p_threshold))
+if (!is.na(opt$auto_covariates_group_assoc_p_threshold)) {
+  auto_cov_group_p <- opt$auto_covariates_group_assoc_p_threshold
+}
+if (!is.finite(auto_cov_group_p) || auto_cov_group_p <= 0) auto_cov_group_p <- 1e-3
+auto_cov_max_cor <- suppressWarnings(as.numeric(config_settings$auto_covariates$max_cor))
+if (!is.na(opt$auto_covariates_max_cor)) auto_cov_max_cor <- opt$auto_covariates_max_cor
+if (!is.finite(auto_cov_max_cor)) auto_cov_max_cor <- NA_real_
+batch_col_override <- opt$batch_column
+if (!nzchar(batch_col_override) && !is.null(config_settings$batch_override$column)) {
+  batch_col_override <- as.character(config_settings$batch_override$column)
+}
+batch_method_override <- opt$batch_method
+if (!nzchar(batch_method_override) && !is.null(config_settings$batch_override$method)) {
+  batch_method_override <- as.character(config_settings$batch_override$method)
+}
+batch_method_override <- tolower(trimws(batch_method_override))
+if (nzchar(batch_method_override) && !batch_method_override %in% c("none", "combat", "limma", "sva")) {
+  warning(sprintf("Unknown batch_method override '%s'; ignoring.", batch_method_override))
+  batch_method_override <- ""
+}
 cell_reference <- opt$cell_reference
 cell_reference_platform <- opt$cell_reference_platform
 tissue_use <- opt$tissue
@@ -352,6 +649,9 @@ sesame_cell_est <- NULL
 sesame_cell_reference <- "minfi-derived"
 id_col_override <- opt$id_column
 MIN_TOTAL_SIZE_STOP <- max(2, opt$min_total_size)
+if (beginner_safe && MIN_TOTAL_SIZE_STOP < 8) {
+  MIN_TOTAL_SIZE_STOP <- 8
+}
 force_idat <- opt$force_idat
 QC_MEDIAN_INTENSITY_THRESHOLD <- ifelse(opt$qc_intensity_threshold <= 0, -Inf, opt$qc_intensity_threshold)
 qc_det_p <- config_settings$qc$detection_p_threshold
@@ -360,10 +660,71 @@ QC_DETECTION_P_THRESHOLD <- qc_det_p
 qc_fail_frac <- config_settings$qc$sample_fail_frac
 if (!is.na(opt$qc_sample_fail_frac)) qc_fail_frac <- opt$qc_sample_fail_frac
 QC_SAMPLE_DET_FAIL_FRAC <- qc_fail_frac
+logit_offset_cfg <- if (!is.null(config_settings$logit_offset)) as.numeric(config_settings$logit_offset) else NA_real_
+if (!is.na(opt$logit_offset)) logit_offset_cfg <- opt$logit_offset
+if (is.finite(logit_offset_cfg) && logit_offset_cfg > 0 && logit_offset_cfg < 0.5) {
+  LOGIT_OFFSET <- logit_offset_cfg
+} else if (!is.na(logit_offset_cfg)) {
+  warning(sprintf("Invalid logit_offset %.6f; using default %.6f.", logit_offset_cfg, LOGIT_OFFSET))
+}
+sva_cfg <- config_settings$sva
+if (!is.null(sva_cfg$group_p_threshold)) {
+  sva_p <- suppressWarnings(as.numeric(sva_cfg$group_p_threshold))
+  if (is.finite(sva_p) && sva_p > 0) SV_GROUP_P_THRESHOLD <- sva_p
+}
+if (!is.null(sva_cfg$group_eta2_threshold)) {
+  sva_eta2 <- suppressWarnings(as.numeric(sva_cfg$group_eta2_threshold))
+  if (is.finite(sva_eta2) && sva_eta2 > 0) SV_GROUP_ETA2_THRESHOLD <- sva_eta2
+}
+cell_deconv_cfg <- config_settings$cell_deconv
+cell_ref_free_k <- suppressWarnings(as.integer(if (!is.null(cell_deconv_cfg$ref_free_k)) cell_deconv_cfg$ref_free_k else 5))
+if (!is.finite(cell_ref_free_k) || cell_ref_free_k < 2) cell_ref_free_k <- 5
+cell_ref_free_max_probes <- suppressWarnings(as.integer(if (!is.null(cell_deconv_cfg$ref_free_max_probes)) cell_deconv_cfg$ref_free_max_probes else 10000))
+if (!is.finite(cell_ref_free_max_probes) || cell_ref_free_max_probes < 1000) cell_ref_free_max_probes <- 10000
+cell_confound_eta2_threshold <- suppressWarnings(as.numeric(if (!is.null(cell_deconv_cfg$confound_eta2_threshold))
+  cell_deconv_cfg$confound_eta2_threshold else 0.5))
+if (!is.finite(cell_confound_eta2_threshold) || cell_confound_eta2_threshold <= 0) cell_confound_eta2_threshold <- 0.5
+cell_confound_action <- if (!is.null(cell_deconv_cfg$confound_action)) as.character(cell_deconv_cfg$confound_action) else "warn"
+cell_confound_action <- tolower(trimws(cell_confound_action))
+if (!cell_confound_action %in% c("warn", "drop")) cell_confound_action <- "warn"
+cell_adjustment_action <- "warn"
+if (!is.null(config_settings$cell_adjustment$on_high_eta2)) {
+  cell_adjustment_action <- as.character(config_settings$cell_adjustment$on_high_eta2)
+}
+if (nzchar(opt$cell_adjustment_on_high_eta2)) {
+  cell_adjustment_action <- opt$cell_adjustment_on_high_eta2
+}
+cell_adjustment_action <- tolower(trimws(cell_adjustment_action))
+if (!cell_adjustment_action %in% c("warn", "stop")) cell_adjustment_action <- "warn"
+
+caf_cfg <- config_settings$caf
+caf_enabled <- isTRUE(caf_cfg$enabled)
+caf_target_fpr <- suppressWarnings(as.numeric(if (!is.null(caf_cfg$target_fpr)) caf_cfg$target_fpr else 0.05))
+if (!is.finite(caf_target_fpr) || caf_target_fpr <= 0) caf_target_fpr <- 0.05
+
+tier3_min_total_n <- suppressWarnings(as.integer(if (!is.null(config_settings$tier3_meta$min_total_n))
+  config_settings$tier3_meta$min_total_n else 20))
+if (!is.na(opt$tier3_min_total_n)) tier3_min_total_n <- opt$tier3_min_total_n
+if (!is.finite(tier3_min_total_n) || tier3_min_total_n < 2) tier3_min_total_n <- 20
+tier3_min_per_group_per_stratum <- suppressWarnings(as.integer(if (!is.null(config_settings$tier3_meta$min_per_group_per_stratum))
+  config_settings$tier3_meta$min_per_group_per_stratum else 5))
+if (!is.na(opt$tier3_min_per_group_per_stratum)) tier3_min_per_group_per_stratum <- opt$tier3_min_per_group_per_stratum
+if (!is.finite(tier3_min_per_group_per_stratum) || tier3_min_per_group_per_stratum < 2) tier3_min_per_group_per_stratum <- 5
+tier3_on_fail <- if (!is.null(config_settings$tier3_meta$on_fail)) as.character(config_settings$tier3_meta$on_fail) else "stop"
+if (nzchar(opt$tier3_on_fail)) tier3_on_fail <- opt$tier3_on_fail
+tier3_on_fail <- tolower(trimws(tier3_on_fail))
+if (!tier3_on_fail %in% c("stop", "skip")) tier3_on_fail <- "stop"
+if (beginner_safe) {
+  message(sprintf("Beginner-safe mode enabled: min_total_size >= %d; |DeltaBeta| >= %.3f", MIN_TOTAL_SIZE_STOP, delta_beta_thresh))
+}
 dmr_min_cpgs <- config_settings$dmr$min_cpgs
 if (!is.na(opt$dmr_min_cpgs)) dmr_min_cpgs <- opt$dmr_min_cpgs
 if (!is.finite(dmr_min_cpgs) || dmr_min_cpgs < 1) dmr_min_cpgs <- 1
 DMR_MIN_CPGS <- as.integer(dmr_min_cpgs)
+dmr_maxgap <- if (!is.null(config_settings$dmr$maxgap)) config_settings$dmr$maxgap else DMR_MAXGAP
+if (!is.na(opt$dmr_maxgap)) dmr_maxgap <- opt$dmr_maxgap
+if (!is.finite(dmr_maxgap) || dmr_maxgap < 1) dmr_maxgap <- DMR_MAXGAP
+DMR_MAXGAP <- as.integer(dmr_maxgap)
 dmr_p_cutoff <- pval_thresh
 if (!is.finite(dmr_p_cutoff) || dmr_p_cutoff <= 0) {
   dmr_p_cutoff <- DMR_P_CUTOFF_DEFAULT
@@ -383,7 +744,7 @@ dir.create(results_root, recursive = TRUE, showWarnings = FALSE)
 invisible(lapply(results_dirs, function(d) dir.create(d, recursive = TRUE, showWarnings = FALSE)))
 
 # --- Set ExperimentHub/AnnotationHub Cache ---
-sesame_cache_dir <- file.path(getwd(), "cache") 
+sesame_cache_dir <- file.path(project_dir, "cache")
 cache_preexisting <- dir.exists(sesame_cache_dir)
 if (!cache_preexisting) dir.create(sesame_cache_dir, recursive = TRUE)
 
@@ -418,11 +779,44 @@ save_interactive_plot <- function(p, filename, dir) {
   saveWidget(pp, file = file.path(dir, filename), selfcontained = TRUE)
 }
 
-save_static_plot <- function(p, filename, dir, width = 7, height = 4, dpi = 300) {
+STATIC_PLOT_DPI <- 300
+STATIC_PLOT_FONT_BASE <- 13
+STATIC_PLOT_TITLE_SIZE <- 14
+STATIC_PLOT_SUBTITLE_SIZE <- 12
+STATIC_PLOT_AXIS_TEXT_SIZE <- 11
+STATIC_PLOT_AXIS_TITLE_SIZE <- 12
+STATIC_PLOT_LEGEND_TEXT_SIZE <- 11
+STATIC_PLOT_LEGEND_TITLE_SIZE <- 12
+
+apply_static_theme <- function(p) {
+  p + theme(
+    text = element_text(size = STATIC_PLOT_FONT_BASE),
+    plot.title = element_text(size = STATIC_PLOT_TITLE_SIZE),
+    plot.subtitle = element_text(size = STATIC_PLOT_SUBTITLE_SIZE),
+    axis.text = element_text(size = STATIC_PLOT_AXIS_TEXT_SIZE),
+    axis.title = element_text(size = STATIC_PLOT_AXIS_TITLE_SIZE),
+    legend.text = element_text(size = STATIC_PLOT_LEGEND_TEXT_SIZE),
+    legend.title = element_text(size = STATIC_PLOT_LEGEND_TITLE_SIZE)
+  )
+}
+
+save_static_plot <- function(p, filename, dir, width = 7, height = 4, dpi = STATIC_PLOT_DPI) {
+  p_use <- apply_static_theme(p)
   tryCatch({
-    ggsave(filename = file.path(dir, filename), plot = p, width = width, height = height, dpi = dpi)
+    ggsave(filename = file.path(dir, filename), plot = p_use, width = width, height = height, dpi = dpi)
   }, error = function(e) {
     message(sprintf("  Static plot save skipped (%s): %s", filename, e$message))
+  })
+  # Also save PDF version for publication-ready figures
+  pdf_name <- if (grepl("\\.png$", filename, ignore.case = TRUE)) {
+    sub("\\.png$", ".pdf", filename, ignore.case = TRUE)
+  } else {
+    paste0(filename, ".pdf")
+  }
+  tryCatch({
+    ggsave(filename = file.path(dir, pdf_name), plot = p_use, width = width, height = height, device = "pdf")
+  }, error = function(e) {
+    message(sprintf("  PDF plot save skipped (%s): %s", pdf_name, e$message))
   })
 }
 
@@ -442,6 +836,29 @@ save_datatable <- function(df, filename, dir, sort_col = NULL) {
     order = list(list(p_idx, 'asc'))
   ))
   saveWidget(dt, file = file.path(dir, filename), selfcontained = TRUE)
+}
+
+write_matrix_tsv_gz <- function(mat, path, chunk_size = 50000L) {
+  if (is.null(mat) || nrow(mat) == 0 || ncol(mat) == 0) return(invisible(FALSE))
+  ok <- tryCatch({
+    dir.create(dirname(path), showWarnings = FALSE, recursive = TRUE)
+    con <- gzfile(path, open = "wt")
+    on.exit(close(con), add = TRUE)
+    header <- c("CpG", colnames(mat))
+    writeLines(paste(header, collapse = "\t"), con)
+    n <- nrow(mat)
+    for (i in seq(1, n, by = chunk_size)) {
+      idx <- i:min(i + chunk_size - 1L, n)
+      chunk <- mat[idx, , drop = FALSE]
+      out <- cbind(CpG = rownames(chunk), chunk)
+      utils::write.table(out, con, sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
+    }
+    TRUE
+  }, error = function(e) {
+    message("  WARNING: Failed to write matrix file: ", path, " (", e$message, ")")
+    FALSE
+  })
+  invisible(ok)
 }
 
 with_muffled_warnings <- function(expr, label = NULL, patterns = NULL) {
@@ -542,6 +959,8 @@ reduction_score <- function(baseline, current) {
 
 compute_pc_batch_r2 <- function(pca_scores, batch, max_pcs = 5) {
   if (is.null(pca_scores) || ncol(pca_scores) < 1) return(NA_real_)
+  batch <- normalize_meta_vals(batch)
+  if (length(unique(batch[!is.na(batch)])) < 2) return(NA_real_)
   n_pcs <- min(max_pcs, ncol(pca_scores))
   r2s <- numeric(0)
   for (k in seq_len(n_pcs)) {
@@ -593,26 +1012,39 @@ compute_bio_preservation <- function(pca_before, pca_after, targets, bio_vars, m
   detail <- data.frame(Variable = character(0), Before = numeric(0), After = numeric(0), Ratio = numeric(0))
   for (var in bio_vars) {
     if (!var %in% colnames(targets)) next
-    vals <- targets[[var]]
-    if (length(unique(vals)) < 2) next
+    vals <- normalize_meta_vals(targets[[var]])
+    non_missing <- vals[!is.na(vals)]
+    if (length(unique(non_missing)) < 2) next
     before_vals <- numeric(0)
     after_vals <- numeric(0)
     for (k in seq_len(n_pcs)) {
       if (is.numeric(vals) || is.integer(vals)) {
-        fit_b <- tryCatch(lm(pca_before$x[, k] ~ vals), error = function(e) NULL)
-        fit_a <- tryCatch(lm(pca_after$x[, k] ~ vals), error = function(e) NULL)
-        if (!is.null(fit_b)) before_vals <- c(before_vals, summary(fit_b)$r.squared)
-        if (!is.null(fit_a)) after_vals <- c(after_vals, summary(fit_a)$r.squared)
-      } else {
-        fit_b <- tryCatch(aov(pca_before$x[, k] ~ as.factor(vals)), error = function(e) NULL)
-        fit_a <- tryCatch(aov(pca_after$x[, k] ~ as.factor(vals)), error = function(e) NULL)
-        if (!is.null(fit_b)) {
-          ss <- summary(fit_b)[[1]]
-          before_vals <- c(before_vals, ss$`Sum Sq`[1] / sum(ss$`Sum Sq`))
+        cc <- complete.cases(pca_before$x[, k], vals)
+        if (sum(cc) >= 3) {
+          fit_b <- tryCatch(lm(pca_before$x[cc, k] ~ vals[cc]), error = function(e) NULL)
+          if (!is.null(fit_b)) before_vals <- c(before_vals, summary(fit_b)$r.squared)
         }
-        if (!is.null(fit_a)) {
-          ss <- summary(fit_a)[[1]]
-          after_vals <- c(after_vals, ss$`Sum Sq`[1] / sum(ss$`Sum Sq`))
+        cc2 <- complete.cases(pca_after$x[, k], vals)
+        if (sum(cc2) >= 3) {
+          fit_a <- tryCatch(lm(pca_after$x[cc2, k] ~ vals[cc2]), error = function(e) NULL)
+          if (!is.null(fit_a)) after_vals <- c(after_vals, summary(fit_a)$r.squared)
+        }
+      } else {
+        cc <- complete.cases(pca_before$x[, k], vals)
+        if (sum(cc) >= 3 && length(unique(vals[cc])) >= 2) {
+          fit_b <- tryCatch(aov(pca_before$x[cc, k] ~ as.factor(vals[cc])), error = function(e) NULL)
+          if (!is.null(fit_b)) {
+            ss <- summary(fit_b)[[1]]
+            before_vals <- c(before_vals, ss$`Sum Sq`[1] / sum(ss$`Sum Sq`))
+          }
+        }
+        cc2 <- complete.cases(pca_after$x[, k], vals)
+        if (sum(cc2) >= 3 && length(unique(vals[cc2])) >= 2) {
+          fit_a <- tryCatch(aov(pca_after$x[cc2, k] ~ as.factor(vals[cc2])), error = function(e) NULL)
+          if (!is.null(fit_a)) {
+            ss <- summary(fit_a)[[1]]
+            after_vals <- c(after_vals, ss$`Sum Sq`[1] / sum(ss$`Sum Sq`))
+          }
         }
       }
     }
@@ -640,20 +1072,30 @@ compute_batch_stability <- function(betas, targets, batch_col, covariates, group
     sub_targets <- targets[idx, , drop = FALSE]
     sub_betas <- betas[top_idx, idx, drop = FALSE]
     covars <- intersect(covariates, colnames(sub_targets))
+    if (length(covars) > 0) {
+      cov_drop <- drop_single_level_covariates(sub_targets, covars)
+      covars <- cov_drop$keep
+    }
     formula_str <- "~ 0 + primary_group"
     if (length(covars) > 0) formula_str <- paste(formula_str, "+", paste(covars, collapse = " + "))
-    design <- model.matrix(as.formula(formula_str), data = sub_targets)
+    design <- tryCatch(model.matrix(as.formula(formula_str), data = sub_targets), error = function(e) NULL)
+    if (is.null(design)) next
     colnames(design) <- gsub("primary_group", "", colnames(design))
     group_cols <- make.names(levels(sub_targets$primary_group))
     design_ld <- drop_linear_dependencies(design, group_cols = group_cols)
     design <- design_ld$mat
     if (ncol(design) < 2) next
     m_vals <- logit_offset(sub_betas)
-    fit <- lmFit(m_vals, design)
+    fit <- tryCatch(lmFit(m_vals, design), error = function(e) NULL)
+    if (is.null(fit)) next
+    if (length(group_cols) < 2) next
     contrast_str <- paste0(group_cols[2], "-", group_cols[1])
-    cm <- makeContrasts(contrasts = contrast_str, levels = design)
-    fit2 <- contrasts.fit(fit, cm)
-    fit2 <- eBayes(fit2)
+    cm <- tryCatch(makeContrasts(contrasts = contrast_str, levels = design), error = function(e) NULL)
+    if (is.null(cm)) next
+    fit2 <- tryCatch(contrasts.fit(fit, cm), error = function(e) NULL)
+    if (is.null(fit2)) next
+    fit2 <- tryCatch(eBayes(fit2), error = function(e) NULL)
+    if (is.null(fit2)) next
     eff_list[[b]] <- fit2$coefficients[, 1]
   }
   if (length(eff_list) < 2) return(NA_real_)
@@ -716,8 +1158,9 @@ run_permutation_uniformity <- function(betas, targets, group_col, covariates, ba
 }
 
 select_batch_strategy <- function(betas, targets, batch_col, batch_tier, covariate_sets, group_col,
-                                  config_settings, scoring_preset, perm_n, vp_top, prefix, out_dir) {
-  methods <- c("none", "combat", "limma", "sva")
+                                  config_settings, scoring_preset, perm_n, vp_top, prefix, out_dir,
+                                  method_pool = NULL) {
+  methods <- if (!is.null(method_pool) && length(method_pool) > 0) method_pool else c("none", "combat", "limma", "sva")
   if (is.null(batch_col) || nrow(targets) < 4) {
     return(list(best_method = "none", best_covariates = covariate_sets[[1]], candidates = NULL))
   }
@@ -739,6 +1182,28 @@ select_batch_strategy <- function(betas, targets, batch_col, batch_tier, covaria
         # keep limma but mark as restricted in notes
       }
       res <- eval_batch_method(M_mat, targets, group_col = group_col, batch_col = batch_col, covariates = cov_set, method = m)
+      if (isTRUE(res$failed)) {
+        note_msg <- res$fail_reason
+        if (!is.null(res$note) && nzchar(res$note)) {
+          note_msg <- paste(note_msg, res$note, sep = " | ")
+        }
+        cand_rows <- rbind(cand_rows, data.frame(
+          cov_set = set_name,
+          method = m,
+          batch_score = NA_real_,
+          batch_reduction = NA_real_,
+          pc_r2_reduction = NA_real_,
+          mix_improve = NA_real_,
+          bio_score = NA_real_,
+          cal_score = NA_real_,
+          stab_score = NA_real_,
+          total_score = -Inf,
+          status = "FAILED",
+          note = note_msg,
+          stringsAsFactors = FALSE
+        ))
+        next
+      }
       pca_after <- safe_prcomp(t(res$M_corr), label = paste("Batch eval", set_name, m), scale. = TRUE)
       pc_r2_after <- if (!is.null(pca_after)) compute_pc_batch_r2(pca_after$x, batch_vals) else NA_real_
       mix_after <- if (!is.null(pca_after)) compute_knn_mixing(pca_after$x, batch_vals) else NA_real_
@@ -773,6 +1238,7 @@ select_batch_strategy <- function(betas, targets, batch_col, batch_tier, covaria
         stab_score = stab_score,
         total_score = total_pre,
         status = "PENDING",
+        note = if (!is.null(res$note)) res$note else "",
         stringsAsFactors = FALSE
       ))
     }
@@ -785,6 +1251,7 @@ select_batch_strategy <- function(betas, targets, batch_col, batch_tier, covaria
   eval_idx <- seq_len(min(top_k, nrow(cand_rows)))
   for (i in eval_idx) {
     row <- cand_rows[i, ]
+    if (row$status == "FAILED") next
     cov_set <- covariate_sets[[row$cov_set]]
     formula_str <- "~ 0 + primary_group"
     if (length(cov_set) > 0) formula_str <- paste(formula_str, "+", paste(cov_set, collapse = " + "))
@@ -828,8 +1295,13 @@ select_batch_strategy <- function(betas, targets, batch_col, batch_tier, covaria
     }
   }
   cand_rows <- cand_rows[order(-cand_rows$total_score), ]
-  best_rows <- cand_rows[cand_rows$status != "RED", , drop = FALSE]
-  if (nrow(best_rows) == 0) best_rows <- cand_rows
+  best_rows <- cand_rows[!(cand_rows$status %in% c("RED", "FAILED")), , drop = FALSE]
+  if (nrow(best_rows) == 0) {
+    best_rows <- cand_rows[cand_rows$status != "FAILED", , drop = FALSE]
+  }
+  if (nrow(best_rows) == 0) {
+    return(list(best_method = "none", best_covariates = covariate_sets[[1]], candidates = cand_rows))
+  }
   best <- best_rows[1, ]
   list(best_method = best$method, best_covariates = covariate_sets[[best$cov_set]], candidates = cand_rows)
 }
@@ -840,11 +1312,1173 @@ logit_offset <- function(betas, offset = LOGIT_OFFSET) {
   log2((betas + offset) / (1 - betas + offset))
 }
 
+load_marker_list <- function(path) {
+  if (!nzchar(path) || !file.exists(path)) return(NULL)
+  first_line <- tryCatch(readLines(path, n = 1, warn = FALSE), error = function(e) "")
+  sep <- ""
+  if (grepl("\t", first_line, fixed = TRUE)) sep <- "\t"
+  if (sep == "" && grepl(",", first_line, fixed = TRUE)) sep <- ","
+  if (sep == "") {
+    vals <- tryCatch(readLines(path, warn = FALSE), error = function(e) character(0))
+    vals <- trimws(vals)
+    vals <- vals[vals != ""]
+    return(unique(vals))
+  }
+  df <- tryCatch(read.delim(path, sep = sep, stringsAsFactors = FALSE), error = function(e) NULL)
+  if (is.null(df) || nrow(df) == 0) return(NULL)
+  col <- names(df)[1]
+  for (cand in c("CpG", "cpg", "probe", "Probe", "marker", "Marker")) {
+    if (cand %in% names(df)) {
+      col <- cand
+      break
+    }
+  }
+  vals <- trimws(as.character(df[[col]]))
+  vals <- vals[!grepl("^#", vals)]
+  vals <- vals[vals != ""]
+  unique(vals)
+}
+
+load_probe_list_from_file <- function(path, col_candidates = character(0)) {
+  if (!nzchar(path) || !file.exists(path)) return(NULL)
+  first_line <- tryCatch(readLines(path, n = 1, warn = FALSE), error = function(e) "")
+  sep <- ""
+  if (grepl("\t", first_line, fixed = TRUE)) sep <- "\t"
+  if (sep == "" && grepl(",", first_line, fixed = TRUE)) sep <- ","
+  if (sep == "") {
+    vals <- tryCatch(readLines(path, warn = FALSE), error = function(e) character(0))
+    vals <- trimws(vals)
+    vals <- vals[!grepl("^#", vals)]
+    vals <- vals[vals != ""]
+    return(unique(vals))
+  }
+  df <- tryCatch(read.delim(path, sep = sep, stringsAsFactors = FALSE), error = function(e) NULL)
+  if (is.null(df) || nrow(df) == 0) return(NULL)
+  col <- names(df)[1]
+  if (length(col_candidates) > 0) {
+    for (cand in col_candidates) {
+      if (cand %in% names(df)) {
+        col <- cand
+        break
+      }
+    }
+  }
+  vals <- trimws(as.character(df[[col]]))
+  vals <- vals[vals != ""]
+  unique(vals)
+}
+
+looks_like_cpg_ids <- function(ids) {
+  ids <- ids[!is.na(ids)]
+  if (length(ids) == 0) return(FALSE)
+  mean(grepl("^(cg|ch)", ids, ignore.case = TRUE)) >= 0.5
+}
+
+extract_cpgs_from_object <- function(obj, col_candidates = character(0)) {
+  if (is.null(obj) || is.function(obj)) return(NULL)
+  if (is.factor(obj)) obj <- as.character(obj)
+  if (is.character(obj)) return(unique(obj))
+  if (is.data.frame(obj) || is.matrix(obj)) {
+    if (!is.null(colnames(obj)) && length(col_candidates) > 0) {
+      for (cand in col_candidates) {
+        if (cand %in% colnames(obj)) {
+          vals <- trimws(as.character(obj[, cand]))
+          vals <- vals[vals != ""]
+          return(unique(vals))
+        }
+      }
+    }
+    rn <- rownames(obj)
+    if (!is.null(rn) && looks_like_cpg_ids(rn)) return(unique(rn))
+  }
+  if (is.list(obj)) {
+    for (nm in c("cpgs", "CpG", "probes", "probe_ids", "Probe", "probe", "targets", "TargetID")) {
+      if (!is.null(obj[[nm]])) {
+        out <- extract_cpgs_from_object(obj[[nm]], col_candidates = col_candidates)
+        if (!is.null(out) && length(out) > 0) return(out)
+      }
+    }
+  }
+  NULL
+}
+
+normalize_array_key <- function(array_type) {
+  if (is.na(array_type) || !nzchar(array_type)) return("")
+  gsub("[^a-z0-9]", "", tolower(array_type))
+}
+
+normalize_array_label <- function(array_type) {
+  key <- normalize_array_key(array_type)
+  if (grepl("epicv2", key) || grepl("950", key)) return("EPICv2")
+  if (grepl("epic", key) || grepl("850", key)) return("EPIC")
+  if (grepl("450", key)) return("450K")
+  ""
+}
+
+select_local_cross_reactive_file <- function(array_type, local_dir) {
+  if (!nzchar(local_dir)) return("")
+  if (!dir.exists(local_dir)) return("")
+  key <- normalize_array_key(array_type)
+  candidates <- c()
+  if (grepl("epicv2", key) || grepl("950", key)) {
+    candidates <- c("EPICv2", "epicv2")
+  } else if (grepl("epic", key) || grepl("850", key)) {
+    candidates <- c("EPIC", "EPICv1", "epic")
+  } else if (grepl("450", key)) {
+    candidates <- c("450K", "450k", "HM450", "hm450")
+  }
+  prefixes <- c("cross_reactive", "xreactive", "xreactive_probes")
+  exts <- c("tsv", "csv", "txt")
+  for (cand in candidates) {
+    for (pref in prefixes) {
+      for (ext in exts) {
+        path <- file.path(local_dir, paste0(pref, "_", cand, ".", ext))
+        if (file.exists(path)) return(path)
+      }
+    }
+  }
+  ""
+}
+
+get_cross_reactive_from_maxprobes <- function(array_type) {
+  if (!requireNamespace("maxprobes", quietly = TRUE)) return(NULL)
+  array_label <- normalize_array_label(array_type)
+  if (!nzchar(array_label)) return(NULL)
+  res <- tryCatch(maxprobes::xreactive_probes(array_type = array_label), error = function(e) NULL)
+  if (is.null(res) || length(res) == 0) return(NULL)
+  list(probes = unique(as.character(res)), source = paste0("maxprobes::xreactive_probes(", array_label, ")"),
+       version = as.character(utils::packageVersion("maxprobes")))
+}
+
+resolve_cross_reactive_probes <- function(path, use_maxprobes = TRUE, array_type = NA_character_,
+                                          local_dir = "", allow_missing = FALSE) {
+  col_candidates <- c("CpG", "cpg", "probe", "Probe", "probe_id", "Probe_ID",
+                      "TargetID", "IlmnID", "Name", "ID")
+  if (nzchar(path) && file.exists(path)) {
+    vals <- load_probe_list_from_file(path, col_candidates = col_candidates)
+    if (!is.null(vals) && length(vals) > 0) {
+      return(list(probes = unique(vals), source = path, version = "local"))
+    }
+  }
+  if (isTRUE(use_maxprobes)) {
+    max_res <- get_cross_reactive_from_maxprobes(array_type)
+    if (!is.null(max_res) && !is.null(max_res$probes) && length(max_res$probes) > 0) {
+      return(max_res)
+    }
+  }
+  local_path <- select_local_cross_reactive_file(array_type, local_dir)
+  if (nzchar(local_path) && file.exists(local_path)) {
+    vals <- load_probe_list_from_file(local_path, col_candidates = col_candidates)
+    if (!is.null(vals) && length(vals) > 0) {
+      return(list(probes = unique(vals), source = local_path, version = "local"))
+    }
+  }
+  if (allow_missing) return(NULL)
+  NULL
+}
+
+# Backward-compatible alias
+load_cross_reactive_list <- function(path, use_maxprobes = TRUE, array_type = NA_character_, local_dir = "") {
+  resolve_cross_reactive_probes(path = path, use_maxprobes = use_maxprobes,
+                                array_type = array_type, local_dir = local_dir, allow_missing = TRUE)
+}
+
+apply_cross_reactive_to_gmSet <- function(gmSet, cross_reactive_probes, use_maxprobes = TRUE) {
+  removed <- character(0)
+  source <- ""
+  before_ids <- rownames(gmSet)
+  if (isTRUE(use_maxprobes) && requireNamespace("maxprobes", quietly = TRUE) &&
+      exists("dropXreactiveLoci", envir = asNamespace("maxprobes"), inherits = FALSE)) {
+    gm_try <- tryCatch(maxprobes::dropXreactiveLoci(gmSet), error = function(e) NULL)
+    if (!is.null(gm_try)) {
+      gmSet <- gm_try
+      removed <- setdiff(before_ids, rownames(gmSet))
+      source <- "maxprobes::dropXreactiveLoci"
+      return(list(gmSet = gmSet, removed = removed, source = source))
+    }
+  }
+  if (!is.null(cross_reactive_probes) && length(cross_reactive_probes) > 0) {
+    keep <- !(rownames(gmSet) %in% cross_reactive_probes)
+    removed <- rownames(gmSet)[!keep]
+    gmSet <- gmSet[keep, ]
+    source <- "list"
+  }
+  list(gmSet = gmSet, removed = removed, source = source)
+}
+
+apply_cross_reactive_to_matrix <- function(mat, cross_reactive_probes) {
+  if (is.null(mat) || is.null(cross_reactive_probes) || length(cross_reactive_probes) == 0) {
+    return(list(mat = mat, removed = character(0)))
+  }
+  keep <- !(rownames(mat) %in% cross_reactive_probes)
+  removed <- rownames(mat)[!keep]
+  mat <- mat[keep, , drop = FALSE]
+  list(mat = mat, removed = removed)
+}
+
+normalize_sex_vector <- function(x) {
+  if (is.null(x)) return(character(0))
+  v <- as.character(x)
+  v <- trimws(tolower(v))
+  v_clean <- gsub("[^a-z0-9]", "", v)
+  out <- rep(NA_character_, length(v_clean))
+  if (length(v_clean) > 0) {
+    num_vals <- suppressWarnings(as.numeric(v_clean))
+    if (sum(!is.na(num_vals)) == sum(v_clean != "" & !is.na(v_clean))) {
+      uniq <- sort(unique(num_vals[is.finite(num_vals)]))
+      if (length(uniq) > 0 && all(uniq %in% c(0, 1))) {
+        out[num_vals == 1] <- "M"
+        out[num_vals == 0] <- "F"
+        return(out)
+      }
+      if (length(uniq) > 0 && all(uniq %in% c(1, 2))) {
+        out[num_vals == 1] <- "M"
+        out[num_vals == 2] <- "F"
+        return(out)
+      }
+    }
+  }
+  male_tokens <- c("m", "male", "man", "boy", "xy", "males")
+  female_tokens <- c("f", "female", "woman", "girl", "xx", "females")
+  out[v_clean %in% male_tokens] <- "M"
+  out[v_clean %in% female_tokens] <- "F"
+  out
+}
+
+resolve_sex_column <- function(targets, preferred = "") {
+  if (nzchar(preferred)) {
+    if (preferred %in% colnames(targets)) return(preferred)
+    message(sprintf("  Sex check: specified column '%s' not found; falling back to auto-detect.", preferred))
+  }
+  cols <- colnames(targets)
+  hits <- cols[grepl("sex|gender", tolower(cols))]
+  if (length(hits) == 0) return("")
+  hits[1]
+}
+
+extract_predicted_sex <- function(sex_obj) {
+  if (is.null(sex_obj)) return(NULL)
+  if (is.data.frame(sex_obj) || inherits(sex_obj, "DataFrame")) {
+    for (col in c("predictedSex", "sex", "Sex", "PredictedSex", "predicted_sex")) {
+      if (col %in% colnames(sex_obj)) {
+        return(as.character(sex_obj[[col]]))
+      }
+    }
+    return(NULL)
+  }
+  if (is.character(sex_obj) || is.factor(sex_obj)) return(as.character(sex_obj))
+  NULL
+}
+
+run_sex_mismatch_check <- function(rgSet, targets, gsm_col, out_dir, action = "stop", column = "") {
+  if (is.null(rgSet) || ncol(rgSet) == 0) return(list(skipped = TRUE, reason = "no_data"))
+  sex_col <- resolve_sex_column(targets, column)
+  if (!nzchar(sex_col)) {
+    message("  Sex check skipped: no metadata sex/gender column found.")
+    return(list(skipped = TRUE, reason = "no_column"))
+  }
+  sex_obj <- tryCatch(minfi::getSex(rgSet), error = function(e) {
+    message("  Sex check failed: minfi::getSex() error: ", e$message)
+    NULL
+  })
+  if (is.null(sex_obj)) return(list(skipped = TRUE, reason = "getsex_failed", column = sex_col))
+  pred_raw <- extract_predicted_sex(sex_obj)
+  if (is.null(pred_raw)) {
+    message("  Sex check skipped: predicted sex column not found in getSex() output.")
+    return(list(skipped = TRUE, reason = "predicted_missing", column = sex_col))
+  }
+  sample_ids <- colnames(rgSet)
+  pred_vec <- rep(NA_character_, length(sample_ids))
+  names(pred_vec) <- sample_ids
+  if (!is.null(rownames(sex_obj)) && any(rownames(sex_obj) %in% sample_ids)) {
+    pred_vec[rownames(sex_obj)] <- pred_raw
+  } else if (!is.null(names(pred_raw)) && any(names(pred_raw) %in% sample_ids)) {
+    pred_vec[names(pred_raw)] <- pred_raw
+  } else if (length(pred_raw) == length(sample_ids)) {
+    pred_vec <- pred_raw
+    names(pred_vec) <- sample_ids
+  }
+  xMed <- NULL
+  yMed <- NULL
+  if (is.data.frame(sex_obj) || inherits(sex_obj, "DataFrame")) {
+    if ("xMed" %in% colnames(sex_obj)) xMed <- as.numeric(sex_obj$xMed)
+    if ("yMed" %in% colnames(sex_obj)) yMed <- as.numeric(sex_obj$yMed)
+    if (!is.null(rownames(sex_obj)) && any(rownames(sex_obj) %in% sample_ids)) {
+      xMed <- xMed[match(sample_ids, rownames(sex_obj))]
+      yMed <- yMed[match(sample_ids, rownames(sex_obj))]
+    }
+  }
+  meta_idx <- match(sample_ids, rownames(targets))
+  if (all(is.na(meta_idx)) && gsm_col %in% colnames(targets)) {
+    meta_idx <- match(sample_ids, targets[[gsm_col]])
+  }
+  meta_vals <- targets[[sex_col]][meta_idx]
+  meta_norm <- normalize_sex_vector(meta_vals)
+  pred_norm <- normalize_sex_vector(pred_vec)
+  mismatch <- !is.na(meta_norm) & !is.na(pred_norm) & meta_norm != pred_norm
+  mismatch_samples <- sample_ids[mismatch]
+  status <- ifelse(is.na(meta_norm) | is.na(pred_norm), "ambiguous", ifelse(mismatch, "mismatch", "match"))
+  xMed_vec <- if (is.null(xMed)) rep(NA_real_, length(sample_ids)) else xMed
+  yMed_vec <- if (is.null(yMed)) rep(NA_real_, length(sample_ids)) else yMed
+  out_df <- data.frame(
+    SampleID = sample_ids,
+    Sex_Metadata = meta_vals,
+    Sex_Metadata_Norm = meta_norm,
+    Sex_Predicted = pred_vec,
+    Sex_Predicted_Norm = pred_norm,
+    xMed = xMed_vec,
+    yMed = yMed_vec,
+    Status = status,
+    stringsAsFactors = FALSE
+  )
+  write.csv(out_df, file.path(out_dir, "Sex_Check_Summary.csv"), row.names = FALSE)
+  write.csv(out_df, file.path(out_dir, "Sex_Check.csv"), row.names = FALSE)
+
+  if (!is.null(xMed) && !is.null(yMed) && any(is.finite(xMed)) && any(is.finite(yMed))) {
+    plot_df <- out_df[is.finite(out_df$xMed) & is.finite(out_df$yMed), , drop = FALSE]
+    if (nrow(plot_df) > 0) {
+      p_sex <- ggplot(plot_df, aes(x = xMed, y = yMed, color = Sex_Predicted_Norm, shape = Status, label = SampleID)) +
+        geom_point(size = 3, alpha = 0.8) +
+        theme_minimal() +
+        ggtitle("Sex Check: X vs Y Median Intensity") +
+        xlab("X median (xMed)") + ylab("Y median (yMed)")
+      if (any(plot_df$Status == "mismatch")) {
+        p_sex <- p_sex + ggrepel::geom_text_repel(data = plot_df[plot_df$Status == "mismatch", ],
+                                                  size = 3, max.overlaps = 20)
+      }
+      save_interactive_plot(p_sex, "Sex_Check_Plot.html", out_dir)
+      save_static_plot(p_sex, "Sex_Check_Plot.png", out_dir, width = 5, height = 4)
+    }
+  }
+
+  mismatch_count <- sum(mismatch, na.rm = TRUE)
+  if (mismatch_count > 0) {
+    message(sprintf("WARNING: Sex mismatch detected in %d sample(s).", mismatch_count))
+    message(sprintf("  - Column: %s | Action: %s", sex_col, action))
+  } else {
+    message("  Sex check: no mismatches detected.")
+  }
+  list(mismatch_samples = mismatch_samples, mismatch_count = mismatch_count, column = sex_col)
+}
+
+safe_cor <- function(x, y, method = "pearson") {
+  if (length(x) < 2 || length(y) < 2) return(NA_real_)
+  suppressWarnings(cor(x, y, use = "complete.obs", method = method))
+}
+
+compute_effect_size_consistency <- function(raw_res, corr_res, raw_delta_beta, corr_delta_beta,
+                                            pval_thresh, lfc_thresh, top_n = 1000) {
+  if (is.null(raw_res) || is.null(corr_res)) return(NULL)
+  if (nrow(raw_res) == 0 || nrow(corr_res) == 0) return(NULL)
+  if (!"CpG" %in% colnames(raw_res)) raw_res$CpG <- rownames(raw_res)
+  if (!"CpG" %in% colnames(corr_res)) corr_res$CpG <- rownames(corr_res)
+  raw_df <- data.frame(
+    CpG = raw_res$CpG,
+    logFC_raw = raw_res$logFC,
+    adj_raw = raw_res$adj.P.Val,
+    stringsAsFactors = FALSE
+  )
+  if (!is.null(raw_delta_beta)) {
+    raw_df$delta_beta_raw <- raw_delta_beta[raw_df$CpG]
+  }
+  corr_df <- data.frame(
+    CpG = corr_res$CpG,
+    logFC_corr = corr_res$logFC,
+    adj_corr = corr_res$adj.P.Val,
+    stringsAsFactors = FALSE
+  )
+  if (!is.null(corr_delta_beta)) {
+    corr_df$delta_beta_corr <- corr_delta_beta[corr_df$CpG]
+  }
+  merged <- merge(raw_df, corr_df, by = "CpG")
+  if (nrow(merged) == 0) return(NULL)
+  logfc_corr <- safe_cor(merged$logFC_raw, merged$logFC_corr, method = "pearson")
+  logfc_spear <- safe_cor(merged$logFC_raw, merged$logFC_corr, method = "spearman")
+  delta_corr <- NA_real_
+  if ("delta_beta_raw" %in% colnames(merged) && "delta_beta_corr" %in% colnames(merged)) {
+    delta_corr <- safe_cor(merged$delta_beta_raw, merged$delta_beta_corr, method = "pearson")
+  }
+  sign_conc <- mean(sign(merged$logFC_raw) == sign(merged$logFC_corr), na.rm = TRUE)
+
+  sig_raw <- merged$adj_raw < pval_thresh & abs(merged$logFC_raw) > lfc_thresh
+  sig_corr <- merged$adj_corr < pval_thresh & abs(merged$logFC_corr) > lfc_thresh
+  sig_union <- sig_raw | sig_corr
+  sig_conc <- if (any(sig_union, na.rm = TRUE)) {
+    mean(sign(merged$logFC_raw[sig_union]) == sign(merged$logFC_corr[sig_union]), na.rm = TRUE)
+  } else {
+    NA_real_
+  }
+  sig_overlap <- sum(sig_raw & sig_corr, na.rm = TRUE)
+  sig_jaccard <- if (sum(sig_raw | sig_corr, na.rm = TRUE) > 0) {
+    sig_overlap / sum(sig_raw | sig_corr, na.rm = TRUE)
+  } else {
+    NA_real_
+  }
+
+  top_n <- min(top_n, nrow(merged))
+  top_corr <- merged[order(merged$adj_corr), ][seq_len(top_n), , drop = FALSE]
+  top_raw <- merged[order(merged$adj_raw), ][seq_len(top_n), , drop = FALSE]
+  top_overlap <- length(intersect(top_corr$CpG, top_raw$CpG))
+  top_union <- length(unique(c(top_corr$CpG, top_raw$CpG)))
+  top_jaccard <- if (top_union > 0) top_overlap / top_union else NA_real_
+  top_logfc_corr <- safe_cor(top_corr$logFC_raw, top_corr$logFC_corr, method = "pearson")
+
+  list(
+    logFC_corr_all = logfc_corr,
+    logFC_spearman_all = logfc_spear,
+    delta_beta_corr_all = delta_corr,
+    sign_concordance_all = sign_conc,
+    sign_concordance_sig = sig_conc,
+    sig_jaccard = sig_jaccard,
+    top_n = top_n,
+    top_overlap = top_overlap,
+    top_jaccard = top_jaccard,
+    top_logFC_corr = top_logfc_corr
+  )
+}
+
+evaluate_marker_retention <- function(corr_res, markers, pval_thresh, lfc_thresh, raw_res = NULL) {
+  if (is.null(markers) || length(markers) == 0) return(NULL)
+  if (is.null(corr_res) || nrow(corr_res) == 0) return(NULL)
+  if (!"CpG" %in% colnames(corr_res)) corr_res$CpG <- rownames(corr_res)
+  corr_hits <- corr_res[corr_res$CpG %in% markers, , drop = FALSE]
+  markers_total <- length(unique(markers))
+  markers_in_data <- length(unique(corr_hits$CpG))
+  sig_mask <- corr_hits$adj.P.Val < pval_thresh & abs(corr_hits$logFC) > lfc_thresh
+  markers_sig <- sum(sig_mask, na.rm = TRUE)
+  sig_frac <- if (markers_in_data > 0) markers_sig / markers_in_data else NA_real_
+
+  sign_conc <- NA_real_
+  if (!is.null(raw_res) && nrow(corr_hits) > 0) {
+    if (!"CpG" %in% colnames(raw_res)) raw_res$CpG <- rownames(raw_res)
+    raw_hits <- raw_res[raw_res$CpG %in% corr_hits$CpG, c("CpG", "logFC"), drop = FALSE]
+    merged <- merge(raw_hits, corr_hits[, c("CpG", "logFC")], by = "CpG", suffixes = c("_raw", "_corr"))
+    if (nrow(merged) > 0) {
+      sign_conc <- mean(sign(merged$logFC_raw) == sign(merged$logFC_corr), na.rm = TRUE)
+    }
+  }
+
+  list(
+    markers_total = markers_total,
+    markers_in_data = markers_in_data,
+    markers_sig = markers_sig,
+    markers_sig_fraction = sig_frac,
+    markers_sign_concordance = sign_conc
+  )
+}
+
+score_grade <- function(x) {
+  if (!is.finite(x)) return("NA")
+  if (x >= 0.85) return("EXCELLENT")
+  if (x >= 0.70) return("GOOD")
+  if (x >= 0.50) return("FAIR")
+  "POOR"
+}
+
+fmt_val <- function(x, digits = 3) {
+  if (!is.finite(x)) return("NA")
+  sprintf(paste0("%.", digits, "f"), x)
+}
+
+resolve_caf_weights <- function(caf_cfg, preset_name = "conservative") {
+  default_weights <- list(calibration = 0.40, preservation = 0.35, batch = 0.25)
+  if (is.null(caf_cfg)) return(default_weights)
+  profile <- ifelse(is.null(caf_cfg$profile), "auto", tolower(as.character(caf_cfg$profile)))
+  if (profile == "auto") {
+    profile <- ifelse(preset_name == "aggressive", "discovery", "conservative")
+  }
+  if (!is.null(caf_cfg$weights$calibration)) {
+    w <- caf_cfg$weights
+  } else if (!is.null(caf_cfg$weights[[profile]])) {
+    w <- caf_cfg$weights[[profile]]
+  } else {
+    w <- default_weights
+  }
+  w <- unlist(w)
+  if (length(w) < 3) w <- default_weights
+  w <- w[c("calibration", "preservation", "batch")]
+  if (any(!is.finite(w))) w <- default_weights
+  w_sum <- sum(w)
+  if (!is.finite(w_sum) || w_sum <= 0) return(default_weights)
+  w / w_sum
+}
+
+caf_weights <- resolve_caf_weights(caf_cfg, preset_name)
+
+compute_caf_scores <- function(perm_summary, perm_n_probes,
+                               effect_metrics, marker_metrics,
+                               batch_before, batch_after,
+                               weights, target_fpr = 0.05) {
+  perm_mean_sig <- NA_real_
+  perm_lambda <- NA_real_
+  perm_ks <- NA_real_
+  if (!is.null(perm_summary) && nrow(perm_summary) > 0) {
+    perm_mean_sig <- perm_summary$value[perm_summary$stat == "mean_sig"]
+    perm_lambda <- perm_summary$value[perm_summary$stat == "lambda_median"]
+    perm_ks <- perm_summary$value[perm_summary$stat == "ks_p_median"]
+  }
+  perm_mean_sig <- suppressWarnings(as.numeric(perm_mean_sig))
+  perm_lambda <- suppressWarnings(as.numeric(perm_lambda))
+  perm_ks <- suppressWarnings(as.numeric(perm_ks))
+  perm_n_probes <- suppressWarnings(as.numeric(perm_n_probes))
+  null_fpr <- if (is.finite(perm_mean_sig) && is.finite(perm_n_probes) && perm_n_probes > 0) {
+    perm_mean_sig / perm_n_probes
+  } else {
+    NA_real_
+  }
+  cal_score <- if (is.finite(null_fpr) && is.finite(target_fpr) && target_fpr > 0) {
+    clamp01(1 - abs(null_fpr - target_fpr) / target_fpr)
+  } else {
+    NA_real_
+  }
+
+  marker_ret <- if (!is.null(marker_metrics)) suppressWarnings(as.numeric(marker_metrics$markers_sig_fraction)) else NA_real_
+  effect_corr <- if (!is.null(effect_metrics)) suppressWarnings(as.numeric(effect_metrics$logFC_corr_all)) else NA_real_
+  pres_score <- if (is.finite(marker_ret) && is.finite(effect_corr)) {
+    clamp01(marker_ret * effect_corr)
+  } else if (is.finite(effect_corr)) {
+    clamp01(effect_corr)
+  } else {
+    NA_real_
+  }
+
+  before_sig <- if (!is.null(batch_before)) suppressWarnings(as.numeric(batch_before$sig_count)) else NA_real_
+  after_sig <- if (!is.null(batch_after)) suppressWarnings(as.numeric(batch_after$sig_count)) else NA_real_
+  batch_reduction <- if (is.finite(before_sig) && before_sig > 0 && is.finite(after_sig)) {
+    clamp01((before_sig - after_sig) / before_sig)
+  } else {
+    NA_real_
+  }
+
+  scores <- c(calibration = cal_score, preservation = pres_score, batch = batch_reduction)
+  w <- weights
+  keep <- is.finite(scores)
+  cai <- if (any(keep)) sum(scores[keep] * w[keep]) / sum(w[keep]) else NA_real_
+
+  list(
+    null_fpr = null_fpr,
+    null_lambda = perm_lambda,
+    null_ks_p = perm_ks,
+    calibration_score = cal_score,
+    marker_retention = marker_ret,
+    effect_concordance = effect_corr,
+    preservation_score = pres_score,
+    batch_reduction = batch_reduction,
+    cai = cai,
+    weights = w
+  )
+}
+
+flag_ok <- function(cond) {
+  if (isTRUE(cond)) "OK" else "WARN"
+}
+
+build_caf_report_lines <- function(prefix, applied_batch_method, n_con, n_test,
+                                   perm_n, perm_n_probes, caf_res, marker_metrics, target_fpr) {
+  if (is.null(caf_res)) return(NULL)
+  total_n <- n_con + n_test
+  null_fpr <- caf_res$null_fpr
+  cal_ok <- is.finite(null_fpr) && abs(null_fpr - target_fpr) <= target_fpr
+  lambda_ok <- is.finite(caf_res$null_lambda) && caf_res$null_lambda >= 0.8 && caf_res$null_lambda <= 1.2
+  ks_ok <- is.finite(caf_res$null_ks_p) && caf_res$null_ks_p > 0.05
+  marker_count <- if (!is.null(marker_metrics)) marker_metrics$markers_in_data else NA
+  marker_ret <- caf_res$marker_retention
+  effect_corr <- caf_res$effect_concordance
+  lines <- c(
+    "CORRECTION ADEQUACY REPORT",
+    "===============================================",
+    sprintf("Pipeline: %s", prefix),
+    sprintf("Batch method: %s", applied_batch_method),
+    sprintf("Samples: %d (Control=%d, Test=%d)", total_n, n_con, n_test),
+    "",
+    "1. CALIBRATION (Permutation-based)",
+    sprintf("  Permutations run: %s", ifelse(is.finite(perm_n), perm_n, "NA")),
+    sprintf("  Null FP rate: %s (target %.2f) [%s]", fmt_val(null_fpr), target_fpr, flag_ok(cal_ok)),
+    sprintf("  Null Lambda: %s [%s]", fmt_val(caf_res$null_lambda), flag_ok(lambda_ok)),
+    sprintf("  KS test p-value: %s [%s]", fmt_val(caf_res$null_ks_p), flag_ok(ks_ok)),
+    sprintf("  CALIBRATION SCORE: %s [%s]", fmt_val(caf_res$calibration_score), score_grade(caf_res$calibration_score)),
+    "",
+    "2. SIGNAL PRESERVATION",
+    sprintf("  Known markers tested: %s", ifelse(is.finite(marker_count), marker_count, "NA")),
+    sprintf("  Marker retention: %s", fmt_val(marker_ret)),
+    sprintf("  Effect concordance (logFC r): %s", fmt_val(effect_corr)),
+    sprintf("  PRESERVATION SCORE: %s [%s]", fmt_val(caf_res$preservation_score), score_grade(caf_res$preservation_score)),
+    "",
+    "3. BATCH REMOVAL",
+    sprintf("  Batch reduction ratio: %s", fmt_val(caf_res$batch_reduction)),
+    sprintf("  BATCH REMOVAL SCORE: %s [%s]", fmt_val(caf_res$batch_reduction), score_grade(caf_res$batch_reduction)),
+    "",
+    "OVERALL CAI",
+    sprintf("  CAI: %s [%s]", fmt_val(caf_res$cai), score_grade(caf_res$cai))
+  )
+  if (is.null(marker_metrics) || !is.finite(marker_ret)) {
+    lines <- c(lines, "", "NOTE: Marker list not provided or no markers found; preservation uses effect concordance only.")
+  }
+  if (!is.finite(perm_n_probes)) {
+    lines <- c(lines, "", "NOTE: Permutation probe count unavailable; calibration may be incomplete.")
+  }
+  lines
+}
+
+resolve_crf_tier <- function(n_con, n_test, crf_cfg) {
+  total_n <- n_con + n_test
+  min_pg <- min(n_con, n_test)
+  tier_cfg <- if (!is.null(crf_cfg$sample_tiers)) crf_cfg$sample_tiers else list()
+  get_tier <- function(name, fallback) {
+    if (is.null(tier_cfg[[name]])) return(fallback)
+    merge_config_defaults(fallback, tier_cfg[[name]])
+  }
+  minimal_def <- list(threshold = 12, min_per_group = 3,
+                      mmc = list(methods = c("none", "limma"), concordance_levels = c("core", "discordant")),
+                      ncs = list(types = c("snp"), lambda_range = c(0.7, 1.3), interpret = "reference_only"),
+                      sss = list(mode = "bootstrap", n_iterations = 100, top_k = c(20, 50), overlap_threshold = 0.20),
+                      warnings = c("Very small sample size: interpret all results with extreme caution."))
+  small_def <- list(threshold = 24, min_per_group = 6,
+                    mmc = list(methods = c("none", "combat_np", "limma"), concordance_levels = c("core", "consensus", "weak")),
+                    ncs = list(types = c("snp"), lambda_range = c(0.8, 1.2), interpret = "cautious"),
+                    sss = list(mode = "leave_pair_out", n_iterations = 50, top_k = c(30, 100, 200), overlap_threshold = 0.30),
+                    warnings = c("Small sample size: results should be validated independently."))
+  moderate_def <- list(threshold = 50, min_per_group = 12,
+                       mmc = list(methods = c("none", "combat", "limma", "sva"), concordance_levels = c("core", "consensus", "weak")),
+                       ncs = list(types = c("snp", "housekeeping"), lambda_range = c(0.9, 1.1), interpret = "standard"),
+                       sss = list(mode = "split", n_iterations = 10, top_k = c(50, 200, 500), overlap_threshold = 0.40),
+                       warnings = character(0))
+  large_def <- list(threshold = NA, min_per_group = 25,
+                    mmc = list(methods = c("none", "combat", "limma", "sva"), concordance_levels = c("core", "consensus", "weak")),
+                    ncs = list(types = c("snp", "housekeeping"), lambda_range = c(0.9, 1.1), interpret = "standard"),
+                    sss = list(mode = "split", n_iterations = 10, top_k = c(100, 500, 1000), overlap_threshold = 0.50),
+                    warnings = character(0))
+
+  minimal_def <- get_tier("minimal", minimal_def)
+  small_def <- get_tier("small", small_def)
+  moderate_def <- get_tier("moderate", moderate_def)
+  large_def <- get_tier("large", large_def)
+
+  thr_min <- suppressWarnings(as.numeric(minimal_def$threshold))
+  thr_small <- suppressWarnings(as.numeric(small_def$threshold))
+  thr_mod <- suppressWarnings(as.numeric(moderate_def$threshold))
+  min_pg_min <- suppressWarnings(as.numeric(minimal_def$min_per_group))
+  min_pg_small <- suppressWarnings(as.numeric(small_def$min_per_group))
+  min_pg_mod <- suppressWarnings(as.numeric(moderate_def$min_per_group))
+  min_pg_large <- suppressWarnings(as.numeric(large_def$min_per_group))
+  if (!is.finite(thr_min)) thr_min <- 12
+  if (!is.finite(thr_small)) thr_small <- 24
+  if (!is.finite(thr_mod)) thr_mod <- 50
+  if (!is.finite(min_pg_min)) min_pg_min <- 3
+  if (!is.finite(min_pg_small)) min_pg_small <- 6
+  if (!is.finite(min_pg_mod)) min_pg_mod <- 12
+  if (!is.finite(min_pg_large)) min_pg_large <- 25
+
+  tier_name <- "large"
+  tier_def <- large_def
+  if (total_n < thr_min || min_pg < min_pg_small) {
+    tier_name <- "minimal"
+    tier_def <- minimal_def
+  } else if (total_n < thr_small || min_pg < min_pg_mod) {
+    tier_name <- "small"
+    tier_def <- small_def
+  } else if (total_n < thr_mod || min_pg < min_pg_large) {
+    tier_name <- "moderate"
+    tier_def <- moderate_def
+  }
+
+  mmc_methods <- if (!is.null(tier_def$mmc$methods)) as.character(tier_def$mmc$methods) else character(0)
+  combat_par_prior <- TRUE
+  combat_allowed <- any(grepl("^combat", mmc_methods))
+  if (any(mmc_methods %in% c("combat_np", "combat-np"))) {
+    combat_par_prior <- FALSE
+    mmc_methods <- gsub("combat_np", "combat", mmc_methods)
+  }
+  mmc_methods <- unique(mmc_methods)
+  sva_allowed <- "sva" %in% mmc_methods
+
+  warnings <- tier_def$warnings
+  if (min_pg < min_pg_min) {
+    warnings <- unique(c(warnings, "Sample size below minimum threshold; robustness assessment may be unreliable."))
+  }
+  imbalance_ratio <- if (max(n_con, n_test) > 0) min_pg / max(n_con, n_test) else 0
+  if (is.finite(imbalance_ratio) && imbalance_ratio < 0.4) {
+    warnings <- unique(c(warnings, "Highly unbalanced groups may bias stability assessments."))
+  }
+
+  list(
+    n_con = n_con,
+    n_test = n_test,
+    tier = tier_name,
+    total_n = total_n,
+    min_per_group = min_pg,
+    min_required = min_pg_min,
+    eligible = min_pg >= min_pg_min,
+    mmc_methods = mmc_methods,
+    mmc_levels = tier_def$mmc$concordance_levels,
+    combat_par_prior = combat_par_prior,
+    combat_allowed = combat_allowed,
+    sva_allowed = sva_allowed,
+    ncs_types = tier_def$ncs$types,
+    ncs_lambda_range = tier_def$ncs$lambda_range,
+    ncs_interpret = tier_def$ncs$interpret,
+    sss_mode = tier_def$sss$mode,
+    sss_iterations = tier_def$sss$n_iterations,
+    sss_top_k = tier_def$sss$top_k,
+    sss_overlap_threshold = tier_def$sss$overlap_threshold,
+    warnings = warnings
+  )
+}
+
+subset_top_variable <- function(betas, max_probes) {
+  if (!is.finite(max_probes) || max_probes <= 0 || nrow(betas) <= max_probes) return(betas)
+  vars <- apply(betas, 1, var, na.rm = TRUE)
+  idx <- head(order(vars, decreasing = TRUE), max_probes)
+  betas[idx, , drop = FALSE]
+}
+
+compute_mmc_summary <- function(res_list, top_k = 100, levels = c("core", "consensus", "weak"),
+                                pval_thresh = 0.05, lfc_thresh = 0) {
+  if (is.null(res_list) || length(res_list) < 2) return(NULL)
+  methods <- names(res_list)
+  sig_sets <- lapply(res_list, function(df) {
+    if (!"CpG" %in% colnames(df)) df$CpG <- rownames(df)
+    df <- df[order(df$adj.P.Val), ]
+    df$CpG
+  })
+  effect_maps <- lapply(res_list, function(df) {
+    if (is.null(df) || nrow(df) == 0) return(NULL)
+    if (!"CpG" %in% colnames(df)) df$CpG <- rownames(df)
+    eff_col <- NULL
+    if ("logFC" %in% colnames(df)) eff_col <- "logFC"
+    if (is.null(eff_col) && "Effect" %in% colnames(df)) eff_col <- "Effect"
+    if (is.null(eff_col)) return(NULL)
+    stats <- df[, c("CpG", eff_col), drop = FALSE]
+    setNames(stats[[eff_col]], stats$CpG)
+  })
+  top_k <- as.integer(top_k)
+  top_k <- top_k[is.finite(top_k) & top_k > 0]
+  if (length(top_k) == 0) return(NULL)
+  out <- data.frame()
+  m_count <- length(methods)
+  for (k in top_k) {
+    top_sets <- lapply(sig_sets, function(cpgs) head(cpgs, min(k, length(cpgs))))
+    all_cpgs <- unique(unlist(top_sets))
+    freq <- table(unlist(top_sets))
+    core_n <- sum(freq >= m_count)
+    consensus_n <- if (m_count >= 3) sum(freq >= (m_count - 1)) else NA_real_
+    weak_n <- if (m_count >= 3) sum(freq >= 2) else NA_real_
+    discordant_n <- if (m_count == 2) length(all_cpgs) - core_n else NA_real_
+    spearman_vals <- numeric(0)
+    if (length(effect_maps) >= 2) {
+      for (i in seq_len(length(effect_maps) - 1)) {
+        for (j in (i + 1):length(effect_maps)) {
+          eff_i <- effect_maps[[i]]
+          eff_j <- effect_maps[[j]]
+          if (is.null(eff_i) || is.null(eff_j)) next
+          common_ids <- intersect(names(eff_i), names(eff_j))
+          if (length(common_ids) < 3) next
+          common_ids <- intersect(common_ids, all_cpgs)
+          if (length(common_ids) < 3) next
+          rho <- suppressWarnings(cor(eff_i[common_ids], eff_j[common_ids],
+                                      method = "spearman", use = "pairwise.complete.obs"))
+          if (is.finite(rho)) spearman_vals <- c(spearman_vals, rho)
+        }
+      }
+    }
+    out <- rbind(out, data.frame(
+      top_k = k,
+      methods = m_count,
+      core = core_n,
+      consensus = consensus_n,
+      weak = weak_n,
+      discordant = discordant_n,
+      total_unique = length(all_cpgs),
+      spearman_mean = if (length(spearman_vals) > 0) mean(spearman_vals) else NA_real_,
+      spearman_min = if (length(spearman_vals) > 0) min(spearman_vals) else NA_real_,
+      spearman_max = if (length(spearman_vals) > 0) max(spearman_vals) else NA_real_,
+      spearman_pairs = length(spearman_vals),
+      stringsAsFactors = FALSE
+    ))
+  }
+  out
+}
+
+compute_negative_control_stats <- function(betas_nc, design, group_cols,
+                                           lambda_ci = FALSE, n_boot = 0L, sample_frac = 0.8) {
+  if (is.null(betas_nc) || nrow(betas_nc) < 2) return(NULL)
+  res <- tryCatch(run_limma_dmp(betas_nc, design, group_cols), error = function(e) NULL)
+  if (is.null(res) || nrow(res) == 0) return(NULL)
+  pvals <- res$P.Value
+  sig_rate <- mean(pvals < 0.05, na.rm = TRUE)
+  chisq_vals <- qchisq(1 - pvals, 1)
+  lambda_val <- median(chisq_vals) / qchisq(0.5, 1)
+  ci_low <- NA_real_
+  ci_high <- NA_real_
+  boot_n <- 0L
+  if (isTRUE(lambda_ci) && is.finite(lambda_val)) {
+    n_boot <- suppressWarnings(as.integer(n_boot))
+    if (!is.finite(n_boot)) n_boot <- 0L
+    sample_frac <- suppressWarnings(as.numeric(sample_frac))
+    if (!is.finite(sample_frac) || sample_frac <= 0 || sample_frac > 1) sample_frac <- 0.8
+    if (n_boot >= 20 && length(chisq_vals) >= 10) {
+      boot_n <- n_boot
+      boot_l <- numeric(n_boot)
+      boot_size <- max(5L, as.integer(round(length(chisq_vals) * sample_frac)))
+      for (i in seq_len(n_boot)) {
+        idx <- sample.int(length(chisq_vals), boot_size, replace = TRUE)
+        boot_l[i] <- median(chisq_vals[idx]) / qchisq(0.5, 1)
+      }
+      qs <- suppressWarnings(stats::quantile(boot_l, probs = c(0.025, 0.975), na.rm = TRUE))
+      if (length(qs) == 2) {
+        ci_low <- qs[[1]]
+        ci_high <- qs[[2]]
+      }
+    }
+  }
+  list(lambda = lambda_val, sig_rate = sig_rate, n = nrow(betas_nc),
+       lambda_ci_low = ci_low, lambda_ci_high = ci_high, lambda_boot_n = boot_n)
+}
+
+compute_sss_overlap <- function(betas, targets, group_col, covariates, mode, n_iter, top_k, max_probes = 0) {
+  if (is.null(betas) || nrow(betas) == 0) return(NULL)
+  betas_use <- subset_top_variable(betas, max_probes)
+  covariates <- covariates[covariates %in% colnames(targets)]
+  formula_str <- "~ 0 + primary_group"
+  if (length(covariates) > 0) {
+    formula_str <- paste(formula_str, "+", paste(covariates, collapse = " + "))
+  }
+  design_full <- tryCatch(model.matrix(as.formula(formula_str), data = targets), error = function(e) NULL)
+  if (is.null(design_full) || ncol(design_full) < 2) return(NULL)
+  colnames(design_full) <- make.names(gsub("primary_group", "", colnames(design_full)))
+  group_levels <- make.names(levels(targets[[group_col]]))
+  ref_res <- tryCatch(run_limma_dmp(betas_use, design_full, group_levels), error = function(e) NULL)
+  if (is.null(ref_res) || nrow(ref_res) == 0) return(NULL)
+  if (!"CpG" %in% colnames(ref_res)) ref_res$CpG <- rownames(ref_res)
+  ref_res <- ref_res[order(ref_res$adj.P.Val), ]
+  ref_effect <- NULL
+  if ("logFC" %in% colnames(ref_res)) {
+    ref_effect <- setNames(ref_res$logFC, ref_res$CpG)
+  }
+  ref_sets <- lapply(top_k, function(k) head(ref_res$CpG, min(k, nrow(ref_res))))
+  names(ref_sets) <- as.character(top_k)
+
+  iter_overlaps <- lapply(top_k, function(k) numeric(0))
+  names(iter_overlaps) <- as.character(top_k)
+  iter_signs <- lapply(top_k, function(k) numeric(0))
+  names(iter_signs) <- as.character(top_k)
+
+  for (i in seq_len(n_iter)) {
+    idx_keep <- rep(TRUE, nrow(targets))
+    sample_idx <- NULL
+    if (mode == "split") {
+      idx_keep <- rep(FALSE, nrow(targets))
+      for (lvl in levels(targets[[group_col]])) {
+        grp_idx <- which(targets[[group_col]] == lvl)
+        n_take <- floor(length(grp_idx) / 2)
+        take_idx <- sample(grp_idx, n_take)
+        idx_keep[take_idx] <- TRUE
+      }
+    } else if (mode == "leave_pair_out") {
+      idx_keep <- rep(TRUE, nrow(targets))
+      for (lvl in levels(targets[[group_col]])) {
+        grp_idx <- which(targets[[group_col]] == lvl)
+        if (length(grp_idx) >= 2) {
+          drop_idx <- sample(grp_idx, 2)
+          idx_keep[drop_idx] <- FALSE
+        }
+      }
+    } else if (mode == "bootstrap") {
+      keep_idx <- c()
+      for (lvl in levels(targets[[group_col]])) {
+        grp_idx <- which(targets[[group_col]] == lvl)
+        if (length(grp_idx) > 0) {
+          keep_idx <- c(keep_idx, sample(grp_idx, length(grp_idx), replace = TRUE))
+        }
+      }
+      sample_idx <- keep_idx
+    }
+    if (!is.null(sample_idx)) {
+      if (length(sample_idx) < 4) next
+      betas_iter <- betas_use[, sample_idx, drop = FALSE]
+      targets_iter <- targets[sample_idx, , drop = FALSE]
+    } else {
+      if (sum(idx_keep) < 4) next
+      betas_iter <- betas_use[, idx_keep, drop = FALSE]
+      targets_iter <- targets[idx_keep, , drop = FALSE]
+    }
+    if (length(unique(targets_iter[[group_col]])) < 2) next
+    design_iter <- tryCatch(model.matrix(as.formula(formula_str), data = targets_iter), error = function(e) NULL)
+    if (is.null(design_iter) || ncol(design_iter) < 2) next
+    colnames(design_iter) <- make.names(gsub("primary_group", "", colnames(design_iter)))
+    res_iter <- tryCatch(run_limma_dmp(betas_iter, design_iter, make.names(levels(targets_iter[[group_col]]))), error = function(e) NULL)
+    if (is.null(res_iter) || nrow(res_iter) == 0) next
+    if (!"CpG" %in% colnames(res_iter)) res_iter$CpG <- rownames(res_iter)
+    res_iter <- res_iter[order(res_iter$adj.P.Val), ]
+    iter_effect <- NULL
+    if ("logFC" %in% colnames(res_iter)) {
+      iter_effect <- setNames(res_iter$logFC, res_iter$CpG)
+    }
+    for (k in top_k) {
+      ref_set <- ref_sets[[as.character(k)]]
+      iter_set <- head(res_iter$CpG, min(k, nrow(res_iter)))
+      overlap <- length(intersect(ref_set, iter_set)) / max(1, k)
+      iter_overlaps[[as.character(k)]] <- c(iter_overlaps[[as.character(k)]], overlap)
+      if (!is.null(ref_effect) && !is.null(iter_effect)) {
+        common_ids <- intersect(ref_set, iter_set)
+        if (length(common_ids) >= 3) {
+          ref_vals <- ref_effect[common_ids]
+          iter_vals <- iter_effect[common_ids]
+          ok <- is.finite(ref_vals) & is.finite(iter_vals)
+          if (sum(ok) >= 3) {
+            sign_cons <- mean(sign(ref_vals[ok]) == sign(iter_vals[ok]))
+            iter_signs[[as.character(k)]] <- c(iter_signs[[as.character(k)]], sign_cons)
+          }
+        }
+      }
+    }
+  }
+  out <- data.frame()
+  for (k in top_k) {
+    vals <- iter_overlaps[[as.character(k)]]
+    sign_vals <- iter_signs[[as.character(k)]]
+    out <- rbind(out, data.frame(top_k = k,
+                                 overlap_mean = if (length(vals) > 0) mean(vals, na.rm = TRUE) else NA_real_,
+                                 overlap_sd = if (length(vals) > 1) sd(vals, na.rm = TRUE) else NA_real_,
+                                 sign_mean = if (length(sign_vals) > 0) mean(sign_vals, na.rm = TRUE) else NA_real_,
+                                 sign_sd = if (length(sign_vals) > 1) sd(sign_vals, na.rm = TRUE) else NA_real_,
+                                 n_iterations = length(vals)))
+  }
+  out
+}
+
+build_crf_report_lines <- function(tier_info, mmc_summary, ncs_summary, sss_summary, prefix) {
+  tier_name <- toupper(tier_info$tier)
+  lines <- c(
+    "CORRECTION ROBUSTNESS REPORT (CRF v2.1)",
+    "",
+    sprintf("Pipeline: %s", prefix),
+    sprintf("Samples: %d (Control=%d, Test=%d)", tier_info$total_n, tier_info$n_con, tier_info$n_test),
+    sprintf("Sample Tier: %s", tier_name)
+  )
+  if (length(tier_info$warnings) > 0) {
+    lines <- c(lines, "", "IMPORTANT LIMITATIONS:", paste0("- ", tier_info$warnings))
+  }
+  lines <- c(lines, "", "SECTION 1: MULTI-METHOD CONCORDANCE")
+  if (is.null(mmc_summary) || nrow(mmc_summary) == 0) {
+    lines <- c(lines, "  MMC was not run (insufficient methods or data).")
+  } else {
+    lines <- c(lines, sprintf("  Methods compared: %s", paste(tier_info$mmc_methods, collapse = ", ")))
+    for (i in seq_len(nrow(mmc_summary))) {
+      row <- mmc_summary[i, ]
+      rho_disp <- if (is.finite(row$spearman_mean)) sprintf(", rho=%.3f", row$spearman_mean) else ""
+      lines <- c(lines, sprintf("  Top K=%d: core=%s, consensus=%s, weak=%s, discordant=%s (unique=%s)%s",
+                                row$top_k,
+                                fmt_val(row$core), fmt_val(row$consensus), fmt_val(row$weak),
+                                fmt_val(row$discordant), fmt_val(row$total_unique), rho_disp))
+    }
+  }
+  lines <- c(lines, "", "SECTION 2: NEGATIVE CONTROL STABILITY")
+  if (is.null(ncs_summary) || nrow(ncs_summary) == 0) {
+    lines <- c(lines, "  Negative control analysis not available.")
+  } else {
+    for (i in seq_len(nrow(ncs_summary))) {
+      row <- ncs_summary[i, ]
+      lambda_ci_disp <- ""
+      if (!is.null(row$lambda_ci_low) && is.finite(row$lambda_ci_low) &&
+          !is.null(row$lambda_ci_high) && is.finite(row$lambda_ci_high)) {
+        lambda_ci_disp <- sprintf(", CI=[%.3f, %.3f]", row$lambda_ci_low, row$lambda_ci_high)
+      }
+      lines <- c(lines, sprintf("  %s (%s): lambda=%.3f%s, sig_rate=%.3f (n=%d)",
+                                row$type, row$stage, row$lambda, lambda_ci_disp,
+                                row$sig_rate, row$n))
+    }
+  }
+  lines <- c(lines, "", "SECTION 3: SPLIT-SAMPLE STABILITY")
+  if (is.null(sss_summary) || nrow(sss_summary) == 0) {
+    lines <- c(lines, "  Stability analysis not available.")
+  } else {
+    for (i in seq_len(nrow(sss_summary))) {
+      row <- sss_summary[i, ]
+      sign_disp <- ""
+      if (!is.null(row$sign_mean_raw) && is.finite(row$sign_mean_raw) &&
+          !is.null(row$sign_mean_corr) && is.finite(row$sign_mean_corr)) {
+        sign_disp <- sprintf(", sign(before)=%.3f, sign(after)=%.3f", row$sign_mean_raw, row$sign_mean_corr)
+      }
+      lines <- c(lines, sprintf("  Top K=%d: overlap before=%.3f (sd=%.3f), after=%.3f (sd=%.3f)%s",
+                                row$top_k, row$overlap_mean_raw, row$overlap_sd_raw,
+                                row$overlap_mean_corr, row$overlap_sd_corr, sign_disp))
+    }
+  }
+  lines
+}
+
+run_crf_assessment <- function(betas_raw, betas_corr, targets, covariates, tier_info,
+                               batch_col, applied_batch_method, out_dir, prefix,
+                               pval_thresh, lfc_thresh,
+                               config_settings, rgSet = NULL, mmc_res = NULL) {
+  if (is.null(tier_info) || !isTRUE(config_settings$crf$enabled)) return(NULL)
+  crf_cfg <- config_settings$crf
+  if (!isTRUE(tier_info$eligible)) {
+    warn_lines <- c("CRF assessment skipped: sample size below minimum threshold.")
+    lines <- c("CORRECTION ROBUSTNESS REPORT (CRF v2.1)",
+               "", sprintf("Pipeline: %s", prefix),
+               sprintf("Samples: %d (Control=%d, Test=%d)", tier_info$total_n, tier_info$n_con, tier_info$n_test),
+               sprintf("Sample Tier: %s", toupper(tier_info$tier)), "",
+               warn_lines)
+    writeLines(lines, file.path(out_dir, paste0(prefix, "_CRF_Report.txt")))
+    return(list(tier = tier_info$tier))
+  }
+
+  mmc_summary <- NULL
+  if (!is.null(mmc_res) && !is.null(mmc_res$res_list) && length(mmc_res$res_list) >= 2) {
+    mmc_summary <- compute_mmc_summary(mmc_res$res_list,
+                                       top_k = tier_info$sss_top_k,
+                                       levels = tier_info$mmc_levels,
+                                       pval_thresh = pval_thresh,
+                                       lfc_thresh = lfc_thresh)
+    if (!is.null(mmc_summary)) {
+      write.csv(mmc_summary, file.path(out_dir, paste0(prefix, "_CRF_MMC_Summary.csv")), row.names = FALSE)
+    }
+  }
+
+  ncs_summary <- data.frame()
+  if (!is.null(betas_raw) && !is.null(betas_corr)) {
+    ncs_types <- tier_info$ncs_types
+    if (!is.null(ncs_types) && length(ncs_types) > 0) {
+      ncs_ci_cfg <- crf_cfg$ncs_lambda_ci
+      ncs_ci_enabled <- !is.null(ncs_ci_cfg) && isTRUE(ncs_ci_cfg$enabled)
+      ncs_ci_boot <- if (!is.null(ncs_ci_cfg$n_boot)) ncs_ci_cfg$n_boot else 0L
+      ncs_ci_frac <- if (!is.null(ncs_ci_cfg$sample_frac)) ncs_ci_cfg$sample_frac else 0.8
+      # SNP probes from minfi
+      if ("snp" %in% ncs_types && !is.null(rgSet) && requireNamespace("minfi", quietly = TRUE)) {
+        snp_beta <- tryCatch(minfi::getSnpBeta(rgSet), error = function(e) NULL)
+        if (!is.null(snp_beta)) {
+          common_samples <- intersect(colnames(snp_beta), colnames(betas_raw))
+          snp_beta <- snp_beta[, common_samples, drop = FALSE]
+          if (ncol(snp_beta) >= 4) {
+            design_nc <- tryCatch(model.matrix(~ 0 + primary_group, data = targets[common_samples, , drop = FALSE]),
+                                  error = function(e) NULL)
+              if (!is.null(design_nc) && ncol(design_nc) >= 2) {
+                colnames(design_nc) <- make.names(gsub("primary_group", "", colnames(design_nc)))
+                group_cols <- make.names(levels(targets$primary_group))
+                stats_raw <- compute_negative_control_stats(snp_beta, design_nc, group_cols,
+                                                            lambda_ci = ncs_ci_enabled,
+                                                            n_boot = ncs_ci_boot, sample_frac = ncs_ci_frac)
+                snp_corr <- snp_beta
+                if (nzchar(applied_batch_method) && applied_batch_method != "none" &&
+                    !is.null(batch_col) && batch_col %in% colnames(targets)) {
+                  bc_snp <- apply_batch_correction(snp_beta, applied_batch_method, batch_col, covariates,
+                                                 targets[common_samples, , drop = FALSE], design_nc)
+                  snp_corr <- bc_snp$betas
+                }
+                stats_corr <- compute_negative_control_stats(snp_corr, design_nc, group_cols,
+                                                             lambda_ci = ncs_ci_enabled,
+                                                             n_boot = ncs_ci_boot, sample_frac = ncs_ci_frac)
+                if (!is.null(stats_raw)) {
+                  ncs_summary <- rbind(ncs_summary, data.frame(type = "snp", stage = "raw",
+                                                              lambda = stats_raw$lambda, sig_rate = stats_raw$sig_rate,
+                                                              n = stats_raw$n,
+                                                              lambda_ci_low = stats_raw$lambda_ci_low,
+                                                              lambda_ci_high = stats_raw$lambda_ci_high,
+                                                              lambda_boot_n = stats_raw$lambda_boot_n))
+                }
+                if (!is.null(stats_corr)) {
+                  ncs_summary <- rbind(ncs_summary, data.frame(type = "snp", stage = "corrected",
+                                                              lambda = stats_corr$lambda, sig_rate = stats_corr$sig_rate,
+                                                              n = stats_corr$n,
+                                                              lambda_ci_low = stats_corr$lambda_ci_low,
+                                                              lambda_ci_high = stats_corr$lambda_ci_high,
+                                                              lambda_boot_n = stats_corr$lambda_boot_n))
+                }
+              }
+            }
+        }
+      }
+      # Housekeeping probes if provided
+      if ("housekeeping" %in% ncs_types) {
+        hk_path <- if (!is.null(crf_cfg$housekeeping_path)) as.character(crf_cfg$housekeeping_path) else ""
+        if (nzchar(hk_path) && !grepl("^/", hk_path)) hk_path <- file.path(project_dir, hk_path)
+        if (nzchar(hk_path) && file.exists(hk_path)) {
+          hk_ids <- load_probe_list_from_file(hk_path, col_candidates = c("CpG", "cpg", "probe"))
+          hk_ids <- intersect(hk_ids, rownames(betas_raw))
+          if (length(hk_ids) >= 10) {
+            hk_raw <- betas_raw[hk_ids, , drop = FALSE]
+            hk_corr <- betas_corr[hk_ids, , drop = FALSE]
+            design_nc <- tryCatch(model.matrix(~ 0 + primary_group, data = targets), error = function(e) NULL)
+            if (!is.null(design_nc) && ncol(design_nc) >= 2) {
+              colnames(design_nc) <- make.names(gsub("primary_group", "", colnames(design_nc)))
+              group_cols <- make.names(levels(targets$primary_group))
+              stats_raw <- compute_negative_control_stats(hk_raw, design_nc, group_cols,
+                                                          lambda_ci = ncs_ci_enabled,
+                                                          n_boot = ncs_ci_boot, sample_frac = ncs_ci_frac)
+              stats_corr <- compute_negative_control_stats(hk_corr, design_nc, group_cols,
+                                                           lambda_ci = ncs_ci_enabled,
+                                                           n_boot = ncs_ci_boot, sample_frac = ncs_ci_frac)
+              if (!is.null(stats_raw)) {
+                ncs_summary <- rbind(ncs_summary, data.frame(type = "housekeeping", stage = "raw",
+                                                            lambda = stats_raw$lambda, sig_rate = stats_raw$sig_rate,
+                                                            n = stats_raw$n,
+                                                            lambda_ci_low = stats_raw$lambda_ci_low,
+                                                            lambda_ci_high = stats_raw$lambda_ci_high,
+                                                            lambda_boot_n = stats_raw$lambda_boot_n))
+              }
+              if (!is.null(stats_corr)) {
+                ncs_summary <- rbind(ncs_summary, data.frame(type = "housekeeping", stage = "corrected",
+                                                            lambda = stats_corr$lambda, sig_rate = stats_corr$sig_rate,
+                                                            n = stats_corr$n,
+                                                            lambda_ci_low = stats_corr$lambda_ci_low,
+                                                            lambda_ci_high = stats_corr$lambda_ci_high,
+                                                            lambda_boot_n = stats_corr$lambda_boot_n))
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  if (nrow(ncs_summary) > 0) {
+    write.csv(ncs_summary, file.path(out_dir, paste0(prefix, "_CRF_NCS_Summary.csv")), row.names = FALSE)
+  }
+
+  sss_summary <- data.frame()
+  if (!is.null(betas_raw) && !is.null(betas_corr)) {
+    top_k <- tier_info$sss_top_k
+    mode <- tier_info$sss_mode
+    n_iter <- tier_info$sss_iterations
+    max_probes <- suppressWarnings(as.integer(crf_cfg$max_probes_sss))
+    if (!is.finite(max_probes)) max_probes <- 0
+    covariates_use <- covariates
+    sss_raw <- compute_sss_overlap(betas_raw, targets, "primary_group", covariates_use,
+                                   mode = mode, n_iter = n_iter, top_k = top_k, max_probes = max_probes)
+    sss_corr <- compute_sss_overlap(betas_corr, targets, "primary_group", covariates_use,
+                                    mode = mode, n_iter = n_iter, top_k = top_k, max_probes = max_probes)
+    if (!is.null(sss_raw) || !is.null(sss_corr)) {
+      sss_summary <- data.frame(top_k = top_k,
+                                overlap_mean_raw = if (!is.null(sss_raw)) sss_raw$overlap_mean else NA_real_,
+                                overlap_sd_raw = if (!is.null(sss_raw)) sss_raw$overlap_sd else NA_real_,
+                                overlap_mean_corr = if (!is.null(sss_corr)) sss_corr$overlap_mean else NA_real_,
+                                overlap_sd_corr = if (!is.null(sss_corr)) sss_corr$overlap_sd else NA_real_,
+                                sign_mean_raw = if (!is.null(sss_raw)) sss_raw$sign_mean else NA_real_,
+                                sign_sd_raw = if (!is.null(sss_raw)) sss_raw$sign_sd else NA_real_,
+                                sign_mean_corr = if (!is.null(sss_corr)) sss_corr$sign_mean else NA_real_,
+                                sign_sd_corr = if (!is.null(sss_corr)) sss_corr$sign_sd else NA_real_)
+      write.csv(sss_summary, file.path(out_dir, paste0(prefix, "_CRF_SSS_Summary.csv")), row.names = FALSE)
+    }
+  }
+
+  report_lines <- build_crf_report_lines(tier_info, mmc_summary, ncs_summary, sss_summary, prefix)
+  report_path <- file.path(out_dir, paste0(prefix, "_CRF_Report.txt"))
+  writeLines(report_lines, report_path)
+  report_path
+}
+
+marker_list <- load_marker_list(marker_list_path)
+if (!is.null(marker_list)) {
+  message(sprintf("Loaded marker list with %d CpGs for preservation checks.", length(marker_list)))
+}
+
 auto_detect_covariates <- function(targets, gsm_col, pca_scores, alpha=AUTO_COVARIATE_ALPHA, max_pcs=MAX_PCS_FOR_COVARIATE_DETECTION) {
-  # Use PC–covariate association to decide covariates to include
+  # Use PC-covariate association to decide covariates to include
   meta_cols <- setdiff(colnames(targets), c("primary_group", "Basename", "filenames", gsm_col))
   keep <- c()
-  log_df <- data.frame(Variable=character(0), MinP=numeric(0), stringsAsFactors = FALSE)
+  log_df <- data.frame(Variable=character(0), MinP=numeric(0), MinPC=integer(0), Type=character(0),
+                       stringsAsFactors = FALSE)
   
   if (length(meta_cols) == 0 || ncol(pca_scores) == 0) {
     return(list(selected = keep, log = log_df))
@@ -854,35 +2488,202 @@ auto_detect_covariates <- function(targets, gsm_col, pca_scores, alpha=AUTO_COVA
   pca_use <- pca_scores[, 1:min(max_pcs, ncol(pca_scores)), drop=FALSE]
   
   for (col in meta_cols) {
-    val <- targets[[col]]
-    if (length(unique(val)) < 2) next
+    val <- normalize_meta_vals(targets[[col]])
+    non_missing <- val[!is.na(val)]
+    if (length(unique(non_missing)) < 2) next
+    cc <- !is.na(val)
+    if (sum(cc) < 3) next
+    val_cc <- val[cc]
+    if (length(unique(val_cc)) < 2) next
+    pca_cc <- pca_use[cc, , drop=FALSE]
+
+    vtype <- if (is.numeric(val_cc)) "numeric" else "categorical"
     
     # Skip if almost perfectly collinear with group (chi-square check for factors)
-    if (is.character(val) || is.factor(val)) {
-      tbl <- table(val, targets$primary_group)
-      p_chisq <- tryCatch(suppressWarnings(chisq.test(tbl)$p.value), error=function(e) 1)
+    if (is.character(val_cc) || is.factor(val_cc)) {
+      tbl <- table(val_cc, targets$primary_group[cc])
+      p_chisq <- safe_chisq_p(tbl)
       if (!is.na(p_chisq) && p_chisq < 1e-6) next
     }
     
-    p_vec <- rep(NA_real_, ncol(pca_use))
-    for (k in seq_len(ncol(pca_use))) {
-      if (is.numeric(val)) {
-        fit <- lm(pca_use[,k] ~ val)
+    p_vec <- rep(NA_real_, ncol(pca_cc))
+    for (k in seq_len(ncol(pca_cc))) {
+      if (is.numeric(val_cc)) {
+        fit <- lm(pca_cc[,k] ~ val_cc)
         coefs <- summary(fit)$coefficients
         if (nrow(coefs) >= 2) p_vec[k] <- coefs[2,4]
       } else {
-        p_vec[k] <- kruskal.test(pca_use[,k] ~ as.factor(val))$p.value
+        p_vec[k] <- safe_kruskal_p(pca_cc[,k], val_cc)
       }
     }
     
     min_p <- suppressWarnings(min(p_vec, na.rm = TRUE))
     if (!is.finite(min_p)) next
-    
-    log_df <- rbind(log_df, data.frame(Variable = col, MinP = min_p))
+    min_pc <- if (all(is.na(p_vec))) NA_integer_ else which.min(p_vec)[1]
+
+    log_df <- rbind(log_df, data.frame(Variable = col, MinP = min_p, MinPC = min_pc, Type = vtype))
     if (min_p < alpha) keep <- c(keep, col)
   }
   
   return(list(selected = keep, log = log_df))
+}
+
+safe_chisq_p <- function(tbl) {
+  if (is.null(tbl) || any(dim(tbl) == 0)) return(NA_real_)
+  n <- suppressWarnings(sum(tbl))
+  if (!is.finite(n) || n <= 0) return(NA_real_)
+  tryCatch(suppressWarnings(chisq.test(tbl)$p.value), error = function(e) NA_real_)
+}
+
+normalize_meta_vals <- function(val) {
+  if (is.character(val)) {
+    val <- trimws(val)
+    val[val == ""] <- NA
+  }
+  val
+}
+
+safe_kruskal_p <- function(x, g, min_total = 3) {
+  g <- normalize_meta_vals(g)
+  cc <- complete.cases(x, g)
+  if (sum(cc) < min_total) return(NA_real_)
+  x <- x[cc]
+  g <- g[cc]
+  if (length(unique(g)) < 2) return(NA_real_)
+  tryCatch(kruskal.test(x ~ as.factor(g))$p.value, error = function(e) NA_real_)
+}
+
+safe_ttest_p <- function(x, g, min_per_group = 2) {
+  g <- normalize_meta_vals(g)
+  cc <- complete.cases(x, g)
+  if (sum(cc) < (min_per_group * 2)) return(NA_real_)
+  x <- x[cc]
+  g <- g[cc]
+  if (length(unique(g)) != 2) return(NA_real_)
+  tab <- table(g)
+  if (any(tab < min_per_group)) return(NA_real_)
+  tryCatch(t.test(x ~ g)$p.value, error = function(e) NA_real_)
+}
+
+cramers_v <- function(tbl) {
+  if (any(dim(tbl) == 0)) return(NA_real_)
+  n <- suppressWarnings(sum(tbl))
+  if (!is.finite(n) || n <= 0) return(NA_real_)
+  chi2 <- tryCatch(suppressWarnings(chisq.test(tbl)$statistic), error = function(e) NA_real_)
+  if (!is.finite(chi2)) return(NA_real_)
+  k <- min(nrow(tbl) - 1, ncol(tbl) - 1)
+  if (k <= 0) return(NA_real_)
+  sqrt(chi2 / (n * k))
+}
+
+group_assoc_stats <- function(val, group_vec) {
+  if (length(val) != length(group_vec)) return(list(p = NA_real_, eta2 = NA_real_, method = ""))
+  if (is.numeric(val)) {
+    df <- data.frame(val = val, group = as.factor(group_vec))
+    df <- df[is.finite(df$val) & !is.na(df$group), , drop = FALSE]
+    if (nrow(df) < 3 || length(unique(df$group)) < 2) return(list(p = NA_real_, eta2 = NA_real_, method = ""))
+    fit <- tryCatch(lm(val ~ group, data = df), error = function(e) NULL)
+    if (is.null(fit)) return(list(p = NA_real_, eta2 = NA_real_, method = ""))
+    an <- tryCatch(anova(fit), error = function(e) NULL)
+    if (is.null(an) || nrow(an) < 1) return(list(p = NA_real_, eta2 = NA_real_, method = ""))
+    ss_total <- sum(an$`Sum Sq`, na.rm = TRUE)
+    ss_group <- an$`Sum Sq`[1]
+    eta2 <- if (is.finite(ss_total) && ss_total > 0) ss_group / ss_total else NA_real_
+    pval <- an$`Pr(>F)`[1]
+    return(list(p = pval, eta2 = eta2, method = "anova"))
+  }
+  tbl <- table(as.factor(val), as.factor(group_vec))
+  pval <- safe_chisq_p(tbl)
+  v <- cramers_v(tbl)
+  list(p = pval, eta2 = v, method = "chisq")
+}
+
+map_mm_columns_to_vars <- function(mm_cols, vars) {
+  vars_clean <- make.names(vars)
+  ord <- order(nchar(vars_clean), decreasing = TRUE)
+  vars_clean <- vars_clean[ord]
+  vars_orig <- vars[ord]
+  col_map <- setNames(rep("", length(mm_cols)), mm_cols)
+  for (i in seq_along(mm_cols)) {
+    col <- mm_cols[i]
+    matched <- ""
+    for (j in seq_along(vars_clean)) {
+      if (startsWith(col, vars_clean[j])) {
+        matched <- vars_orig[j]
+        break
+      }
+    }
+    col_map[i] <- matched
+  }
+  col_map
+}
+
+compute_covariate_collinearity <- function(targets, vars) {
+  vars <- intersect(vars, colnames(targets))
+  if (length(vars) < 2) {
+    return(data.frame(Variable = vars, Max_Correlation = NA_real_, Max_Correlation_With = "", stringsAsFactors = FALSE))
+  }
+  meta <- targets[, vars, drop = FALSE]
+  for (v in vars) {
+    if (is.character(meta[[v]])) meta[[v]] <- as.factor(meta[[v]])
+  }
+  mm <- tryCatch(model.matrix(~ . -1, data = meta), error = function(e) NULL)
+  if (is.null(mm) || ncol(mm) < 2) {
+    return(data.frame(Variable = vars, Max_Correlation = NA_real_, Max_Correlation_With = "", stringsAsFactors = FALSE))
+  }
+  cor_mat <- suppressWarnings(cor(mm, use = "pairwise.complete.obs"))
+  mm_cols <- colnames(mm)
+  col_to_var <- map_mm_columns_to_vars(mm_cols, vars)
+  out <- data.frame(Variable = vars, Max_Correlation = NA_real_, Max_Correlation_With = "",
+                    stringsAsFactors = FALSE)
+  for (i in seq_along(vars)) {
+    v <- vars[i]
+    cols_v <- mm_cols[col_to_var == v]
+    cols_other <- mm_cols[col_to_var != v & nzchar(col_to_var)]
+    if (length(cols_v) == 0 || length(cols_other) == 0) next
+    sub_cor <- cor_mat[cols_v, cols_other, drop = FALSE]
+    if (length(sub_cor) == 0) next
+    idx <- arrayInd(which.max(abs(sub_cor)), dim(sub_cor))
+    max_val <- sub_cor[idx[1], idx[2]]
+    out$Max_Correlation[i] <- max_val
+    col_other <- cols_other[idx[2]]
+    if (col_other %in% names(col_to_var)) {
+      out$Max_Correlation_With[i] <- col_to_var[[col_other]]
+    }
+  }
+  out
+}
+
+build_covariate_candidate_report <- function(targets, covar_log_df, group_col,
+                                             group_assoc_p_threshold = 1e-3) {
+  if (is.null(covar_log_df) || nrow(covar_log_df) == 0) return(covar_log_df)
+  vars <- covar_log_df$Variable
+  group_vec <- targets[[group_col]]
+  assoc_p <- numeric(length(vars))
+  assoc_eta2 <- numeric(length(vars))
+  assoc_method <- character(length(vars))
+  for (i in seq_along(vars)) {
+    v <- vars[i]
+    stats <- group_assoc_stats(targets[[v]], group_vec)
+    assoc_p[i] <- stats$p
+    assoc_eta2[i] <- stats$eta2
+    assoc_method[i] <- stats$method
+  }
+  collin <- compute_covariate_collinearity(targets, vars)
+  report <- covar_log_df
+  report$Group_Assoc_P <- assoc_p
+  report$Group_Assoc_Eta2 <- assoc_eta2
+  report$Group_Assoc_Method <- assoc_method
+  report$Group_Assoc_Flag <- ifelse(is.finite(assoc_p) & assoc_p < group_assoc_p_threshold, TRUE, FALSE)
+  if (!is.null(collin) && nrow(collin) > 0) {
+    idx <- match(report$Variable, collin$Variable)
+    report$Max_Correlation <- collin$Max_Correlation[idx]
+    report$Max_Correlation_With <- collin$Max_Correlation_With[idx]
+  } else {
+    report$Max_Correlation <- NA_real_
+    report$Max_Correlation_With <- ""
+  }
+  report
 }
 
   drop_linear_dependencies <- function(mat, group_cols) {
@@ -907,8 +2708,9 @@ filter_covariates <- function(targets, covariates, group_col) {
   group_vals <- targets[[group_col]]
   
   for (cv in covariates) {
-    val <- targets[[cv]]
-    uniq <- length(unique(val))
+    val <- normalize_meta_vals(targets[[cv]])
+    non_missing <- val[!is.na(val)]
+    uniq <- length(unique(non_missing))
     is_num <- is.numeric(val) || is.integer(val)
     if (uniq < 2) {
       drops <- rbind(drops, data.frame(Variable=cv, Reason="constant_or_single_level"))
@@ -919,7 +2721,7 @@ filter_covariates <- function(targets, covariates, group_col) {
       next
     }
     if (!is_num && (is.character(val) || is.factor(val))) {
-      lvl_counts <- table(val)
+      lvl_counts <- table(non_missing)
       if (any(lvl_counts < 2)) {
         drops <- rbind(drops, data.frame(Variable=cv, Reason="rare_level"))
         next
@@ -927,12 +2729,14 @@ filter_covariates <- function(targets, covariates, group_col) {
     }
     # Check confounding with group (any level exclusive to one group or strong chi-square)
     if (!is_num && (is.character(val) || is.factor(val))) {
-      tbl <- table(val, group_vals)
+      cc <- complete.cases(val, group_vals)
+      if (sum(cc) < 3) next
+      tbl <- table(val[cc], group_vals[cc])
       if (any(tbl == 0)) {
         drops <- rbind(drops, data.frame(Variable=cv, Reason="confounded_with_group"))
         next
       }
-      p_chisq <- tryCatch(suppressWarnings(chisq.test(tbl)$p.value), error=function(e) NA)
+      p_chisq <- safe_chisq_p(tbl)
       if (!is.na(p_chisq) && p_chisq < 1e-6) {
         drops <- rbind(drops, data.frame(Variable=cv, Reason="confounded_with_group"))
         next
@@ -943,13 +2747,7 @@ filter_covariates <- function(targets, covariates, group_col) {
         gv <- group_vals[cc]
         vv <- val[cc]
         if (length(unique(gv)) >= 2) {
-          p_grp <- tryCatch({
-            if (length(unique(gv)) == 2) {
-              t.test(vv ~ gv)$p.value
-            } else {
-              kruskal.test(vv ~ as.factor(gv))$p.value
-            }
-          }, error=function(e) NA)
+          p_grp <- if (length(unique(gv)) == 2) safe_ttest_p(vv, gv) else safe_kruskal_p(vv, gv)
           if (!is.na(p_grp) && p_grp < 1e-6) {
             drops <- rbind(drops, data.frame(Variable=cv, Reason="confounded_with_group"))
             next
@@ -960,6 +2758,172 @@ filter_covariates <- function(targets, covariates, group_col) {
     keep <- c(keep, cv)
   }
   list(keep = keep, dropped = drops)
+}
+
+drop_single_level_covariates <- function(targets, covariates) {
+  keep <- character(0)
+  drops <- data.frame(Variable=character(0), Reason=character(0), stringsAsFactors = FALSE)
+  for (cv in covariates) {
+    if (!(cv %in% colnames(targets))) next
+    vals <- targets[[cv]]
+    if (all(is.na(vals)) || (is.character(vals) && all(trimws(vals) == ""))) {
+      drops <- rbind(drops, data.frame(Variable = cv, Reason = "all_missing"))
+      next
+    }
+    if (is.numeric(vals) || is.integer(vals)) {
+      vv <- vals[is.finite(vals)]
+      if (length(vv) < 2 || length(unique(vv)) < 2) {
+        drops <- rbind(drops, data.frame(Variable = cv, Reason = "constant_or_single_level"))
+        next
+      }
+    } else {
+      f <- droplevels(as.factor(vals))
+      if (length(levels(f)) < 2) {
+        drops <- rbind(drops, data.frame(Variable = cv, Reason = "single_level"))
+        next
+      }
+    }
+    keep <- c(keep, cv)
+  }
+  list(keep = keep, dropped = drops)
+}
+
+filter_covariates_with_batch <- function(targets, covariates, batch_col, p_thresh = 1e-6) {
+  keep <- c()
+  drops <- data.frame(Variable=character(0), Reason=character(0), stringsAsFactors = FALSE)
+  covariates <- covariates[covariates %in% colnames(targets)]
+  if (is.null(batch_col) || !(batch_col %in% colnames(targets))) {
+    return(list(keep = covariates, dropped = drops))
+  }
+  batch_vals <- targets[[batch_col]]
+  for (cv in covariates) {
+    val <- targets[[cv]]
+    if (is.numeric(val) || is.integer(val)) {
+      df <- data.frame(val = val, batch = batch_vals)
+      df <- df[complete.cases(df), , drop = FALSE]
+      if (nrow(df) < 3) {
+        keep <- c(keep, cv)
+        next
+      }
+      by_batch <- split(df$val, df$batch)
+      within_var <- sapply(by_batch, function(x) {
+        if (length(unique(x)) < 2) 0 else var(x)
+      })
+      if (length(within_var) > 0 && all(within_var == 0) &&
+          length(unique(df$batch)) > 1 && length(unique(df$val)) > 1) {
+        drops <- rbind(drops, data.frame(Variable = cv, Reason = "confounded_with_batch"))
+        next
+      }
+      fit <- tryCatch(lm(val ~ batch, data = df), error = function(e) NULL)
+      if (!is.null(fit)) {
+        r2 <- summary(fit)$r.squared
+        if (is.finite(r2) && r2 > 0.999) {
+          drops <- rbind(drops, data.frame(Variable = cv, Reason = "confounded_with_batch"))
+          next
+        }
+      }
+    } else {
+      if (is_batch_confounded(targets, batch_col, cv, p_thresh = p_thresh)) {
+        drops <- rbind(drops, data.frame(Variable = cv, Reason = "confounded_with_batch"))
+        next
+      }
+    }
+    keep <- c(keep, cv)
+  }
+  list(keep = keep, dropped = drops)
+}
+
+scale_numeric_covariates <- function(meta, cols = NULL, exclude = character(0)) {
+  out <- meta
+  scaled <- character(0)
+  if (is.null(cols)) cols <- colnames(out)
+  cols <- intersect(cols, colnames(out))
+  cols <- setdiff(cols, exclude)
+  for (nm in cols) {
+    vals <- out[[nm]]
+    if (!is.numeric(vals) && !is.integer(vals)) next
+    vv <- vals[is.finite(vals)]
+    if (length(vv) < 2) next
+    sd_val <- sd(vv, na.rm = TRUE)
+    if (!is.finite(sd_val) || sd_val == 0) next
+    out[[nm]] <- as.numeric(scale(vals))
+    scaled <- c(scaled, nm)
+  }
+  list(meta = out, scaled = scaled)
+}
+
+normalize_vp_config <- function(vp_cfg) {
+  if (is.null(vp_cfg) || length(vp_cfg) == 0) {
+    return(list(autoscale_numeric = FALSE, autoscale_on_fail = FALSE))
+  }
+  if (is.null(vp_cfg$autoscale_numeric)) vp_cfg$autoscale_numeric <- FALSE
+  if (is.null(vp_cfg$autoscale_on_fail)) vp_cfg$autoscale_on_fail <- FALSE
+  vp_cfg
+}
+
+fit_variance_partition_safe <- function(M_mat, form, meta, vp_cfg = NULL, label = "variancePartition") {
+  vp_cfg <- normalize_vp_config(vp_cfg)
+  vars <- all.vars(form)
+  meta_use <- meta
+  scaled_cols <- character(0)
+  if (isTRUE(vp_cfg$autoscale_numeric)) {
+    scale_res <- scale_numeric_covariates(meta_use, cols = vars)
+    meta_use <- scale_res$meta
+    scaled_cols <- scale_res$scaled
+    if (length(scaled_cols) > 0) {
+      message(sprintf("    - %s: scaled numeric covariates (%s)", label, paste(scaled_cols, collapse = ", ")))
+    }
+  }
+  run_fit <- function(meta_in) {
+    with_muffled_conditions(
+      fitExtractVarPartModel(M_mat, form, meta_in),
+      label = label,
+      patterns = "boundary \\(singular\\) fit"
+    )
+  }
+  vp_res <- tryCatch(run_fit(meta_use), error = function(e) {
+    message(sprintf("    - %s failed: %s", label, e$message))
+    if (isTRUE(vp_cfg$autoscale_on_fail) && !isTRUE(vp_cfg$autoscale_numeric)) {
+      scale_res <- scale_numeric_covariates(meta, cols = vars)
+      if (length(scale_res$scaled) > 0) {
+        message(sprintf("    - %s retry with scaled covariates: %s", label, paste(scale_res$scaled, collapse = ", ")))
+        return(tryCatch(run_fit(scale_res$meta), error = function(e2) {
+          message(sprintf("    - %s failed after autoscale: %s", label, e2$message))
+          NULL
+        }))
+      }
+    }
+    NULL
+  })
+  list(result = vp_res, scaled_cols = scaled_cols)
+}
+
+build_combat_design <- function(targets, group_col, covariates, batch_col, p_thresh = 1e-6) {
+  covariates <- covariates[covariates %in% colnames(targets)]
+  drop_log <- data.frame(Variable=character(0), Reason=character(0), stringsAsFactors = FALSE)
+  if (length(covariates) > 0) {
+    single_filt <- drop_single_level_covariates(targets, covariates)
+    covariates <- single_filt$keep
+    if (nrow(single_filt$dropped) > 0) drop_log <- rbind(drop_log, single_filt$dropped)
+  }
+  if (length(covariates) > 0 && !is.null(batch_col) && batch_col %in% colnames(targets)) {
+    batch_filter <- filter_covariates_with_batch(targets, covariates, batch_col, p_thresh = p_thresh)
+    covariates <- batch_filter$keep
+    if (nrow(batch_filter$dropped) > 0) drop_log <- rbind(drop_log, batch_filter$dropped)
+  }
+  formula_str <- paste("~ 0 +", group_col)
+  if (length(covariates) > 0) {
+    formula_str <- paste(formula_str, "+", paste(covariates, collapse = " + "))
+  }
+  mod <- model.matrix(as.formula(formula_str), data = targets)
+  colnames(mod) <- gsub(group_col, "", colnames(mod), fixed = TRUE)
+  group_cols <- make.names(levels(targets[[group_col]]))
+  mod_ld <- drop_linear_dependencies(mod, group_cols = group_cols)
+  mod <- mod_ld$mat
+  if (length(mod_ld$dropped) > 0) {
+    drop_log <- rbind(drop_log, data.frame(Variable = mod_ld$dropped, Reason = "linear_dependency"))
+  }
+  list(mod = mod, covariates = covariates, dropped = drop_log)
 }
 
 apply_covariate_governance <- function(targets, covariates, forced_covariates, config_settings, drop_log) {
@@ -1112,7 +3076,7 @@ filter_sv_by_group <- function(targets, sv_cols, group_col,
   group_vals <- targets[[group_col]]
   for (sv in sv_cols) {
     if (!(sv %in% colnames(targets))) next
-    val <- targets[[sv]]
+    val <- normalize_meta_vals(targets[[sv]])
     cc <- complete.cases(val, group_vals)
     if (sum(cc) < 3) next
     gv <- group_vals[cc]
@@ -1122,13 +3086,7 @@ filter_sv_by_group <- function(targets, sv_cols, group_col,
       drops <- rbind(drops, data.frame(Variable = sv, Reason = "sv_constant"))
       next
     }
-    p_grp <- tryCatch({
-      if (length(unique(gv)) == 2) {
-        t.test(vv ~ gv)$p.value
-      } else {
-        kruskal.test(vv ~ as.factor(gv))$p.value
-      }
-    }, error = function(e) NA)
+    p_grp <- if (length(unique(gv)) == 2) safe_ttest_p(vv, gv) else safe_kruskal_p(vv, gv)
     eta2 <- tryCatch({
       fit <- stats::lm(vv ~ as.factor(gv))
       an <- stats::anova(fit)
@@ -1459,7 +3417,58 @@ estimate_cell_counts_epidish <- function(betas, tissue = "Blood", out_dir = NULL
   list(counts = df, reference = sprintf("EpiDISH::%s(%s)", epifun_name, ref_name))
 }
 
-estimate_cell_counts_reffree <- function(betas, out_dir = NULL, label = "RefFreeEWAS (Sesame)") {
+estimate_cell_counts_planet <- function(betas, out_dir = NULL) {
+  if (!requireNamespace("planet", quietly = TRUE)) return(NULL)
+  if (!requireNamespace("minfi", quietly = TRUE)) return(NULL)
+  if (is.null(betas) || nrow(betas) == 0 || ncol(betas) == 0) return(NULL)
+
+  ref_env <- new.env(parent = emptyenv())
+  tryCatch(data(list = "plCellCpGsThird", package = "planet", envir = ref_env), error = function(e) NULL)
+  if (!exists("plCellCpGsThird", envir = ref_env, inherits = FALSE)) return(NULL)
+  ref <- ref_env$plCellCpGsThird
+  if (is.null(ref) || !(is.matrix(ref) || is.data.frame(ref))) return(NULL)
+  ref <- as.matrix(ref)
+
+  norm_res <- normalize_epicv2_ids(betas)
+  betas_use <- norm_res$betas
+  if (isTRUE(norm_res$collapsed)) {
+    message("  - EPICv2-style CpG IDs detected; collapsed for planet reference alignment.")
+  } else if (isTRUE(norm_res$normalized)) {
+    message("  - EPICv2-style CpG IDs normalized for planet reference alignment.")
+  }
+
+  common <- intersect(rownames(betas_use), rownames(ref))
+  if (length(common) < min(50, nrow(ref))) return(NULL)
+  betas_use <- betas_use[common, , drop = FALSE]
+  ref_use <- ref[common, , drop = FALSE]
+
+  proj_fun <- NULL
+  if (exists("projectCellType", envir = asNamespace("minfi"), inherits = FALSE)) {
+    proj_fun <- get("projectCellType", envir = asNamespace("minfi"))
+  }
+  if (is.null(proj_fun)) return(NULL)
+
+  res <- tryCatch(proj_fun(betas_use, ref_use, lessThanOne = FALSE), error = function(e) NULL)
+  if (is.null(res)) return(NULL)
+
+  mat <- as.data.frame(res)
+  if (nrow(mat) != ncol(betas_use) && ncol(mat) == ncol(betas_use)) {
+    mat <- as.data.frame(t(mat))
+  }
+  if (nrow(mat) != ncol(betas_use)) return(NULL)
+  if (is.null(rownames(mat)) || any(!nzchar(rownames(mat)))) {
+    rownames(mat) <- colnames(betas_use)
+  }
+  colnames(mat) <- paste0("Cell_", colnames(mat))
+  mat$SampleID <- rownames(mat)
+  if (!is.null(out_dir)) {
+    write.csv(mat, file.path(out_dir, "cell_counts_planet.csv"), row.names = FALSE)
+  }
+  list(counts = mat, reference = "planet::plCellCpGsThird (projectCellType)")
+}
+
+estimate_cell_counts_reffree <- function(betas, out_dir = NULL, label = "RefFreeEWAS (Sesame)",
+                                         K_latent = 5, max_probes = 10000) {
   if (!requireNamespace("RefFreeEWAS", quietly = TRUE)) return(NULL)
   if (is.null(betas) || nrow(betas) < 10 || ncol(betas) < 3) return(NULL)
 
@@ -1470,11 +3479,10 @@ estimate_cell_counts_reffree <- function(betas, out_dir = NULL, label = "RefFree
 
   vars <- apply(betas_use, 1, var)
   vars[!is.finite(vars)] <- 0
-  top_n <- min(10000, length(vars))
+  top_n <- min(max_probes, length(vars))
   top_idx <- order(vars, decreasing = TRUE)[seq_len(top_n)]
   betas_sub <- betas_use[top_idx, , drop = FALSE]
 
-  K_latent <- 5
   res <- tryCatch({
     suppressMessages(with_muffled_warnings(
       RefFreeEWAS::RefFreeCellMix(betas_sub, K = K_latent, verbose = FALSE),
@@ -1494,6 +3502,19 @@ estimate_cell_counts_reffree <- function(betas, out_dir = NULL, label = "RefFree
     write.csv(df, file.path(out_dir, "cell_counts_RefFree_Sesame.csv"), row.names = FALSE)
   }
   list(counts = df, reference = label)
+}
+
+append_cell_deconv_summary <- function(out_dir, summary_row) {
+  if (is.null(out_dir) || !nzchar(out_dir) || is.null(summary_row)) return(invisible(NULL))
+  path <- file.path(out_dir, "Cell_Deconvolution_Summary.csv")
+  existing <- NULL
+  if (file.exists(path)) {
+    existing <- tryCatch(read.csv(path, stringsAsFactors = FALSE), error = function(e) NULL)
+  }
+  if (is.null(existing)) existing <- data.frame()
+  new_df <- rbind(existing, summary_row)
+  write.csv(new_df, path, row.names = FALSE)
+  invisible(new_df)
 }
 
 compute_dmr_delta_beta <- function(dmr_res, dmr_anno, mean_con, mean_test) {
@@ -1560,7 +3581,7 @@ normalize_tissue <- function(x) {
   if (is.null(x) || length(x) == 0) return(NA_character_)
   val <- trimws(as.character(x)[1])
   if (!nzchar(val)) return(NA_character_)
-  key <- tolower(gsub("[^a-z0-9]", "", val))
+  key <- gsub("[^a-z0-9]", "", tolower(val))
   map <- c(
     "blood" = "Blood",
     "wholeblood" = "Blood",
@@ -1589,6 +3610,38 @@ infer_tissue_from_config <- function(targets) {
       return(list(tissue = norm_vals[1], source = col, raw = vals[1]))
     }
   }
+  hint <- infer_tissue_from_text(targets)
+  if (!is.null(hint)) return(hint)
+  NULL
+}
+
+infer_tissue_from_text <- function(targets) {
+  if (is.null(targets) || nrow(targets) == 0) return(NULL)
+  char_cols <- colnames(targets)[vapply(targets, function(x) is.character(x) || is.factor(x), logical(1))]
+  if (length(char_cols) == 0) return(NULL)
+  name_hits <- char_cols[grepl("tissue|source|character|cell|organ|specimen|biosample", tolower(char_cols))]
+  if (length(name_hits) == 0) name_hits <- char_cols
+  text_mat <- apply(targets[, name_hits, drop = FALSE], 1, function(row) {
+    vals <- na.omit(as.character(row))
+    vals <- vals[vals != ""]
+    paste(vals, collapse = ";")
+  })
+  text_mat <- tolower(text_mat)
+  patterns <- list(
+    Blood = c("blood", "pbmc", "leuk", "lymph", "bcell", "tcell", "monocyte"),
+    CordBlood = c("cord", "umbilical"),
+    Placenta = c("placenta", "chorion", "trophoblast"),
+    Saliva = c("saliva"),
+    DLPFC = c("dlpfc", "prefrontal", "cortex")
+  )
+  counts <- vapply(patterns, function(pats) {
+    sum(grepl(paste(pats, collapse = "|"), text_mat))
+  }, integer(1))
+  if (all(counts == 0)) return(NULL)
+  best <- names(counts)[which.max(counts)][1]
+  if (!is.null(best) && counts[[best]] >= ceiling(0.6 * length(text_mat))) {
+    return(list(tissue = best, source = "text_heuristic", raw = best))
+  }
   NULL
 }
 
@@ -1612,9 +3665,10 @@ detect_array_type <- function(rgSet) {
 
 reference_platform_from_array <- function(array_type) {
   if (is.na(array_type) || !nzchar(array_type)) return("")
-  key <- tolower(gsub("[^a-z0-9]", "", array_type))
-  if (grepl("epic", key)) return("IlluminaHumanMethylationEPIC")
-  if (grepl("450k", key) || grepl("hm450", key)) return("IlluminaHumanMethylation450k")
+  key <- gsub("[^a-z0-9]", "", tolower(array_type))
+  if (grepl("epicv2", key) || grepl("950", key)) return("IlluminaHumanMethylationEPICv2")
+  if (grepl("epic", key) || grepl("850", key)) return("IlluminaHumanMethylationEPIC")
+  if (grepl("450k", key) || grepl("hm450", key) || grepl("450", key)) return("IlluminaHumanMethylation450k")
   ""
 }
 
@@ -1678,15 +3732,14 @@ estimate_cell_counts_safe <- function(rgSet, tissue = "Blood", out_dir = NULL,
       betas <- betas[rowSums(is.na(betas)) == 0, ] # Remove NAs
       
       # Select variable probes to speed up and improve signal
-      # Top 10,000 variable probes is usually sufficient for deconvolution
+      # Top variable probes is usually sufficient for deconvolution
       vars <- apply(betas, 1, var)
-      top_idx <- head(order(vars, decreasing = TRUE), 10000)
+      top_idx <- head(order(vars, decreasing = TRUE), min(cell_ref_free_max_probes, nrow(betas)))
       betas_sub <- betas[top_idx, ]
       
       # Run RefFreeCellMix
-      # K=5 is a reasonable default for many tissues (e.g. blood has ~5-6 majors)
-      # Estimating K can be unstable on small datasets, so fixed K is safer for automation.
-      K_latent <- 5
+      # Fixed K is safer for automation; configurable via cell_deconv.ref_free_k.
+      K_latent <- cell_ref_free_k
       message(sprintf("  - Running RefFreeCellMix with K=%d latent components...", K_latent))
       
       # Initialize with K-means (standard RefFreeEWAS approach)
@@ -1780,6 +3833,23 @@ estimate_cell_counts_safe <- function(rgSet, tissue = "Blood", out_dir = NULL,
     } else {
       message("  - Unable to load custom cell reference; falling back to defaults.")
     }
+  }
+
+  if (tolower(tissue) == "placenta") {
+    message("Estimating cell composition for tissue 'Placenta' using planet reference...")
+    betas <- tryCatch({
+      mSet <- preprocessNoob(rgSet)
+      getBeta(mSet)
+    }, error = function(e) NULL)
+    if (!is.null(betas)) {
+      res <- estimate_cell_counts_planet(betas, out_dir = out_dir)
+      if (!is.null(res)) {
+        message("  - Cell composition estimated using planet (Placenta reference).")
+        return(res)
+      }
+    }
+    message("  - Placenta reference-based estimation failed; falling back to reference-free.")
+    return(run_ref_free())
   }
 
   # 1. Reference-Free Mode (Auto)
@@ -2356,10 +4426,11 @@ detect_batch_candidates <- function(meta, group_col, config_settings) {
 
 compute_cramers_v <- function(tbl) {
   if (is.null(tbl) || any(dim(tbl) < 2)) return(NA_real_)
-  chi <- suppressWarnings(chisq.test(tbl, correct = FALSE))
-  if (is.null(chi$statistic) || !is.finite(chi$statistic)) return(NA_real_)
   n <- sum(tbl)
-  if (n <= 0) return(NA_real_)
+  if (!is.finite(n) || n <= 0) return(NA_real_)
+  chi <- tryCatch(suppressWarnings(chisq.test(tbl, correct = FALSE)), error = function(e) NULL)
+  if (is.null(chi)) return(NA_real_)
+  if (is.null(chi$statistic) || !is.finite(chi$statistic)) return(NA_real_)
   r <- nrow(tbl)
   c <- ncol(tbl)
   denom <- n * (min(r - 1, c - 1))
@@ -2431,7 +4502,7 @@ assess_batch_confounding <- function(meta, batch_cols, group_col, config_setting
       min_cell <- suppressWarnings(min(tbl))
       pct_empty <- sum(tbl == 0) / length(tbl)
       min_balance <- suppressWarnings(min(apply(prop.table(tbl, 1), 1, function(x) min(x))))
-      chi_p <- tryCatch(suppressWarnings(chisq.test(tbl)$p.value), error = function(e) NA_real_)
+      chi_p <- safe_chisq_p(tbl)
       cramer_v <- compute_cramers_v(tbl)
       voi_in_batch <- apply(tbl, 2, function(x) sum(x > 0))
       batch_in_voi <- apply(tbl, 1, function(x) sum(x > 0))
@@ -2504,12 +4575,14 @@ is_batch_confounded <- function(meta, batch_col, group_col, p_thresh = 1e-6) {
   if (!(batch_col %in% colnames(meta)) || !(group_col %in% colnames(meta))) return(FALSE)
   tbl <- table(meta[[batch_col]], meta[[group_col]])
   if (any(tbl == 0)) return(TRUE)
-  p_chisq <- tryCatch(suppressWarnings(chisq.test(tbl)$p.value), error = function(e) NA)
+  p_chisq <- safe_chisq_p(tbl)
   if (!is.na(p_chisq) && p_chisq < p_thresh) return(TRUE)
   return(FALSE)
 }
 
 eval_batch_method <- function(M_mat, meta, group_col, batch_col, covariates, method) {
+  combat_par_prior <- if (exists("combat_par_prior", inherits = TRUE)) combat_par_prior else TRUE
+  combat_allowed <- if (exists("combat_allowed", inherits = TRUE)) combat_allowed else TRUE
   meta_use <- meta
   sample_ids <- colnames(M_mat)
   if (!is.null(rownames(meta_use)) && all(sample_ids %in% rownames(meta_use))) {
@@ -2532,8 +4605,17 @@ eval_batch_method <- function(M_mat, meta, group_col, batch_col, covariates, met
   rownames(meta_use) <- sample_ids
   meta_use[[batch_col]] <- as.factor(meta_use[[batch_col]])
   meta_use[[group_col]] <- as.factor(meta_use[[group_col]])
+  note <- ""
   cov_terms <- setdiff(covariates, batch_col)
-  for (ct in cov_terms) {
+  cov_terms_use <- cov_terms
+  if (length(cov_terms_use) > 0 && !is.null(batch_col)) {
+    batch_filter <- filter_covariates_with_batch(meta_use, cov_terms_use, batch_col)
+    cov_terms_use <- batch_filter$keep
+    if (nrow(batch_filter$dropped) > 0) {
+      note <- paste0("batch_confounded_covariates=", paste(unique(batch_filter$dropped$Variable), collapse = ";"))
+    }
+  }
+  for (ct in cov_terms_use) {
     if (ct %in% colnames(meta_use) && !is.numeric(meta_use[[ct]]) && !is.integer(meta_use[[ct]])) {
       meta_use[[ct]] <- as.factor(meta_use[[ct]])
     }
@@ -2550,24 +4632,76 @@ eval_batch_method <- function(M_mat, meta, group_col, batch_col, covariates, met
   
   # Helper to build model matrices safely
   mm_safe <- function(formula_str, data) {
-    model.matrix(as.formula(formula_str), data = data)
+    tryCatch(model.matrix(as.formula(formula_str), data = data), error = function(e) NULL)
   }
   
   M_corr <- M_mat
   if (method == "none") {
     M_corr <- M_mat
   } else if (method == "combat") {
-    mod <- mm_safe(paste("~", paste(c(group_col, cov_terms), collapse = " + ")), meta_use)
-    M_corr <- ComBat(dat = M_mat, batch = batch, mod = mod, par.prior = TRUE, prior.plots = FALSE)
+    if (!isTRUE(combat_allowed)) {
+      return(list(method = method, score = -Inf, batch_var = NA_real_, group_var = NA_real_,
+                  n_pc_batch_sig = NA_real_, prop_batch_sig = NA_real_, M_corr = M_mat,
+                  failed = TRUE, fail_reason = "ComBat disabled for small sample size.",
+                  note = note))
+    }
+    combat_setup <- build_combat_design(meta_use, group_col, cov_terms_use, batch_col)
+    if (nrow(combat_setup$dropped) > 0) {
+      drop_note <- paste0("combat_drop=", paste(unique(combat_setup$dropped$Variable), collapse = ";"))
+      if (nzchar(note)) {
+        note <- paste(note, drop_note, sep = " | ")
+      } else {
+        note <- drop_note
+      }
+    }
+    mod <- combat_setup$mod
+    if (ncol(mod) < 2) {
+      return(list(method = method, score = -Inf, batch_var = NA_real_, group_var = NA_real_,
+                  n_pc_batch_sig = NA_real_, prop_batch_sig = NA_real_, M_corr = M_mat,
+                  failed = TRUE, fail_reason = "ComBat design has <2 columns after filtering.",
+                  note = note))
+    }
+    combat_try <- tryCatch(
+      ComBat(dat = M_mat, batch = batch, mod = mod, par.prior = combat_par_prior, prior.plots = FALSE),
+      error = function(e) e
+    )
+    if (inherits(combat_try, "error")) {
+      return(list(method = method, score = -Inf, batch_var = NA_real_, group_var = NA_real_,
+                  n_pc_batch_sig = NA_real_, prop_batch_sig = NA_real_, M_corr = M_mat,
+                  failed = TRUE, fail_reason = combat_try$message, note = note))
+    }
+    M_corr <- combat_try
   } else if (method == "limma") {
     design <- mm_safe(paste("~ 0 +", group_col), meta_use)
-    cov_mat <- if (length(cov_terms) > 0) mm_safe(paste("~ 0 +", paste(cov_terms, collapse = " + ")), meta_use) else NULL
+    if (is.null(design) || ncol(design) < 1) {
+      return(list(method = method, score = -Inf, batch_var = NA_real_, group_var = NA_real_,
+                  n_pc_batch_sig = NA_real_, prop_batch_sig = NA_real_, M_corr = M_mat,
+                  failed = TRUE, fail_reason = "Limma design failed.", note = note))
+    }
+    cov_mat <- if (length(cov_terms_use) > 0) mm_safe(paste("~ 0 +", paste(cov_terms_use, collapse = " + ")), meta_use) else NULL
+    if (length(cov_terms_use) > 0 && (is.null(cov_mat) || ncol(cov_mat) < 1)) {
+      return(list(method = method, score = -Inf, batch_var = NA_real_, group_var = NA_real_,
+                  n_pc_batch_sig = NA_real_, prop_batch_sig = NA_real_, M_corr = M_mat,
+                  failed = TRUE, fail_reason = "Limma covariate design failed.", note = note))
+    }
     M_corr <- removeBatchEffect(M_mat, batch = batch, covariates = cov_mat, design = design)
   } else if (method == "sva") {
-    mod <- mm_safe(paste("~", paste(c(group_col, cov_terms), collapse = " + ")), meta_use)
-    mod0_terms <- if (length(cov_terms) > 0) paste(cov_terms, collapse = " + ") else "1"
+    mod <- mm_safe(paste("~", paste(c(group_col, cov_terms_use), collapse = " + ")), meta_use)
+    mod0_terms <- if (length(cov_terms_use) > 0) paste(cov_terms_use, collapse = " + ") else "1"
     mod0 <- mm_safe(paste("~", mod0_terms), meta_use)
-    sva.obj <- sva(M_mat, mod, mod0)
+    if (is.null(mod) || is.null(mod0) || ncol(mod) < 2 || ncol(mod0) < 1) {
+      return(list(method = method, score = -Inf, batch_var = NA_real_, group_var = NA_real_,
+                  n_pc_batch_sig = NA_real_, prop_batch_sig = NA_real_, M_corr = M_mat,
+                  failed = TRUE, fail_reason = "SVA design has <2 columns after filtering.",
+                  note = note))
+    }
+    sva_try <- tryCatch(sva(M_mat, mod, mod0), error = function(e) e)
+    if (inherits(sva_try, "error")) {
+      return(list(method = method, score = -Inf, batch_var = NA_real_, group_var = NA_real_,
+                  n_pc_batch_sig = NA_real_, prop_batch_sig = NA_real_, M_corr = M_mat,
+                  failed = TRUE, fail_reason = sva_try$message, note = note))
+    }
+    sva.obj <- sva_try
     if (is.null(sva.obj$sv) || sva.obj$n.sv < 1) {
       M_corr <- M_mat
     } else {
@@ -2603,7 +4737,7 @@ eval_batch_method <- function(M_mat, meta, group_col, batch_col, covariates, met
   }
   
   form_terms <- c(sprintf("(1|%s)", batch_col))
-  for (ct in cov_terms) {
+  for (ct in cov_terms_use) {
     if (is.numeric(meta_use[[ct]]) || is.integer(meta_use[[ct]])) {
       form_terms <- c(form_terms, ct)
     } else {
@@ -2613,33 +4747,44 @@ eval_batch_method <- function(M_mat, meta, group_col, batch_col, covariates, met
   form_terms <- c(form_terms, sprintf("(1|%s)", group_col))
   form <- as.formula(paste("~", paste(form_terms, collapse = " + ")))
   M_top_varpart <- M_corr[top_idx, , drop = FALSE]
-  varPart <- tryCatch(
-    fitExtractVarPartModel(M_top_varpart, form, meta_use),
-    error = function(e) {
-      message("    variancePartition failed for ", method, ": ", e$message)
-      NULL
-    }
-  )
+  vp_cfg <- if (exists("config_settings")) config_settings$variance_partition else NULL
+  vp_label <- paste("variancePartition", method)
+  vp_fit <- fit_variance_partition_safe(M_top_varpart, form, meta_use, vp_cfg = vp_cfg, label = vp_label)
+  varPart <- vp_fit$result
   if (is.null(varPart)) {
     med_varFrac <- setNames(rep(0, length(c(batch_col, group_col))), c(batch_col, group_col))
   } else {
     med_varFrac <- apply(varPart, 2, median, na.rm = TRUE)
   }
   
-  design_terms <- c(batch_col, group_col, cov_terms)
+  design_terms <- c(batch_col, group_col, cov_terms_use)
   design <- mm_safe(paste("~ 0 +", paste(design_terms, collapse = " + ")), meta_use)
-  fit_batch <- lmFit(M_corr, design)
-  fit_batch <- eBayes(fit_batch)
+  if (is.null(design) || ncol(design) < 2) {
+    return(list(method = method, score = -Inf, batch_var = NA_real_, group_var = NA_real_,
+                n_pc_batch_sig = NA_real_, prop_batch_sig = NA_real_, M_corr = M_corr,
+                failed = TRUE, fail_reason = "Batch design failed.", note = note))
+  }
+  fit_batch <- tryCatch(lmFit(M_corr, design), error = function(e) NULL)
+  fit_batch <- if (is.null(fit_batch)) NULL else tryCatch(eBayes(fit_batch), error = function(e) NULL)
+  if (is.null(fit_batch)) {
+    return(list(method = method, score = -Inf, batch_var = NA_real_, group_var = NA_real_,
+                n_pc_batch_sig = NA_real_, prop_batch_sig = NA_real_, M_corr = M_corr,
+                failed = TRUE, fail_reason = "Batch eBayes failed.", note = note))
+  }
   batch_cols <- grep(paste0("^", batch_col), colnames(design))
   if (length(batch_cols) == 0) {
     prop_batch_sig <- NA_real_
   } else {
     contrast_batch <- diag(ncol(design))[, batch_cols, drop = FALSE]
-    fit_con <- contrasts.fit(fit_batch, contrast_batch)
-    fit_con <- eBayes(fit_con)
-    p_batch <- fit_con$F.p.value
-    fdr_batch <- p.adjust(p_batch, "BH")
-    prop_batch_sig <- mean(fdr_batch < 0.05, na.rm = TRUE)
+    fit_con <- tryCatch(contrasts.fit(fit_batch, contrast_batch), error = function(e) NULL)
+    fit_con <- if (is.null(fit_con)) NULL else tryCatch(eBayes(fit_con), error = function(e) NULL)
+    if (is.null(fit_con)) {
+      prop_batch_sig <- NA_real_
+    } else {
+      p_batch <- fit_con$F.p.value
+      fdr_batch <- p.adjust(p_batch, "BH")
+      prop_batch_sig <- mean(fdr_batch < 0.05, na.rm = TRUE)
+    }
   }
   
   batch_var <- if (batch_col %in% names(med_varFrac)) med_varFrac[batch_col] else NA_real_
@@ -2656,43 +4801,93 @@ eval_batch_method <- function(M_mat, meta, group_col, batch_col, covariates, met
     group_var = group_var,
     n_pc_batch_sig = n_pc_batch_sig,
     prop_batch_sig = prop_batch_sig,
-    M_corr = M_corr
+    M_corr = M_corr,
+    failed = FALSE,
+    fail_reason = "",
+    note = note
   )
 }
 
-apply_batch_correction <- function(betas, method, batch_col, covariates, targets, design) {
+apply_batch_correction <- function(betas, method, batch_col, covariates, targets, design,
+                                   group_col = "primary_group") {
+  combat_par_prior <- if (exists("combat_par_prior", inherits = TRUE)) combat_par_prior else TRUE
+  combat_allowed <- if (exists("combat_allowed", inherits = TRUE)) combat_allowed else TRUE
   # Apply the selected batch correction method to betas (logit space) while preserving group effects.
   if (is.null(method) || method == "none" || is.null(batch_col) || !(batch_col %in% colnames(targets))) {
-    return(list(betas = betas, method = "none"))
+    return(list(betas = betas, mvals = logit_offset(betas), method = "none"))
   }
   batch_vals <- targets[[batch_col]]
   if (length(unique(batch_vals)) < 2) {
-    return(list(betas = betas, method = "none"))
+    return(list(betas = betas, mvals = logit_offset(betas), method = "none"))
   }
   covariates <- covariates[covariates %in% colnames(targets)]
+  batch_filter <- filter_covariates_with_batch(targets, covariates, batch_col)
+  covariates_use <- batch_filter$keep
+  if (nrow(batch_filter$dropped) > 0) {
+    message(paste("  Batch-confounded covariates removed:", paste(unique(batch_filter$dropped$Variable), collapse = ", ")))
+  }
   cov_mat <- NULL
-  if (length(covariates) > 0) {
-    cov_formula <- as.formula(paste("~ 0 +", paste(covariates, collapse = " + ")))
+  if (length(covariates_use) > 0) {
+    cov_formula <- as.formula(paste("~ 0 +", paste(covariates_use, collapse = " + ")))
     cov_mat <- model.matrix(cov_formula, data = targets)
   }
-  design_keep <- model.matrix(~ primary_group, data = targets)
+  design_keep <- model.matrix(as.formula(paste("~", group_col)), data = targets)
   M_mat <- logit_offset(betas)
+  method_used <- method
 
   if (method == "combat") {
-    mod <- design
-    M_corr <- ComBat(dat = M_mat, batch = as.factor(batch_vals), mod = mod, par.prior = TRUE, prior.plots = FALSE)
+    if (!isTRUE(combat_allowed)) {
+      message("  ComBat disabled for small sample size; skipping.")
+      return(list(betas = betas, mvals = logit_offset(betas), method = "none"))
+    }
+    combat_setup <- build_combat_design(targets, group_col, covariates_use, batch_col)
+    if (nrow(combat_setup$dropped) > 0) {
+      message(paste("  ComBat: dropped covariates/terms:", paste(unique(combat_setup$dropped$Variable), collapse = ", ")))
+    }
+    mod <- combat_setup$mod
+    if (ncol(mod) < 2) {
+      message("  ComBat skipped: design has <2 columns after filtering.")
+      return(list(betas = betas, mvals = logit_offset(betas), method = "none"))
+    }
+    combat_try <- tryCatch(
+      ComBat(dat = M_mat, batch = as.factor(batch_vals), mod = mod, par.prior = combat_par_prior, prior.plots = FALSE),
+      error = function(e) e
+    )
+    if (inherits(combat_try, "error")) {
+      message(paste("  ComBat failed:", combat_try$message, "-> falling back to limma."))
+      limma_try <- tryCatch(
+        removeBatchEffect(M_mat, batch = as.factor(batch_vals), covariates = cov_mat, design = design_keep),
+        error = function(e) e
+      )
+      if (inherits(limma_try, "error")) {
+        message(paste("  limma fallback failed:", limma_try$message, "-> skipping batch correction."))
+        return(list(betas = betas, mvals = logit_offset(betas), method = "none"))
+      }
+      M_corr <- limma_try
+      method_used <- "limma"
+    } else {
+      M_corr <- combat_try
+    }
   } else if (method == "limma") {
-    M_corr <- removeBatchEffect(M_mat, batch = as.factor(batch_vals), covariates = cov_mat, design = design_keep)
+    limma_try <- tryCatch(
+      removeBatchEffect(M_mat, batch = as.factor(batch_vals), covariates = cov_mat, design = design_keep),
+      error = function(e) e
+    )
+    if (inherits(limma_try, "error")) {
+      message(paste("  limma batch correction failed:", limma_try$message, "-> skipping batch correction."))
+      return(list(betas = betas, mvals = logit_offset(betas), method = "none"))
+    }
+    M_corr <- limma_try
   } else if (method == "sva") {
     # SVA handled via surrogate variables already included in the design.
-    return(list(betas = betas, method = "sva"))
+    return(list(betas = betas, mvals = logit_offset(betas), method = "sva"))
   } else {
-    return(list(betas = betas, method = "none"))
+    return(list(betas = betas, mvals = logit_offset(betas), method = "none"))
   }
 
   betas_corr <- 2^M_corr / (1 + 2^M_corr)
   betas_corr <- pmin(pmax(betas_corr, LOGIT_OFFSET), 1 - LOGIT_OFFSET)
-  list(betas = betas_corr, method = method)
+  list(betas = betas_corr, mvals = M_corr, method = method_used)
 }
 
 meta_analysis_fixed <- function(effects, ses) {
@@ -2716,8 +4911,39 @@ meta_analysis_fixed <- function(effects, ses) {
   list(beta = meta_beta, se = meta_se, p = p, q = q, i2 = i2, k = k_eff)
 }
 
+meta_analysis_random <- function(effects, ses) {
+  w <- 1 / (ses ^ 2)
+  w[!is.finite(w)] <- 0
+  effects[!is.finite(effects)] <- NA
+  w[is.na(effects)] <- 0
+  w_sum <- rowSums(w)
+  k_eff <- rowSums(w > 0)
+  beta_fixed <- rowSums(w * effects, na.rm = TRUE) / w_sum
+  q <- rowSums(w * (effects - beta_fixed) ^ 2, na.rm = TRUE)
+  c_val <- w_sum - rowSums(w ^ 2) / w_sum
+  tau2 <- (q - (k_eff - 1)) / c_val
+  tau2[!is.finite(tau2)] <- NA_real_
+  tau2 <- pmax(0, tau2)
+  w_star <- 1 / (ses ^ 2 + tau2)
+  w_star[!is.finite(w_star)] <- 0
+  w_star[is.na(effects)] <- 0
+  w_star_sum <- rowSums(w_star)
+  beta_random <- rowSums(w_star * effects, na.rm = TRUE) / w_star_sum
+  se_random <- sqrt(1 / w_star_sum)
+  z <- beta_random / se_random
+  p <- 2 * pnorm(-abs(z))
+  i2 <- ifelse(q > 0, pmax(0, (q - (k_eff - 1)) / q), NA_real_)
+  beta_random[k_eff < 2] <- NA_real_
+  se_random[k_eff < 2] <- NA_real_
+  p[k_eff < 2] <- NA_real_
+  q[k_eff < 2] <- NA_real_
+  i2[k_eff < 2] <- NA_real_
+  tau2[k_eff < 2] <- NA_real_
+  list(beta = beta_random, se = se_random, p = p, q = q, i2 = i2, k = k_eff, tau2 = tau2)
+}
+
 run_stratified_meta_analysis <- function(betas, targets, batch_col, group_col, covariates,
-                                         prefix, out_dir, pval_thresh, lfc_thresh, delta_beta_thresh) {
+                                         forced_covariates, prefix, out_dir, pval_thresh, lfc_thresh, delta_beta_thresh) {
   if (is.null(batch_col) || !(batch_col %in% colnames(targets))) return(NULL)
   overlap_batches <- identify_overlap_batches(targets, batch_col, group_col)
   if (length(overlap_batches) < 2) {
@@ -2739,21 +4965,78 @@ run_stratified_meta_analysis <- function(betas, targets, batch_col, group_col, c
       next
     }
     sub_covars <- intersect(covariates, colnames(sub_targets))
-    formula_str <- "~ 0 + primary_group"
-    if (length(sub_covars) > 0) formula_str <- paste(formula_str, "+", paste(sub_covars, collapse = " + "))
-    design <- model.matrix(as.formula(formula_str), data = sub_targets)
-    colnames(design) <- gsub("primary_group", "", colnames(design))
-    design <- design[, unique(colnames(design)), drop = FALSE]
-    group_cols <- make.names(levels(sub_targets$primary_group))
-    design_ld <- drop_linear_dependencies(design, group_cols = group_cols)
-    design <- design_ld$mat
+    if (length(sub_covars) > 0) {
+      single_filt <- drop_single_level_covariates(sub_targets, sub_covars)
+      if (nrow(single_filt$dropped) > 0) {
+        message(sprintf("  - Dropping single-level covariates in stratum %s: %s",
+                        b, paste(single_filt$dropped$Variable, collapse = ", ")))
+      }
+      sub_covars <- single_filt$keep
+    }
+    build_design <- function(covars) {
+      formula_str <- "~ 0 + primary_group"
+      if (length(covars) > 0) formula_str <- paste(formula_str, "+", paste(covars, collapse = " + "))
+      design <- model.matrix(as.formula(formula_str), data = sub_targets)
+      colnames(design) <- gsub("primary_group", "", colnames(design))
+      design <- design[, unique(colnames(design)), drop = FALSE]
+      group_cols <- make.names(levels(sub_targets$primary_group))
+      design_ld <- drop_linear_dependencies(design, group_cols = group_cols)
+      list(mat = design_ld$mat)
+    }
+    covars_use <- sub_covars
+    dropped_for_df <- character(0)
+    forced_keep <- intersect(forced_covariates, covars_use)
+    if (length(covars_use) > 0) {
+      ranked <- rank_covariates(sub_targets, covars_use, covar_log_df = NULL)
+      drop_non_forced <- setdiff(ranked, forced_keep)
+      drop_forced <- intersect(ranked, forced_keep)
+      drop_queue <- c(drop_non_forced, drop_forced)
+    } else {
+      drop_queue <- character(0)
+    }
+    design_obj <- build_design(covars_use)
+    while (!is.null(design_obj$mat) && nrow(design_obj$mat) <= ncol(design_obj$mat) && length(covars_use) > 0) {
+      if (length(drop_queue) == 0) break
+      drop_cv <- drop_queue[1]
+      drop_queue <- drop_queue[-1]
+      covars_use <- setdiff(covars_use, drop_cv)
+      dropped_for_df <- c(dropped_for_df, drop_cv)
+      design_obj <- build_design(covars_use)
+    }
+    if (length(dropped_for_df) > 0) {
+      message(sprintf("  - Reduced covariates in stratum %s to preserve df: dropped %s",
+                      b, paste(dropped_for_df, collapse = ", ")))
+      forced_dropped <- intersect(dropped_for_df, forced_keep)
+      if (length(forced_dropped) > 0) {
+        message(sprintf("  - Stratum %s: forced covariates dropped due to df (%s)",
+                        b, paste(forced_dropped, collapse = ", ")))
+      }
+    }
+    design <- design_obj$mat
     if (ncol(design) < 2) next
+    if (nrow(design) <= ncol(design)) {
+      message(sprintf("  - Skipping stratum %s: insufficient degrees of freedom after covariate reduction (n=%d, p=%d).", b, nrow(design), ncol(design)))
+      next
+    }
+    group_cols <- intersect(make.names(levels(sub_targets$primary_group)), colnames(design))
+    if (length(group_cols) < 2) {
+      message(sprintf("  - Skipping stratum %s: missing group columns after design reduction.", b))
+      next
+    }
     m_vals <- logit_offset(sub_betas)
     fit <- lmFit(m_vals, design)
     contrast_str <- paste0(group_cols[2], "-", group_cols[1])
     cm <- makeContrasts(contrasts = contrast_str, levels = design)
     fit2 <- contrasts.fit(fit, cm)
-    fit2 <- eBayes(fit2)
+    fit2 <- tryCatch(eBayes(fit2), error = function(e) {
+      message(sprintf("  - eBayes failed in stratum %s: %s", b, e$message))
+      NULL
+    })
+    if (is.null(fit2)) next
+    if (!any(is.finite(fit2$sigma))) {
+      message(sprintf("  - Skipping stratum %s: no finite residual variance.", b))
+      next
+    }
     coef_idx <- 1
     eff <- fit2$coefficients[, coef_idx]
     se <- fit2$stdev.unscaled[, coef_idx] * fit2$sigma
@@ -2765,15 +5048,38 @@ run_stratified_meta_analysis <- function(betas, targets, batch_col, group_col, c
   if (length(effects) < 2) return(NULL)
   eff_mat <- do.call(cbind, effects)
   se_mat <- do.call(cbind, ses)
-  meta <- meta_analysis_fixed(eff_mat, se_mat)
+  meta_fixed <- meta_analysis_fixed(eff_mat, se_mat)
+  meta_random <- meta_analysis_random(eff_mat, se_mat)
+  tier3_cfg <- if (exists("config_settings")) config_settings$tier3_meta else NULL
+  meta_method_cfg <- if (!is.null(tier3_cfg$method)) as.character(tier3_cfg$method) else "auto"
+  meta_method_cfg <- tolower(meta_method_cfg)
+  if (!meta_method_cfg %in% c("auto", "fixed", "random")) meta_method_cfg <- "auto"
+  i2_threshold <- suppressWarnings(as.numeric(if (!is.null(tier3_cfg$i2_threshold)) tier3_cfg$i2_threshold else 0.5))
+  if (!is.finite(i2_threshold)) i2_threshold <- 0.5
+  i2_median <- suppressWarnings(median(meta_random$i2, na.rm = TRUE))
+  i2_mean <- suppressWarnings(mean(meta_random$i2, na.rm = TRUE))
+  meta_method <- "fixed"
+  if (meta_method_cfg == "random") {
+    meta_method <- "random"
+  } else if (meta_method_cfg == "fixed") {
+    meta_method <- "fixed"
+  } else {
+    if (is.finite(i2_median) && i2_median >= i2_threshold) meta_method <- "random"
+  }
+  meta_use <- if (meta_method == "random") meta_random else meta_fixed
+  log_decision("tier3", "meta_method", meta_method,
+               reason = ifelse(meta_method_cfg == "auto", "auto_i2", meta_method_cfg),
+               metrics = list(i2_median = i2_median, i2_mean = i2_mean, i2_threshold = i2_threshold))
   meta_df <- data.frame(
     CpG = rownames(betas),
-    logFC = meta$beta,
-    SE = meta$se,
-    P.Value = meta$p,
-    Q = meta$q,
-    I2 = meta$i2,
-    k = meta$k
+    logFC = meta_use$beta,
+    SE = meta_use$se,
+    P.Value = meta_use$p,
+    Q = meta_use$q,
+    I2 = meta_use$i2,
+    k = meta_use$k,
+    tau2 = if (!is.null(meta_use$tau2)) meta_use$tau2 else NA_real_,
+    meta_method = meta_method
   )
   meta_df$adj.P.Val <- p.adjust(meta_df$P.Value, "BH")
   meta_df <- meta_df[order(meta_df$P.Value), ]
@@ -2807,7 +5113,215 @@ run_stratified_meta_analysis <- function(betas, targets, batch_col, group_col, c
     save_interactive_plot(p_i2, paste0(prefix, "_Meta_I2.html"), out_dir)
     save_static_plot(p_i2, paste0(prefix, "_Meta_I2.png"), out_dir, width = 6, height = 4)
   }
-  meta_df
+  strata_used <- names(effects)
+  stratum_sizes <- if (length(strata_used) > 0) {
+    vapply(strata_used, function(b) sum(targets[[batch_col]] == b), integer(1))
+  } else {
+    integer(0)
+  }
+  list(
+    res = meta_df,
+    method = meta_method,
+    i2_median = i2_median,
+    i2_mean = i2_mean,
+    n_strata = length(strata_used),
+    min_stratum_n = ifelse(length(stratum_sizes) > 0, min(stratum_sizes), NA_integer_),
+    median_stratum_n = ifelse(length(stratum_sizes) > 0, median(stratum_sizes), NA_integer_),
+    total_n = ifelse(length(stratum_sizes) > 0, sum(stratum_sizes), NA_integer_),
+    strata_used = strata_used
+  )
+}
+
+check_tier3_eligibility <- function(targets, batch_col, group_col,
+                                    min_total_n = 20,
+                                    min_per_group_per_stratum = 5,
+                                    out_dir = NULL) {
+  if (is.null(batch_col) || !(batch_col %in% colnames(targets))) {
+    return(list(eligible = FALSE, reason = "missing_batch_column"))
+  }
+  if (!(group_col %in% colnames(targets))) {
+    return(list(eligible = FALSE, reason = "missing_group_column"))
+  }
+  counts <- as.data.frame(table(targets[[batch_col]], targets[[group_col]]), stringsAsFactors = FALSE)
+  colnames(counts) <- c("Batch", "Group", "N")
+  counts$N <- as.integer(counts$N)
+  counts$Pass_Group_Min <- counts$N >= min_per_group_per_stratum
+  total_n <- nrow(targets)
+  min_stratum_n <- if (nrow(counts) > 0) min(counts$N) else 0
+  batch_ok <- tapply(counts$Pass_Group_Min, counts$Batch, all)
+  pass_total <- total_n >= min_total_n
+  pass_strata <- all(batch_ok)
+  eligible <- isTRUE(pass_total && pass_strata)
+  counts$Batch_Pass <- batch_ok[match(counts$Batch, names(batch_ok))]
+  counts$Total_N <- total_n
+  counts$Min_Group_N <- min_stratum_n
+  counts$Eligible <- eligible
+  counts$Fail_Reason <- ""
+  if (!pass_total) counts$Fail_Reason <- "total_n_lt_min"
+  if (!pass_strata) {
+    counts$Fail_Reason <- paste0(counts$Fail_Reason, ifelse(nzchar(counts$Fail_Reason), ";", ""), "stratum_group_lt_min")
+  }
+  if (!is.null(out_dir)) {
+    write.csv(counts, file.path(out_dir, "Tier3_Eligibility.csv"), row.names = FALSE)
+  }
+  list(eligible = eligible, total_n = total_n, min_stratum_n = min_stratum_n,
+       counts = counts, reason = ifelse(eligible, "eligible",
+                                        ifelse(!pass_total, "total_n_lt_min", "stratum_group_lt_min")))
+}
+
+emit_tier3_primary_outputs <- function(meta_res, betas, targets, curr_anno, prefix, out_dir,
+                                       group_con_in, group_test_in, clean_con, clean_test,
+                                       max_points, pval_thresh, lfc_thresh,
+                                       meta_method = "", i2_median = NA_real_,
+                                       tier3_stats = NULL) {
+  if (is.null(meta_res) || nrow(meta_res) == 0) return(NULL)
+  if (!("CpG" %in% colnames(meta_res))) {
+    meta_res$CpG <- rownames(meta_res)
+  }
+  res <- meta_res
+  con_mask <- targets$primary_group == clean_con
+  test_mask <- targets$primary_group == clean_test
+  mean_beta_con <- rowMeans(betas[, con_mask, drop = FALSE], na.rm = TRUE)
+  mean_beta_test <- rowMeans(betas[, test_mask, drop = FALSE], na.rm = TRUE)
+  delta_beta <- mean_beta_test - mean_beta_con
+  res$Mean_Beta_Con <- mean_beta_con[res$CpG]
+  res$Mean_Beta_Test <- mean_beta_test[res$CpG]
+  res$Delta_Beta <- delta_beta[res$CpG]
+  if (!is.null(curr_anno)) {
+    res <- merge(res, curr_anno, by.x = "CpG", by.y = "CpG", all.x = TRUE)
+  }
+  clean_gene_names <- function(g_str) {
+    if (is.na(g_str) || g_str == "") return("")
+    genes <- unlist(strsplit(as.character(g_str), ";"))
+    genes <- unique(genes)
+    if (length(genes) > 2) genes <- genes[1:2]
+    final_str <- paste(genes, collapse = ";")
+    if (nchar(final_str) > 15) final_str <- paste0(substr(final_str, 1, 12), "...")
+    final_str
+  }
+  if ("Gene" %in% colnames(res)) {
+    res$Gene <- sapply(res$Gene, clean_gene_names)
+  }
+  
+  file_prefix <- paste0(prefix, "_Tier3_Primary")
+  meta_method_disp <- ifelse(nzchar(meta_method), meta_method, "fixed")
+  i2_disp <- ifelse(is.finite(i2_median), sprintf("%.3f", i2_median), "NA")
+  note_lines <- c(
+    "Tier3 confounding detected: primary inference uses stratified EWAS + meta-analysis.",
+    sprintf("Tier3 meta-analysis method: %s (I2 median=%s).", meta_method_disp, i2_disp),
+    "These Tier3_Primary outputs are the recommended results for interpretation.",
+    "Standard (non-stratified) outputs are provided as sensitivity checks only."
+  )
+  min_total_warn <- suppressWarnings(as.numeric(if (!is.null(config_settings$tier3_meta$min_total_warn))
+    config_settings$tier3_meta$min_total_warn else 20))
+  if (!is.finite(min_total_warn)) min_total_warn <- 20
+  min_stratum_warn <- suppressWarnings(as.numeric(if (!is.null(config_settings$tier3_meta$min_stratum_warn))
+    config_settings$tier3_meta$min_stratum_warn else 6))
+  if (!is.finite(min_stratum_warn)) min_stratum_warn <- 6
+  if (!is.null(tier3_stats)) {
+    if (is.finite(tier3_stats$total_n) && tier3_stats$total_n < min_total_warn) {
+      note_lines <- c(note_lines,
+                      sprintf("WARNING: Tier3 total N=%d below recommended minimum %d; interpret with caution.",
+                              tier3_stats$total_n, min_total_warn))
+    }
+    if (is.finite(tier3_stats$min_stratum_n) && tier3_stats$min_stratum_n < min_stratum_warn) {
+      note_lines <- c(note_lines,
+                      sprintf("WARNING: Tier3 smallest stratum N=%d below recommended minimum %d; power may be limited.",
+                              tier3_stats$min_stratum_n, min_stratum_warn))
+    }
+  }
+  writeLines(note_lines, file.path(out_dir, paste0(file_prefix, "_Notes.txt")))
+  
+  p_vals <- res$P.Value
+  p_vals <- p_vals[!is.na(p_vals)]
+  n_p <- length(p_vals)
+  lambda_val <- NA_real_
+  if (n_p > 1) {
+    chisq_vals <- qchisq(1 - p_vals, 1)
+    lambda_val <- median(chisq_vals) / qchisq(0.5, 1)
+    expected <- -log10(ppoints(n_p))
+    observed <- -log10(sort(p_vals))
+    qq_df <- data.frame(Expected = expected, Observed = observed)
+    if (nrow(qq_df) > max_points) {
+      idx <- unique(c(1:1000, seq(1001, n_p, length.out = max_points)))
+      qq_df <- qq_df[idx, ]
+    }
+    p_qq <- ggplot(qq_df, aes(x = Expected, y = Observed)) +
+      geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+      geom_point(alpha = 0.5, size = 1) +
+      theme_minimal() +
+      labs(x = "Expected -log10(P)", y = "Observed -log10(P)") +
+      ggtitle(paste(prefix, "Tier3 Primary Q-Q (Lambda =", round(lambda_val, 3), ")"))
+    save_interactive_plot(p_qq, paste0(file_prefix, "_QQPlot.html"), out_dir)
+    save_static_plot(p_qq, paste0(file_prefix, "_QQPlot.png"), out_dir, width = 5, height = 4)
+  }
+  
+  plot_res <- res[order(res$P.Value), ]
+  if (nrow(plot_res) > max_points) {
+    plot_res <- plot_res[1:max_points, ]
+  }
+  plot_res$diffexpressed <- "NO"
+  delta_pass <- delta_beta_pass(plot_res$Delta_Beta)
+  plot_res$diffexpressed[plot_res$adj.P.Val < pval_thresh & plot_res$logFC > lfc_thresh & delta_pass] <- "UP"
+  plot_res$diffexpressed[plot_res$adj.P.Val < pval_thresh & plot_res$logFC < -lfc_thresh & delta_pass] <- "DOWN"
+  subtitle_str <- paste0("Control: ", group_con_in, " vs Test: ", group_test_in, " (Tier3 stratified)")
+  p_vol <- ggplot(plot_res, aes(x = logFC, y = -log10(P.Value), color = diffexpressed,
+                                text = paste("CpG:", CpG,
+                                             "<br>Gene:", Gene,
+                                             "<br>DeltaBeta:", round(Delta_Beta, 4),
+                                             "<br>Region:", Region,
+                                             "<br>Island:", Island_Context))) +
+    geom_point(alpha = 0.5) + theme_minimal() +
+    scale_color_manual(values = c("DOWN" = "blue", "NO" = "grey", "UP" = "red")) +
+    labs(title = paste(prefix, "Tier3 Primary Volcano"), subtitle = subtitle_str, color = "Status")
+  save_interactive_plot(p_vol, paste0(file_prefix, "_Volcano.html"), out_dir)
+  save_static_plot(p_vol, paste0(file_prefix, "_Volcano.png"), out_dir, width = 6, height = 5)
+  
+  if ("chr" %in% colnames(plot_res) && "pos" %in% colnames(plot_res)) {
+    chr_map <- c(as.character(1:22), "X", "Y", "M")
+    chr_vals <- 1:25
+    names(chr_vals) <- chr_map
+    clean_chr <- gsub("chr", "", plot_res$chr)
+    plot_res$chr_num <- chr_vals[clean_chr]
+    plot_res_man <- plot_res[!is.na(plot_res$chr_num) & !is.na(plot_res$pos), ]
+    plot_res_man <- plot_res_man[order(plot_res_man$chr_num, plot_res_man$pos), ]
+    chr_len <- tapply(plot_res_man$pos, plot_res_man$chr_num, max)
+    chr_len <- chr_len[!is.na(chr_len)]
+    chrs_present <- sort(unique(plot_res_man$chr_num))
+    if (length(chrs_present) > 0) {
+      cum_lengths <- cumsum(as.numeric(chr_len))
+      offsets <- c(0, cum_lengths[-length(cum_lengths)])
+      names(offsets) <- names(chr_len)
+      plot_res_man$pos_cum <- plot_res_man$pos + offsets[as.character(plot_res_man$chr_num)]
+      axis_set <- plot_res_man %>%
+        group_by(chr_num) %>%
+        summarize(center = (min(pos_cum) + max(pos_cum)) / 2)
+      chr_labels <- names(chr_vals)[match(axis_set$chr_num, chr_vals)]
+      p_man <- ggplot(plot_res_man, aes(x = pos_cum, y = -log10(P.Value), color = as.factor(chr_num),
+                                        text = paste("CpG:", CpG,
+                                                     "<br>Gene:", Gene,
+                                                     "<br>DeltaBeta:", round(Delta_Beta, 4),
+                                                     "<br>Region:", Region,
+                                                     "<br>Island:", Island_Context))) +
+        geom_point(alpha = 0.7, size = 1) +
+        scale_x_continuous(label = chr_labels, breaks = axis_set$center) +
+        theme_minimal() +
+        theme(legend.position = "none",
+              panel.grid.major.x = element_blank(),
+              panel.grid.minor.x = element_blank(),
+              axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5)) +
+        xlab("Chromosome") +
+        ggtitle(paste(prefix, "Tier3 Primary Manhattan"))
+      save_interactive_plot(p_man, paste0(file_prefix, "_Manhattan.html"), out_dir)
+      save_static_plot(p_man, paste0(file_prefix, "_Manhattan.png"), out_dir, width = 8, height = 4)
+    }
+  }
+  
+  res <- res[order(res$P.Value, na.last = TRUE), ]
+  write.csv(res, file.path(out_dir, paste0(file_prefix, "_DMPs.csv")), row.names = FALSE)
+  save_datatable(head(res, min(10000, nrow(res))), paste0(file_prefix, "_DMPs.html"), out_dir)
+  
+  list(res = res, lambda = lambda_val)
 }
 
 run_pooled_batch_model <- function(betas, targets, batch_col, covariates, prefix, out_dir) {
@@ -2823,6 +5337,8 @@ run_pooled_batch_model <- function(betas, targets, batch_col, covariates, prefix
   design <- design_ld$mat
   if (ncol(design) < 2) return(NULL)
   m_vals <- logit_offset(betas)
+  mval_out_path <- file.path(out_dir, paste0(prefix, "_MvalueMatrix.tsv.gz"))
+  write_matrix_tsv_gz(m_vals, mval_out_path)
   fit <- lmFit(m_vals, design)
   contrast_str <- paste0(group_cols[2], "-", group_cols[1])
   cm <- makeContrasts(contrasts = contrast_str, levels = design)
@@ -2863,12 +5379,14 @@ run_overlap_restricted_analysis <- function(betas, targets, batch_col, group_col
   res
 }
 
-run_limma_dmp <- function(betas, design, group_levels) {
+run_limma_dmp <- function(betas, design, group_levels, m_vals = NULL) {
   if (is.null(design) || ncol(design) < 2) return(NULL)
   if (length(group_levels) < 2) return(NULL)
   contrast_str <- paste0(group_levels[2], "-", group_levels[1])
   cm <- makeContrasts(contrasts = contrast_str, levels = design)
-  m_vals <- logit_offset(betas)
+  if (is.null(m_vals)) {
+    m_vals <- logit_offset(betas)
+  }
   fit <- lmFit(m_vals, design)
   fit2 <- contrasts.fit(fit, cm)
   fit2 <- eBayes(fit2)
@@ -2877,9 +5395,293 @@ run_limma_dmp <- function(betas, design, group_levels) {
   res
 }
 
+run_lambda_guard <- function(betas, targets, group_col, prefix, out_dir, max_points, pval_thresh, lfc_thresh) {
+  if (is.null(betas) || is.null(targets)) return(list(status = "failed", lambda = NA_real_))
+  if (!(group_col %in% colnames(targets))) return(list(status = "failed", lambda = NA_real_))
+  targets_use <- targets
+  targets_use[[group_col]] <- as.factor(targets_use[[group_col]])
+  if (length(levels(targets_use[[group_col]])) < 2) {
+    return(list(status = "failed", lambda = NA_real_))
+  }
+  design <- model.matrix(as.formula(paste("~ 0 +", group_col)), data = targets_use)
+  colnames(design) <- gsub(group_col, "", colnames(design), fixed = TRUE)
+  design <- drop_linear_dependencies(design, group_cols = colnames(design))$mat
+  if (ncol(design) < 2) return(list(status = "failed", lambda = NA_real_))
+  group_cols <- colnames(design)
+  res <- tryCatch(run_limma_dmp(betas, design, group_cols), error = function(e) NULL)
+  if (is.null(res) || nrow(res) == 0) return(list(status = "failed", lambda = NA_real_))
+  p_vals <- res$P.Value
+  p_vals <- p_vals[!is.na(p_vals)]
+  if (length(p_vals) < 2) return(list(status = "failed", lambda = NA_real_))
+  chisq_vals <- qchisq(1 - p_vals, 1)
+  lambda_val <- median(chisq_vals) / qchisq(0.5, 1)
+  
+  expected <- -log10(ppoints(length(p_vals)))
+  observed <- -log10(sort(p_vals))
+  qq_df <- data.frame(Expected = expected, Observed = observed)
+  if (nrow(qq_df) > max_points) {
+    idx <- unique(c(1:1000, seq(1001, nrow(qq_df), length.out = max_points)))
+    qq_df <- qq_df[idx, ]
+  }
+  p_qq <- ggplot(qq_df, aes(x = Expected, y = Observed)) +
+    geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+    geom_point(alpha = 0.5, size = 1) +
+    theme_minimal() +
+    labs(x = "Expected -log10(P)", y = "Observed -log10(P)") +
+    ggtitle(paste(prefix, "Lambda Guard Q-Q (Lambda =", round(lambda_val, 3), ")"))
+  save_interactive_plot(p_qq, paste0(prefix, "_LambdaGuard_QQPlot.html"), out_dir)
+  save_static_plot(p_qq, paste0(prefix, "_LambdaGuard_QQPlot.png"), out_dir, width = 5, height = 4)
+  
+  res_out <- res[order(res$P.Value), ]
+  write.csv(res_out, file.path(out_dir, paste0(prefix, "_LambdaGuard_DMPs.csv")), row.names = FALSE)
+  save_datatable(head(res_out, min(10000, nrow(res_out))), paste0(prefix, "_LambdaGuard_DMPs.html"), out_dir)
+  
+  n_sig <- sum(res_out$adj.P.Val < pval_thresh & abs(res_out$logFC) > lfc_thresh, na.rm = TRUE)
+  metrics <- data.frame(
+    metric = c("lambda_guard_lambda", "lambda_guard_n_sig", "lambda_guard_n_cpgs", "lambda_guard_n_samples"),
+    value = c(lambda_val, n_sig, nrow(res_out), nrow(targets_use))
+  )
+  write.csv(metrics, file.path(out_dir, paste0(prefix, "_LambdaGuard_Metrics.csv")), row.names = FALSE)
+  
+  list(status = "ok", lambda = lambda_val, n_sig = n_sig)
+}
+
+run_dmrff_with_inputs <- function(dmr_df, betas, targets, curr_anno, prefix, out_dir,
+                                  dmr_p_cutoff, dmr_min_cpgs, con_label, test_label) {
+  dmr_res <- data.frame()
+  status <- "ok"
+  reason <- ""
+  if (is.null(dmr_df) || nrow(dmr_df) == 0) {
+    return(list(res = dmr_res, status = "skipped_missing_estimates", reason = "missing_estimates"))
+  }
+  if (is.null(curr_anno) || !all(c("chr", "pos") %in% colnames(curr_anno))) {
+    return(list(res = dmr_res, status = "skipped_missing_annotation", reason = "missing_annotation"))
+  }
+  if (nrow(targets) < 4) {
+    return(list(res = dmr_res, status = "skipped_small_n", reason = "n_samples<4"))
+  }
+  if (!all(c("CpG", "logFC", "SE", "P.Value") %in% colnames(dmr_df))) {
+    return(list(res = dmr_res, status = "skipped_missing_columns", reason = "missing_columns"))
+  }
+  dmr_df <- dmr_df[!is.na(dmr_df$CpG), , drop = FALSE]
+  idx <- match(dmr_df$CpG, rownames(betas))
+  keep <- !is.na(idx)
+  if (sum(keep) < 100) {
+    return(list(res = dmr_res, status = "skipped_too_few_cpgs", reason = "insufficient_matching_cpgs"))
+  }
+  dmr_df <- dmr_df[keep, , drop = FALSE]
+  idx <- idx[keep]
+  betas_dmr <- betas[idx, , drop = FALSE]
+  dmr_anno <- curr_anno[match(dmr_df$CpG, rownames(curr_anno)), ]
+  valid <- is.finite(dmr_df$logFC) & is.finite(dmr_df$SE) & is.finite(dmr_df$P.Value) &
+    !is.na(dmr_anno$chr) & !is.na(dmr_anno$pos)
+  if (sum(valid) < 100) {
+    return(list(res = dmr_res, status = "skipped_too_few_cpgs", reason = "insufficient_valid_cpgs"))
+  }
+  dmr_df <- dmr_df[valid, , drop = FALSE]
+  betas_dmr <- betas_dmr[valid, , drop = FALSE]
+  dmr_anno <- dmr_anno[valid, , drop = FALSE]
+  con_mask <- targets$primary_group == con_label
+  test_mask <- targets$primary_group == test_label
+  dmr_mean_con <- rowMeans(betas_dmr[, con_mask, drop = FALSE], na.rm = TRUE)
+  dmr_mean_test <- rowMeans(betas_dmr[, test_mask, drop = FALSE], na.rm = TRUE)
+  dmr_est <- dmr_df$logFC
+  dmr_se <- dmr_df$SE
+  dmr_p <- dmr_df$P.Value
+  if (length(dmr_est) < 100) {
+    return(list(res = dmr_res, status = "skipped_too_few_cpgs", reason = "fewer_than_100_cpgs"))
+  }
+
+  annotate_dmr <- function(df, anno_tbl) {
+    if (nrow(df) == 0) return(df)
+    anno_tbl$Gene <- ifelse(is.na(anno_tbl$Gene), "", anno_tbl$Gene)
+    anno_tbl$Region <- ifelse(is.na(anno_tbl$Region), "", anno_tbl$Region)
+    gene_region <- function(chr, start, end, field) {
+      idx <- which(anno_tbl$chr == chr & anno_tbl$pos >= start & anno_tbl$pos <= end)
+      if (length(idx) == 0) return("")
+      vals <- unique(anno_tbl[idx, field])
+      vals <- vals[vals != ""]
+      if (length(vals) == 0) return("")
+      paste(head(vals, 5), collapse = ";")
+    }
+    df$Genes <- mapply(gene_region, df$chr, df$start, df$end, MoreArgs = list(field = "Gene"))
+    df$Regions <- mapply(gene_region, df$chr, df$start, df$end, MoreArgs = list(field = "Region"))
+    df
+  }
+
+  compute_dmr_delta_beta <- function(df, anno_tbl, mean_con, mean_test) {
+    if (nrow(df) == 0) return(df)
+    anno_tbl$CpG <- rownames(anno_tbl)
+    dmr_delta <- numeric(nrow(df))
+    for (i in seq_len(nrow(df))) {
+      chr <- df$chr[i]
+      start <- df$start[i]
+      end <- df$end[i]
+      idx <- which(anno_tbl$chr == chr & anno_tbl$pos >= start & anno_tbl$pos <= end)
+      if (length(idx) > 0) {
+        cpgs <- anno_tbl$CpG[idx]
+        cpgs <- cpgs[!is.na(cpgs)]
+        if (length(cpgs) > 0) {
+          dcon <- mean_con[cpgs]
+          dtest <- mean_test[cpgs]
+          dmr_delta[i] <- mean(dtest - dcon, na.rm = TRUE)
+        } else {
+          dmr_delta[i] <- NA_real_
+        }
+      } else {
+        dmr_delta[i] <- NA_real_
+      }
+    }
+    df$Delta_Beta <- dmr_delta
+    df
+  }
+
+  tryCatch({
+    dmr_res <- dmrff(
+      estimate = dmr_est,
+      se = dmr_se,
+      p.value = dmr_p,
+      methylation = betas_dmr,
+      chr = dmr_anno$chr,
+      pos = dmr_anno$pos,
+      maxgap = DMR_MAXGAP,
+      p.cutoff = dmr_p_cutoff
+    )
+
+    if (nrow(dmr_res) > 0) {
+      if (dmr_min_cpgs > 1) {
+        dmr_before <- nrow(dmr_res)
+        dmr_res <- dmr_res[dmr_res$n >= dmr_min_cpgs, , drop = FALSE]
+        message(paste("    - Filtered DMRs by min CpGs >=", dmr_min_cpgs, ":", dmr_before, "->", nrow(dmr_res)))
+      }
+      if (nrow(dmr_res) > 0) {
+        dmr_res <- annotate_dmr(dmr_res, curr_anno)
+        dmr_res <- compute_dmr_delta_beta(dmr_res, dmr_anno, dmr_mean_con, dmr_mean_test)
+        dmr_res <- dmr_res[order(dmr_res$p.value, dmr_res$p.adjust, na.last = TRUE), ]
+        message(paste("    - Found", nrow(dmr_res), "DMRs."))
+
+        dmr_filename <- paste0(prefix, "_DMRs_Table.html")
+        save_datatable(head(dmr_res, 3000), dmr_filename, out_dir, sort_col = "p.value")
+        write.csv(dmr_res, file.path(out_dir, paste0(prefix, "_DMRs.csv")), row.names = FALSE)
+
+        dmr_res$signif_status <- "NO"
+        dmr_res$signif_status[dmr_res$p.value < dmr_p_cutoff & dmr_res$estimate > 0] <- "UP"
+        dmr_res$signif_status[dmr_res$p.value < dmr_p_cutoff & dmr_res$estimate < 0] <- "DOWN"
+        p_dmr_volcano <- ggplot(dmr_res, aes(x = estimate, y = -log10(p.value), color = signif_status)) +
+          geom_point(alpha = 0.7, size = 2) +
+          scale_color_manual(values = c("DOWN" = "blue", "NO" = "grey", "UP" = "red")) +
+          theme_minimal() +
+          labs(title = paste(prefix, "DMR Volcano Plot"),
+               x = "Effect size (logFC)", y = "-log10(p)", color = "Status")
+
+        save_interactive_plot(p_dmr_volcano, paste0(prefix, "_DMR_Volcano.html"), out_dir)
+        save_static_plot(p_dmr_volcano, paste0(prefix, "_DMR_Volcano.png"), out_dir, width = 6, height = 4)
+
+        if (nrow(dmr_res) > 0) {
+          top_label_n <- min(DMR_LABEL_TOP_N, nrow(dmr_res))
+          top_dmrs <- dmr_res[1:top_label_n, , drop = FALSE]
+          p_dmr_scatter <- ggplot(top_dmrs, aes(x = estimate, y = -log10(p.value), label = Genes)) +
+            geom_point(color = "#e67e22") +
+            ggrepel::geom_text_repel(size = 3, max.overlaps = 10) +
+            theme_minimal() +
+            labs(title = paste(prefix, "Top DMRs"),
+                 x = "Effect size (logFC)", y = "-log10(p)")
+          save_interactive_plot(p_dmr_scatter, paste0(prefix, "_DMR_Top_Labelled.html"), out_dir)
+          save_static_plot(p_dmr_scatter, paste0(prefix, "_DMR_Top_Labelled.png"), out_dir, width = 6, height = 4)
+        }
+
+        if (nrow(dmr_res) > 0 && all(c("chr", "start", "end") %in% colnames(dmr_res))) {
+          dmr_res$chr_num <- gsub("chr", "", dmr_res$chr)
+          dmr_res$chr_num <- as.numeric(factor(dmr_res$chr_num, levels = c(as.character(1:22), "X", "Y", "M")))
+          dmr_res <- dmr_res[order(dmr_res$chr_num, dmr_res$start), ]
+          axis_set_dmr <- dmr_res %>%
+            group_by(chr) %>%
+            summarize(center = mean(c(start, end)))
+          chr_labels_dmr <- axis_set_dmr$chr
+          names(chr_labels_dmr) <- axis_set_dmr$center
+          p_dmr_manhattan <- ggplot(dmr_res, aes(x = start, y = -log10(p.value))) +
+            geom_point(aes(color = factor(chr_num %% 2),
+                           text = paste("Region:", paste0(chr, ":", start, "-", end),
+                                        "<br>Gene:", ifelse(nzchar(Genes), Genes, "NA"),
+                                        "<br>nCpG:", n,
+                                        "<br>P:", signif(p.value, 3),
+                                        "<br>FDR:", signif(p.adjust, 3)))) +
+            geom_point(alpha = 0.7, size = 2) +
+            scale_color_manual(values = c("0" = "#2c3e50", "1" = "#3498db")) +
+            scale_x_continuous(label = chr_labels_dmr, breaks = axis_set_dmr$center) +
+            theme_minimal() +
+            theme(legend.position = "none",
+                  panel.grid.major.x = element_blank(),
+                  panel.grid.minor.x = element_blank()) +
+            labs(title = paste(prefix, "DMR Manhattan Plot"),
+                 x = "Chromosome", y = "-log10(p)")
+          save_interactive_plot(p_dmr_manhattan, paste0(prefix, "_DMR_Manhattan.html"), out_dir)
+          save_static_plot(p_dmr_manhattan, paste0(prefix, "_DMR_Manhattan.png"), out_dir, width = 8, height = 4)
+        }
+
+        top_dmrs <- head(dmr_res, 50)
+        if (nrow(top_dmrs) > 0) {
+          dmr_means <- matrix(NA_real_, nrow = nrow(top_dmrs), ncol = ncol(betas_dmr))
+          rownames(dmr_means) <- paste0(top_dmrs$chr, ":", top_dmrs$start, "-", top_dmrs$end)
+          colnames(dmr_means) <- colnames(betas_dmr)
+          for (i in seq_len(nrow(top_dmrs))) {
+            idx <- which(dmr_anno$chr == top_dmrs$chr[i] &
+                           dmr_anno$pos >= top_dmrs$start[i] &
+                           dmr_anno$pos <= top_dmrs$end[i])
+            if (length(idx) > 0) {
+              cpgs_in_region <- dmr_df$CpG[idx]
+              if (length(cpgs_in_region) > 0) {
+                dmr_means[i, ] <- colMeans(betas_dmr[match(cpgs_in_region, rownames(betas_dmr)), , drop = FALSE], na.rm = TRUE)
+              }
+            }
+          }
+          keep_rows <- rowSums(is.finite(dmr_means)) > 0
+          if (any(keep_rows)) {
+            dmr_means <- dmr_means[keep_rows, , drop = FALSE]
+            heatmap_df <- as.data.frame(dmr_means)
+            heatmap_df$Region <- rownames(dmr_means)
+            heatmap_dt <- data.table::as.data.table(heatmap_df)
+            heatmap_df_melt <- data.table::melt(heatmap_dt, id.vars = "Region",
+                                                variable.name = "Sample",
+                                                value.name = "Methylation")
+            if ("primary_group" %in% colnames(targets)) {
+              heatmap_df_melt$Group <- targets$primary_group[match(heatmap_df_melt$Sample, rownames(targets))]
+            }
+            p_heat_dmr <- ggplot(heatmap_df_melt, aes(x = Sample, y = Region, fill = Methylation)) +
+              geom_tile() +
+              scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0.5) +
+              theme_minimal() +
+              theme(axis.text.x = element_blank(),
+                    axis.ticks.x = element_blank(),
+                    axis.text.y = element_text(size = 6),
+                    panel.grid = element_blank()) +
+              labs(title = paste(prefix, "Top 50 DMRs Heatmap"), x = "Samples", y = "DMR Region")
+            save_interactive_plot(p_heat_dmr, paste0(prefix, "_DMR_Heatmap.html"), out_dir)
+            save_static_plot(p_heat_dmr, paste0(prefix, "_DMR_Heatmap.png"), out_dir, width = 8, height = 6)
+          }
+        }
+      } else {
+        status <<- "ok_empty"
+        reason <<- "no_dmrs_after_filter"
+      }
+    } else {
+      status <<- "ok_empty"
+      reason <<- "no_dmrs"
+    }
+  }, error = function(e) {
+    status <<- "failed"
+    reason <<- e$message
+    dmr_res <<- data.frame()
+  })
+
+  list(res = dmr_res, status = status, reason = reason)
+}
+
 run_method_sensitivity <- function(betas, targets_base, design_base, targets_sva, design_sva,
-                                   batch_col, covariates, methods, prefix, out_dir, pval_thresh, lfc_thresh) {
+                                   batch_col, covariates, methods, prefix, out_dir,
+                                   pval_thresh, lfc_thresh, max_probes = 0) {
   if (length(methods) == 0) return(NULL)
+  betas <- subset_top_variable(betas, max_probes)
   if (!is.null(design_base)) {
     design_base <- drop_linear_dependencies(design_base, group_cols = make.names(levels(targets_base$primary_group)))$mat
   }
@@ -2896,11 +5698,13 @@ run_method_sensitivity <- function(betas, targets_base, design_base, targets_sva
     design_use <- design_base
     targets_use <- targets_base
     betas_use <- betas
+    mvals_use <- NULL
     if (m %in% c("combat", "limma")) {
       bc_res <- apply_batch_correction(betas, m, batch_col, covariates, targets_use, design_use)
       betas_use <- bc_res$betas
+      if (!is.null(bc_res$mvals)) mvals_use <- bc_res$mvals
     }
-    res <- run_limma_dmp(betas_use, design_use, make.names(levels(targets_use$primary_group)))
+    res <- run_limma_dmp(betas_use, design_use, make.names(levels(targets_use$primary_group)), m_vals = mvals_use)
     if (!is.null(res)) res_list[[m]] <- res
   }
   if (length(res_list) < 2) return(NULL)
@@ -2930,7 +5734,7 @@ run_method_sensitivity <- function(betas, targets_base, design_base, targets_sva
     }
   }
   write.csv(pair_metrics, file.path(out_dir, paste0(prefix, "_Method_Sensitivity.csv")), row.names = FALSE)
-  invisible(res_list)
+  list(res_list = res_list, pair_metrics = pair_metrics)
 }
 
 run_batch_pseudo_voi <- function(betas, targets, batch_col, covariates, prefix, out_dir) {
@@ -3030,7 +5834,6 @@ if (tolower(tissue_use) == "auto") {
   }
 }
 
-project_dir <- dirname(config_file)
 idat_dir <- opt$idat_dir
 if (!nzchar(idat_dir)) {
   idat_dir <- file.path(project_dir, "idat")
@@ -3202,6 +6005,28 @@ message(paste("Found", nrow(targets), "samples for analysis."))
 message(paste("  - Control Group:", group_con_in, paste0("(n=", n_con, ")")))
 message(paste("  - Test Group:   ", group_test_in, paste0("(n=", n_test, ")")))
 
+# CRF v2.1: sample size tiering
+crf_cfg <- config_settings$crf
+crf_enabled <- !is.null(crf_cfg) && isTRUE(crf_cfg$enabled)
+crf_tier_info <- resolve_crf_tier(n_con, n_test, crf_cfg)
+crf_tier <- crf_tier_info$tier
+combat_par_prior <- crf_tier_info$combat_par_prior
+combat_allowed <- crf_tier_info$combat_allowed
+mmc_methods <- crf_tier_info$mmc_methods
+if (crf_enabled && !isTRUE(crf_tier_info$sva_allowed)) {
+  disable_sva <- TRUE
+  message(sprintf("  CRF tier '%s' disables SVA for stability.", crf_tier))
+}
+log_decision("crf", "sample_tier", crf_tier,
+             reason = "sample_size_adaptive",
+             metrics = list(total_n = crf_tier_info$total_n,
+                            min_per_group = crf_tier_info$min_per_group))
+write.csv(data.frame(tier = crf_tier,
+                     total_n = crf_tier_info$total_n,
+                     min_per_group = crf_tier_info$min_per_group,
+                     warnings = paste(crf_tier_info$warnings, collapse = "; ")),
+          file.path(out_dir, "CRF_Sample_Tier.csv"), row.names = FALSE)
+
 preflight_summary <- data.frame(
   metric = c("Total_samples_config", "Samples_group_filtered", "Control_group_n", "Test_group_n",
              "Duplicate_basenames", "IDAT_pairs_missing", "IDAT_modal_size"),
@@ -3242,6 +6067,16 @@ actual_test <- unique(targets$primary_group[tolower(targets$primary_group) == te
 
 clean_con <- make.names(actual_con)
 clean_test <- make.names(actual_test)
+clean_names <- make.unique(c(clean_con, clean_test))
+if (!identical(clean_names, c(clean_con, clean_test))) {
+  message(sprintf("WARNING: Group labels collided after sanitization; using unique labels: %s vs %s",
+                  clean_names[1], clean_names[2]))
+  log_decision("group", "sanitized_collision",
+               paste(clean_con, clean_test, sep = " vs "),
+               reason = paste(clean_names[1], clean_names[2], sep = " vs "))
+  clean_con <- clean_names[1]
+  clean_test <- clean_names[2]
+}
 
 targets$primary_group[tolower(targets$primary_group) == con_lower] <- clean_con
 targets$primary_group[tolower(targets$primary_group) == test_lower] <- clean_test
@@ -3260,9 +6095,107 @@ array_type <- detect_array_type(rgSet)
 if (!is.na(array_type)) {
   message(sprintf("Detected array type: %s", array_type))
 }
-if (!is.na(array_type) && array_type == "EPICv2" && tissue_use != "Auto") {
+array_label <- normalize_array_label(array_type)
+if (!is.na(array_type) && array_label == "EPICv2") {
+  epicv2_pkgs <- c(
+    "IlluminaHumanMethylationEPICv2manifest",
+    "IlluminaHumanMethylationEPICv2anno.20a1.hg38"
+  )
+  missing_epicv2 <- epicv2_pkgs[!vapply(epicv2_pkgs, requireNamespace, logical(1), quietly = TRUE)]
+  if (length(missing_epicv2) > 0) {
+    stop(paste0(
+      "EPICv2 array detected but required packages are missing: ",
+      paste(missing_epicv2, collapse = ", "),
+      ". Install EPICv2 dependencies (e.g. rerun r_scripts/setup_env.R with ILLUMETA_REQUIRE_EPICV2=1) and retry."
+    ))
+  }
+}
+if (!is.na(array_type) && array_label == "EPICv2" && tissue_use != "Auto") {
   message(sprintf("EPICv2 detected; reference-based cell composition may not be available for tissue '%s'.", tissue_use))
 }
+
+cross_reactive_probes <- NULL
+cross_reactive_source <- ""
+cross_reactive_version <- ""
+cross_reactive_active <- isTRUE(cross_reactive_enabled) && !isTRUE(unsafe_skip_cross_reactive)
+cross_reactive_required <- cross_reactive_active && array_label %in% c("450K", "EPIC")
+cross_reactive_best_effort <- cross_reactive_active && array_label == "EPICv2"
+if (cross_reactive_active) {
+  cross_loaded <- resolve_cross_reactive_probes(cross_reactive_path,
+                                                use_maxprobes = cross_reactive_use_maxprobes,
+                                                array_type = array_type,
+                                                local_dir = cross_reactive_local_dir,
+                                                allow_missing = !cross_reactive_required)
+  if (!is.null(cross_loaded) && !is.null(cross_loaded$probes) && length(cross_loaded$probes) > 0) {
+    cross_reactive_probes <- cross_loaded$probes
+    cross_reactive_source <- cross_loaded$source
+    cross_reactive_version <- ifelse(is.null(cross_loaded$version), "", cross_loaded$version)
+    message(sprintf("Cross-reactive probe list loaded (%d probes; source: %s).",
+                    length(cross_reactive_probes), cross_reactive_source))
+    log_decision("qc", "cross_reactive_list", "loaded",
+                 reason = cross_reactive_source,
+                 metrics = list(n = length(cross_reactive_probes)))
+  } else if (cross_reactive_required) {
+    stop("Cross-reactive probe filtering is mandatory for 450K/EPIC arrays, but no list was found. ",
+         "Install the maxprobes package or provide a local list via config cross_reactive.path or references/probe_blacklists. ",
+         "To bypass (unsafe), rerun with --unsafe-skip-cross-reactive.")
+  } else if (cross_reactive_best_effort) {
+    message("WARNING: EPICv2 cross-reactive list not found (best-effort). Proceeding without filtering.")
+    log_decision("qc", "cross_reactive_list", "missing", reason = "EPICv2_best_effort")
+  } else {
+    message("Cross-reactive probe filtering enabled but no list found; skipping.")
+    log_decision("qc", "cross_reactive_list", "missing", reason = "not_available")
+  }
+} else {
+  message("Cross-reactive probe filtering disabled (unsafe).")
+  log_decision("qc", "cross_reactive_list", "skipped", reason = "unsafe_skip")
+}
+
+# Persist processed/normalized matrices for all samples (before sample/probe QC)
+message("Saving pre-filter processed matrices (all samples, full probe set for GEO)...")
+mSet_prefilter <- preprocessNoob(rgSet)
+beta_minfi_prefilter <- getBeta(mSet_prefilter)
+if (ncol(beta_minfi_prefilter) != nrow(targets)) {
+  stop("Failed to align metadata to prefilter Minfi beta matrix: sample counts differ.")
+}
+# Preserve explicit sample IDs (no underscore trimming)
+colnames(beta_minfi_prefilter) <- targets[[gsm_col]]
+prefilter_beta_path <- file.path(out_dir, "Minfi_BetaMatrix_PreFilter.tsv.gz")
+write_matrix_tsv_gz(beta_minfi_prefilter, prefilter_beta_path)
+prefilter_mval_path <- file.path(out_dir, "Minfi_MvalueMatrix_PreFilter.tsv.gz")
+write_matrix_tsv_gz(logit_offset(beta_minfi_prefilter), prefilter_mval_path)
+prefilter_meth <- getMeth(mSet_prefilter)
+prefilter_unmeth <- getUnmeth(mSet_prefilter)
+prefilter_detp <- detectionP(rgSet)
+prefilter_probe_set <- rownames(beta_minfi_prefilter)
+if (!all(prefilter_probe_set %in% rownames(prefilter_detp))) {
+  missing_detp <- setdiff(prefilter_probe_set, rownames(prefilter_detp))
+  warning(sprintf("Prefilter detection P missing %d probes; aligning to available probes.", length(missing_detp)))
+}
+prefilter_detp <- prefilter_detp[prefilter_probe_set, , drop = FALSE]
+if (!all(rownames(prefilter_meth) == prefilter_probe_set)) {
+  prefilter_meth <- prefilter_meth[prefilter_probe_set, , drop = FALSE]
+}
+if (!all(rownames(prefilter_unmeth) == prefilter_probe_set)) {
+  prefilter_unmeth <- prefilter_unmeth[prefilter_probe_set, , drop = FALSE]
+}
+if (ncol(prefilter_meth) != nrow(targets) || ncol(prefilter_unmeth) != nrow(targets)) {
+  stop("Failed to align metadata to prefilter Minfi signal matrices: sample counts differ.")
+}
+if (ncol(prefilter_detp) != nrow(targets)) {
+  stop("Failed to align metadata to prefilter detection P matrix: sample counts differ.")
+}
+colnames(prefilter_meth) <- targets[[gsm_col]]
+colnames(prefilter_unmeth) <- targets[[gsm_col]]
+colnames(prefilter_detp) <- targets[[gsm_col]]
+prefilter_meth_path <- file.path(out_dir, "Minfi_MethylatedSignal_PreFilter.tsv.gz")
+prefilter_unmeth_path <- file.path(out_dir, "Minfi_UnmethylatedSignal_PreFilter.tsv.gz")
+write_matrix_tsv_gz(prefilter_meth, prefilter_meth_path)
+write_matrix_tsv_gz(prefilter_unmeth, prefilter_unmeth_path)
+prefilter_detp_path <- file.path(out_dir, "Minfi_DetectionP_PreFilter.tsv.gz")
+write_matrix_tsv_gz(prefilter_detp, prefilter_detp_path)
+rm(mSet_prefilter, beta_minfi_prefilter, prefilter_meth, prefilter_unmeth, prefilter_detp, prefilter_probe_set)
+invisible(gc())
 
 # A. Sample-Level QC
 # Sample QC thresholds based on Illumina recommendations:
@@ -3286,8 +6219,9 @@ if (is.finite(QC_MEDIAN_INTENSITY_THRESHOLD)) {
     bad_samples_idx <- which(qc$mMed < QC_MEDIAN_INTENSITY_THRESHOLD | qc$uMed < QC_MEDIAN_INTENSITY_THRESHOLD)
     if (length(bad_samples_idx) > 0) {
         bad_samples <- rownames(qc)[bad_samples_idx]
-        message(paste("WARNING: Removing", length(bad_samples), "samples due to low signal intensity (<", QC_MEDIAN_INTENSITY_THRESHOLD, "log2):"))
-        message(paste(bad_samples, collapse=", "))
+        message(sprintf("WARNING: Removing %d samples due to low signal intensity (< %.1f log2):",
+                        length(bad_samples), QC_MEDIAN_INTENSITY_THRESHOLD))
+        message(paste(bad_samples, collapse = ", "))
         targets <- targets[-bad_samples_idx, ]
         rgSet <- rgSet[, -bad_samples_idx]
         detP <- detP[, -bad_samples_idx]
@@ -3297,6 +6231,44 @@ if (is.finite(QC_MEDIAN_INTENSITY_THRESHOLD)) {
     message("Performing Sample QC: intensity filter disabled (--qc_intensity_threshold<=0); skipping intensity-based removal.")
 }
 samples_failed_qc <- sum(sample_fail) + length(bad_samples_idx)
+samples_failed_sex <- 0
+sex_mismatch_count <- 0
+sex_check_column_used <- ""
+sex_check_res <- NULL
+if (isTRUE(sex_check_enabled)) {
+  message("Running sex mismatch QC...")
+  sex_check_res <- run_sex_mismatch_check(rgSet, targets, gsm_col, out_dir,
+                                          action = sex_check_action, column = sex_check_column)
+  if (!is.null(sex_check_res)) {
+    if (!is.null(sex_check_res$mismatch_count)) sex_mismatch_count <- sex_check_res$mismatch_count
+    if (!is.null(sex_check_res$column)) sex_check_column_used <- sex_check_res$column
+  }
+  log_decision("qc", "sex_mismatch_action", sex_check_action,
+               reason = ifelse(sex_check_enabled, "enabled", "skipped"),
+               metrics = list(mismatch_count = sex_mismatch_count))
+  if (isTRUE(sex_check_action == "stop") && sex_mismatch_count > 0) {
+    stop(sprintf("Sex mismatch detected in %d sample(s). Fix metadata or rerun with --sex-mismatch-action drop|ignore.",
+                 sex_mismatch_count))
+  }
+  if (isTRUE(sex_check_action == "drop") &&
+      !is.null(sex_check_res) &&
+      !is.null(sex_check_res$mismatch_samples) &&
+      length(sex_check_res$mismatch_samples) > 0) {
+    drop_ids <- intersect(sex_check_res$mismatch_samples, colnames(rgSet))
+    if (length(drop_ids) > 0) {
+      message(sprintf("  - Dropping %d sample(s) due to sex mismatch.", length(drop_ids)))
+      keep <- !(colnames(rgSet) %in% drop_ids)
+      rgSet <- rgSet[, keep]
+      detP <- detP[, keep, drop = FALSE]
+      targets <- targets[keep, , drop = FALSE]
+      samples_failed_sex <- length(drop_ids)
+      samples_failed_qc <- samples_failed_qc + samples_failed_sex
+    }
+  }
+  if (isTRUE(sex_check_action == "ignore") && sex_mismatch_count > 0) {
+    message("WARNING: Sex mismatches were ignored; results may be unreliable.")
+  }
+}
 
 # Re-check group balance after QC filtering
 n_con <- sum(targets$primary_group == clean_con)
@@ -3413,6 +6385,16 @@ if (!is.null(cell_est)) {
       targets[[cc]][matched] <- cell_df[[cc]][match_idx[matched]]
     }
     cell_covariates <- cell_cols
+    summary_row <- data.frame(
+      Pipeline = "Minfi",
+      Method = cell_est$reference,
+      Tissue = tissue_use,
+      K = ifelse(grepl("RefFree", cell_est$reference, ignore.case = TRUE), cell_ref_free_k, NA_integer_),
+      Sample_Count = nrow(cell_df),
+      Cell_Types = length(cell_cols),
+      stringsAsFactors = FALSE
+    )
+    append_cell_deconv_summary(out_dir, summary_row)
     write.csv(targets[, c(gsm_col, cell_cols), drop = FALSE], file.path(out_dir, "cell_counts_merged.csv"), row.names = FALSE)
     message(paste("  - Added cell composition covariates:", paste(cell_cols, collapse = ", ")))
     
@@ -3439,17 +6421,28 @@ if (!is.null(cell_est)) {
     
     if (nrow(assoc_results) > 0) {
         write.csv(assoc_results, file.path(out_dir, "Cell_Group_Association.csv"), row.names = FALSE)
+        write.csv(assoc_results, file.path(out_dir, "Cell_vs_Group_Association.csv"), row.names = FALSE)
         
-        # Check for high confounding (Eta-squared > 0.5 is very strong association)
-        high_confound <- assoc_results[assoc_results$Eta_Squared > 0.5, ]
+        # Check for high confounding (Eta-squared threshold is configurable)
+        high_confound <- assoc_results[assoc_results$Eta_Squared > cell_confound_eta2_threshold, ]
         if (nrow(high_confound) > 0) {
             message("WARNING: Strong association detected between Cell Composition and Group. Risk of Over-correction!")
             for (i in 1:nrow(high_confound)) {
                 message(sprintf("  - %s: Eta^2 = %.3f (P = %.3g)", high_confound$CellType[i], high_confound$Eta_Squared[i], high_confound$P_Value[i]))
             }
             message("  > Consider removing these covariates if they represent biological pathology rather than noise.")
+            if (cell_confound_action == "drop") {
+              drop_cells <- unique(high_confound$CellType)
+              cell_covariates <- setdiff(cell_covariates, drop_cells)
+              config_settings$do_not_adjust <- unique(c(config_settings$do_not_adjust, drop_cells))
+              message(sprintf("  > Dropping confounded cell covariates (action=drop): %s", paste(drop_cells, collapse = ", ")))
+            }
+            if (cell_adjustment_action == "stop") {
+              stop("Cell composition strongly associated with group (high Eta^2). Stop requested (cell_adjustment.on_high_eta2=stop).")
+            }
         } else {
-            message("  - Cell composition vs Group association checked: No strong confounding detected (all Eta^2 <= 0.5).")
+            message(sprintf("  - Cell composition vs Group association checked: No strong confounding detected (all Eta^2 <= %.2f).",
+                            cell_confound_eta2_threshold))
         }
     }
   } else {
@@ -3467,6 +6460,8 @@ gmSet <- mapToGenome(mSet)
 # C. Probe-Level QC
 message("Performing Probe QC...")
 nrow_raw <- nrow(gmSet)
+probe_filter_log <- data.frame(step = "raw", removed = 0, remaining = nrow_raw,
+                               stringsAsFactors = FALSE)
 
 # Fix: Filter detP to match gmSet probes first
 common_probes <- intersect(rownames(detP), rownames(gmSet))
@@ -3482,11 +6477,45 @@ gmSet <- gmSet[pass_detP, ]
 
 probes_failed_detection <- length(common_probes) - sum(pass_detP)
 message(sprintf("  - Removed %d probes with high detection P-value (threshold: %.3f).", probes_failed_detection, QC_DETECTION_P_THRESHOLD))
+probe_filter_log <- rbind(probe_filter_log,
+                          data.frame(step = "detectionP", removed = probes_failed_detection, remaining = nrow(gmSet)))
+
+n_cross_probes <- 0
+cross_reactive_removed_ids <- character(0)
+if (isTRUE(cross_reactive_active)) {
+  before_cross <- nrow(gmSet)
+  cr_res <- apply_cross_reactive_to_gmSet(gmSet, cross_reactive_probes, use_maxprobes = cross_reactive_use_maxprobes)
+  gmSet <- cr_res$gmSet
+  cross_reactive_removed_ids <- cr_res$removed
+  n_cross_probes <- before_cross - nrow(gmSet)
+  if (n_cross_probes > 0) {
+    if (nzchar(cr_res$source)) cross_reactive_source <- cr_res$source
+    source_disp <- ifelse(nzchar(cross_reactive_source), cross_reactive_source, "list")
+    message(sprintf("  - Removed %d cross-reactive probes (source: %s).", n_cross_probes, source_disp))
+    log_decision("qc", "cross_reactive_removed", as.character(n_cross_probes),
+                 reason = source_disp)
+  } else {
+    message("  - Cross-reactive probe filtering applied but no probes were removed.")
+  }
+  if (length(cross_reactive_removed_ids) > 0) {
+    if (is.null(cross_reactive_probes) || length(cross_reactive_probes) == 0) {
+      cross_reactive_probes <- cross_reactive_removed_ids
+    } else {
+      cross_reactive_probes <- unique(c(cross_reactive_probes, cross_reactive_removed_ids))
+    }
+  }
+} else if (isTRUE(cross_reactive_enabled)) {
+  message("  - Cross-reactive probe filtering disabled (unsafe).")
+}
+probe_filter_log <- rbind(probe_filter_log,
+                          data.frame(step = "cross_reactive", removed = n_cross_probes, remaining = nrow(gmSet)))
 
 before_snps <- nrow(gmSet)
 gmSet <- dropLociWithSnps(gmSet, snps=c("SBE","CpG"), maf=SNP_MAF_THRESHOLD)
 n_snp_probes <- before_snps - nrow(gmSet)
 message(paste("  - SNP filtering applied (MAF threshold:", SNP_MAF_THRESHOLD, "). Current probes:", nrow(gmSet)))
+probe_filter_log <- rbind(probe_filter_log,
+                          data.frame(step = "snp", removed = n_snp_probes, remaining = nrow(gmSet)))
 
 ann <- getAnnotation(gmSet)
 keep_sex <- !(ann$chr %in% c("chrX", "chrY"))
@@ -3494,15 +6523,42 @@ before_sex <- nrow(gmSet)
 gmSet <- gmSet[keep_sex, ]
 n_sex_probes <- before_sex - nrow(gmSet)
 message(paste("  - Removed Sex Chromosome probes. Final probes:", nrow(gmSet)))
+probe_filter_log <- rbind(probe_filter_log,
+                          data.frame(step = "sex_chr", removed = n_sex_probes, remaining = nrow(gmSet)))
 
 qc_report <- data.frame(
   metric = c("Total_samples_input", "Samples_failed_QC", "Samples_passed_QC",
-             "Total_probes_raw", "Probes_failed_detection", "Probes_with_SNPs",
-             "Probes_sex_chromosomes", "Probes_final"),
+             "Samples_failed_sex_mismatch", "Sex_mismatch_samples",
+             "Total_probes_raw", "Probes_failed_detection", "Probes_cross_reactive",
+             "Probes_with_SNPs", "Probes_sex_chromosomes", "Probes_final"),
   value = c(n_samples_input, samples_failed_qc, nrow(targets),
-            nrow_raw, probes_failed_detection, n_snp_probes, n_sex_probes, nrow(gmSet))
+            samples_failed_sex, sex_mismatch_count,
+            nrow_raw, probes_failed_detection, n_cross_probes,
+            n_snp_probes, n_sex_probes, nrow(gmSet))
 )
 write.csv(qc_report, file.path(out_dir, "QC_Summary.csv"), row.names = FALSE)
+write.csv(probe_filter_log, file.path(out_dir, "Probe_Filter_Summary.csv"), row.names = FALSE)
+if (length(cross_reactive_removed_ids) == 0) {
+  cr_out <- data.frame(
+    CpG = character(0),
+    Array = character(0),
+    Source = character(0),
+    Source_Version = character(0),
+    Retrieved_On = character(0),
+    stringsAsFactors = FALSE
+  )
+} else {
+  cr_out <- data.frame(
+    CpG = cross_reactive_removed_ids,
+    Array = ifelse(is.na(array_type), "", array_type),
+    Source = ifelse(nzchar(cross_reactive_source), cross_reactive_source,
+                    ifelse(isTRUE(cross_reactive_active), "unknown", "skipped")),
+    Source_Version = ifelse(nzchar(cross_reactive_version), cross_reactive_version, ""),
+    Retrieved_On = as.character(Sys.Date()),
+    stringsAsFactors = FALSE
+  )
+}
+write.csv(cr_out, file.path(out_dir, "CrossReactive_Removed_Probes.csv"), row.names = FALSE)
 
 beta_minfi <- getBeta(gmSet)
 if (ncol(beta_minfi) != nrow(targets)) {
@@ -3527,17 +6583,48 @@ beta_sesame_strict <- NULL
 beta_sesame_native <- NULL
 sesame_strict_before <- 0
 sesame_native_before <- 0
-if (opt$`skip-sesame`) {
+sesame_typeinorm_enabled <- isTRUE(opt$sesame_typeinorm)
+sesame_typeinorm_disabled <- !sesame_typeinorm_enabled && !isTRUE(opt$skip_sesame)
+sesame_dyebias_mode <- if (opt$skip_sesame) "skipped" else if (sesame_typeinorm_enabled) "dyeBiasCorrTypeINorm" else "dyeBiasCorr"
+sesame_dyebias_thread_error <- FALSE
+sesame_dyebias_missing_controls <- FALSE
+sesame_dyebias_typeinorm_failed <- FALSE
+sesame_dyebias_note <- ""
+update_sesame_dyebias_mode <- function(new_mode) {
+  rank <- c(skipped = 0, dyeBiasCorrTypeINorm = 1, dyeBiasCorr = 2, noob_only = 3)
+  if (!(new_mode %in% names(rank))) return(NULL)
+  if (!(sesame_dyebias_mode %in% names(rank))) {
+    sesame_dyebias_mode <<- new_mode
+    return(NULL)
+  }
+  if (rank[[new_mode]] > rank[[sesame_dyebias_mode]]) {
+    sesame_dyebias_mode <<- new_mode
+  }
+}
+if (opt$skip_sesame) {
   message("Sesame analysis skipped (--skip-sesame).")
 } else {
+  if (isTRUE(sesame_typeinorm_disabled)) {
+    message("  Sesame: TypeINorm disabled by default for stability (use --sesame_typeinorm to enable).")
+  }
+  sesame_thread_env <- c(
+    OMP_NUM_THREADS = "1",
+    OPENBLAS_NUM_THREADS = "1",
+    MKL_NUM_THREADS = "1",
+    VECLIB_MAXIMUM_THREADS = "1",
+    NUMEXPR_NUM_THREADS = "1"
+  )
+  sesame_thread_env_prev <- Sys.getenv(names(sesame_thread_env), unset = NA_character_)
+  do.call(Sys.setenv, as.list(sesame_thread_env))
+  message("  Sesame: forcing single-thread BLAS/OMP to avoid pthread errors.")
   tryCatch({
     ssets <- lapply(targets$Basename, function(x) readIDATpair(x))
-    sesame_skip_typeinorm <- FALSE
+    sesame_skip_typeinorm <- !sesame_typeinorm_enabled
     sesame_warned_no_norm <- FALSE
     sesame_cache_refresh_attempted <- FALSE
-    sesame_cache_refresh_supported <- !is.na(array_type) && array_type %in% c("EPIC", "EPICv1")
+    sesame_cache_refresh_supported <- nzchar(array_label) && array_label == "EPIC"
     sesame_try_dyebias <- function(sdf) {
-      tryCatch(
+      res <- tryCatch(
         dyeBiasCorr(sdf),
         error = function(e2) {
           msg <- conditionMessage(e2)
@@ -3561,11 +6648,15 @@ if (opt$`skip-sesame`) {
               message("  Sesame dyeBiasCorr skipped (normalization controls unavailable); proceeding without dye bias correction.")
               sesame_warned_no_norm <<- TRUE
             }
+            sesame_dyebias_missing_controls <<- TRUE
+            update_sesame_dyebias_mode("noob_only")
             return(sdf)
           }
           stop(e2)
         }
       )
+      update_sesame_dyebias_mode("dyeBiasCorr")
+      res
     }
     sesame_preprocess <- function(x) {
       sdf <- noob(x)
@@ -3573,14 +6664,19 @@ if (opt$`skip-sesame`) {
         return(sesame_try_dyebias(sdf))
       }
       tryCatch(
-        dyeBiasCorrTypeINorm(sdf),
+        {
+          update_sesame_dyebias_mode("dyeBiasCorrTypeINorm")
+          dyeBiasCorrTypeINorm(sdf)
+        },
         error = function(e) {
           msg <- conditionMessage(e)
           if (grepl("pthread_create", msg, ignore.case = TRUE)) {
             sesame_skip_typeinorm <<- TRUE
+            sesame_dyebias_thread_error <<- TRUE
             message("  Sesame dyeBiasCorrTypeINorm disabled after thread error; using dyeBiasCorr/noob only.")
           } else {
             message("  Sesame dyeBiasCorrTypeINorm failed; falling back to dyeBiasCorr.")
+            sesame_dyebias_typeinorm_failed <<- TRUE
           }
           sesame_try_dyebias(sdf)
         }
@@ -3593,6 +6689,20 @@ if (opt$`skip-sesame`) {
     colnames(beta_sesame_raw) <- targets[[gsm_col]]
     if (nrow(beta_sesame_raw) == 0) {
       stop("Sesame preprocessing produced no probes after alignment.")
+    }
+
+    # Persist pre-filter Sesame matrices (before NA filtering and Minfi-alignment)
+    prefilter_beta_path <- file.path(out_dir, "Sesame_BetaMatrix_PreFilter.tsv.gz")
+    write_matrix_tsv_gz(beta_sesame_raw, prefilter_beta_path)
+    prefilter_mval_path <- file.path(out_dir, "Sesame_MvalueMatrix_PreFilter.tsv.gz")
+    write_matrix_tsv_gz(logit_offset(beta_sesame_raw), prefilter_mval_path)
+
+    if (isTRUE(cross_reactive_active) && !is.null(cross_reactive_probes) && length(cross_reactive_probes) > 0) {
+      cr_res <- apply_cross_reactive_to_matrix(beta_sesame_raw, cross_reactive_probes)
+      beta_sesame_raw <- cr_res$mat
+      n_cross <- length(cr_res$removed)
+      source_disp <- ifelse(nzchar(cross_reactive_source), cross_reactive_source, "list")
+      message(sprintf("  - Sesame: removed %d cross-reactive probes (source: %s).", n_cross, source_disp))
     }
 
     sesame_cell_est <- estimate_sesame_cell_counts(sdf_list, targets[[gsm_col]], out_dir = out_dir)
@@ -3614,14 +6724,35 @@ if (opt$`skip-sesame`) {
         message("  - Sesame cell composition estimated using ", sesame_cell_est$reference)
       }
     }
+    if (is.null(sesame_cell_est) && !is.null(beta_sesame_native) && tolower(tissue_use) == "placenta") {
+      sesame_cell_est <- estimate_cell_counts_planet(beta_sesame_native, out_dir = out_dir)
+      if (!is.null(sesame_cell_est)) {
+        message("  - Sesame cell composition estimated using ", sesame_cell_est$reference)
+      }
+    }
     if (is.null(sesame_cell_est) && !is.null(beta_sesame_native)) {
-      sesame_cell_est <- estimate_cell_counts_reffree(beta_sesame_native, out_dir = out_dir)
+      sesame_cell_est <- estimate_cell_counts_reffree(beta_sesame_native, out_dir = out_dir,
+                                                      K_latent = cell_ref_free_k,
+                                                      max_probes = cell_ref_free_max_probes)
       if (!is.null(sesame_cell_est)) {
         message("  - Sesame cell composition estimated using ", sesame_cell_est$reference)
       }
     }
     if (!is.null(sesame_cell_est)) {
       sesame_cell_reference <<- sesame_cell_est$reference
+      if (!is.null(sesame_cell_est$counts)) {
+        cell_cols_sesame <- grep("^Cell_", colnames(sesame_cell_est$counts), value = TRUE)
+        summary_row <- data.frame(
+          Pipeline = "Sesame",
+          Method = sesame_cell_est$reference,
+          Tissue = tissue_use,
+          K = ifelse(grepl("RefFree", sesame_cell_est$reference, ignore.case = TRUE), cell_ref_free_k, NA_integer_),
+          Sample_Count = nrow(sesame_cell_est$counts),
+          Cell_Types = length(cell_cols_sesame),
+          stringsAsFactors = FALSE
+        )
+        append_cell_deconv_summary(out_dir, summary_row)
+      }
     }
     if (is.null(beta_sesame_native)) {
       message("Sesame native: no probes retained after NA filtering.")
@@ -3659,6 +6790,14 @@ if (opt$`skip-sesame`) {
     beta_sesame_strict <<- NULL
     beta_sesame_native <<- NULL
   })
+  for (nm in names(sesame_thread_env_prev)) {
+    val <- sesame_thread_env_prev[[nm]]
+    if (is.na(val) || val == "") {
+      Sys.unsetenv(nm)
+    } else {
+      do.call(Sys.setenv, as.list(stats::setNames(val, nm)))
+    }
+  }
 }
 
 # --- 4. Intersection ---
@@ -3720,6 +6859,24 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   batch_evaluated <- FALSE
   batch_candidates_df <- NULL
   best_candidate_score <- NA_real_
+  raw_res <- NULL
+  raw_delta_beta <- NULL
+  lambda_guard_status <- "disabled"
+  lambda_guard_action <- "none"
+  lambda_guard_lambda <- NA_real_
+  lambda_guard_threshold <- NA_real_
+  tier3_mode <- FALSE
+  tier3_primary <- FALSE
+  tier3_primary_lambda <- NA_real_
+  tier3_primary_res <- NULL
+  tier3_meta_method <- ""
+  tier3_meta_i2_median <- NA_real_
+  tier3_low_power <- FALSE
+  tier3_ineligible <- FALSE
+  tier3_eligibility <- NULL
+  dmr_status <- "not_run"
+  dmr_reason <- ""
+  dmr_strategy <- "standard"
   common_ids <- intersect(rownames(betas), rownames(annotation_df))
   betas <- betas[common_ids, , drop = FALSE]
   curr_anno <- annotation_df[common_ids, , drop = FALSE]
@@ -3765,12 +6922,12 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   save_interactive_plot(p_pca, paste0(prefix, "_PCA_Before.html"), out_dir)
   save_static_plot(p_pca, paste0(prefix, "_PCA_Before.png"), out_dir, width = 5, height = 4)
   
-  # Auto-detect covariates via PC association (top PCs) unless disabled
+  # Auto-detect covariates via PC association (top PCs)
   covariates <- character(0)
   forced_covariates <- character(0)
   covar_log_path <- file.path(out_dir, paste0(prefix, "_AutoCovariates.csv"))
   drop_log <- data.frame(Variable=character(0), Reason=character(0))
-  covar_log_df <- data.frame(Variable = character(0), MinP = numeric(0))
+  covar_log_df <- data.frame(Variable = character(0), MinP = numeric(0), MinPC = integer(0), Type = character(0))
 
   if (include_clock_covariates) {
     clock_cov <- compute_epigenetic_clocks(betas_full, targets, id_col = gsm_col, prefix = prefix,
@@ -3806,18 +6963,71 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     }
   }
   
-  if (!disable_auto_cov) {
-    covar_info <- auto_detect_covariates(targets, gsm_col, pca_res$x, alpha = AUTO_COVARIATE_ALPHA, max_pcs = MAX_PCS_FOR_COVARIATE_DETECTION)
-    covar_log_df <- covar_info$log
-    if (nrow(covar_log_df) > 0) write.csv(covar_log_df, covar_log_path, row.names = FALSE)
+  covar_info <- auto_detect_covariates(targets, gsm_col, pca_res$x,
+                                       alpha = AUTO_COVARIATE_ALPHA,
+                                       max_pcs = MAX_PCS_FOR_COVARIATE_DETECTION)
+  covar_log_df <- covar_info$log
+  covar_report <- build_covariate_candidate_report(targets, covar_log_df, group_col = "primary_group",
+                                                   group_assoc_p_threshold = auto_cov_group_p)
+  if (nrow(covar_report) > 0) {
+    covar_log_df <- covar_report
+  }
+  if (nrow(covar_report) > 0) {
+    covar_report$Selected <- FALSE
+    covar_report$Decision_Reason <- ""
+  }
+  if (isTRUE(auto_cov_enabled)) {
     covariates <- covar_info$selected
     if (length(covariates) > 0) {
       filt <- filter_covariates(targets, covariates, group_col = "primary_group")
       covariates <- filt$keep
       if (nrow(filt$dropped) > 0) drop_log <- rbind(drop_log, filt$dropped)
     }
+    if (auto_cov_exclude_group && nrow(covar_report) > 0) {
+      group_flag <- covar_report$Variable[which(covar_report$Group_Assoc_Flag %in% TRUE)]
+      drop_group <- intersect(covariates, group_flag)
+      if (length(drop_group) > 0) {
+        covariates <- setdiff(covariates, drop_group)
+        drop_log <- rbind(drop_log, data.frame(Variable = drop_group, Reason = "auto_covariate_group_association"))
+        for (cv in drop_group) {
+          log_decision("auto_covariates", cv, "excluded", reason = "group_associated")
+        }
+      }
+    }
+    if (is.finite(auto_cov_max_cor) && nrow(covar_report) > 0) {
+      high_cor <- covar_report$Variable[which(abs(covar_report$Max_Correlation) >= auto_cov_max_cor)]
+      drop_cor <- intersect(covariates, high_cor)
+      if (length(drop_cor) > 0) {
+        covariates <- setdiff(covariates, drop_cor)
+        drop_log <- rbind(drop_log, data.frame(Variable = drop_cor, Reason = "auto_covariate_collinearity"))
+        for (cv in drop_cor) {
+          log_decision("auto_covariates", cv, "excluded", reason = "collinearity")
+        }
+      }
+    }
   } else {
-    message("  Auto covariate selection disabled by flag.")
+    message("  Auto covariate selection disabled by flag/config (report still generated).")
+  }
+  if (nrow(covar_report) > 0) {
+    covar_report$Selected <- covar_report$Variable %in% covariates
+    covar_report$Decision_Reason <- ifelse(covar_report$Selected, "selected_auto", "")
+    if (auto_cov_exclude_group) {
+      idx <- covar_report$Variable %in% drop_log$Variable[drop_log$Reason == "auto_covariate_group_association"]
+      covar_report$Decision_Reason[idx] <- "excluded_group_association"
+    }
+    if (is.finite(auto_cov_max_cor)) {
+      idx <- covar_report$Variable %in% drop_log$Variable[drop_log$Reason == "auto_covariate_collinearity"]
+      covar_report$Decision_Reason[idx] <- "excluded_collinearity"
+    }
+    write.csv(covar_report, covar_log_path, row.names = FALSE)
+    for (i in seq_len(nrow(covar_report))) {
+      cv <- covar_report$Variable[i]
+      if (isTRUE(covar_report$Selected[i])) {
+        log_decision("auto_covariates", cv, "selected", reason = "pc_association")
+      } else if (nzchar(covar_report$Decision_Reason[i])) {
+        log_decision("auto_covariates", cv, "excluded", reason = covar_report$Decision_Reason[i])
+      }
+    }
   }
   
   # Force-include covariates if present
@@ -3887,6 +7097,15 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
       betas <- betas[, cc_idx, drop = FALSE]
     }
   }
+  if (length(covariates) > 0) {
+    post_single <- drop_single_level_covariates(targets, covariates)
+    covariates <- post_single$keep
+    if (nrow(post_single$dropped) > 0) {
+      drop_log <- rbind(drop_log, post_single$dropped)
+      message(paste("  Dropped single-level covariates after NA filtering:",
+                    paste(unique(post_single$dropped$Variable), collapse = ", ")))
+    }
+  }
   n_con_local <- sum(targets$primary_group == clean_con)
   n_test_local <- sum(targets$primary_group == clean_test)
   if (n_con_local == 0 || n_test_local == 0) {
@@ -3915,7 +7134,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     compute_epigenetic_clocks(betas, targets, id_col = gsm_col, prefix = prefix, out_dir = out_dir, tissue = tissue_use)
   }
 
-  # Batch–VOI confounding detection and candidate selection
+  # Batch-VOI confounding detection and candidate selection
   batch_candidates <- detect_batch_candidates(targets, "primary_group", config_settings)
   conf_df <- assess_batch_confounding(targets, batch_candidates, "primary_group", config_settings)
   if (nrow(conf_df) > 0) {
@@ -3927,16 +7146,48 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   }
   tier3_batches <- conf_df$batch[conf_df$tier == 3]
   tier3_batch <- if (length(tier3_batches) > 0) tier3_batches[1] else NULL
+  tier3_mode <- length(tier3_batches) > 0
   if (length(tier3_batches) > 0) {
     log_decision("confounding", "tier3_batch", paste(tier3_batches, collapse = ","),
                  reason = "non_identifiable_overlap")
+  }
+  if (tier3_mode && !is.null(tier3_batch)) {
+    tier3_eligibility <- check_tier3_eligibility(targets, tier3_batch, "primary_group",
+                                                 min_total_n = tier3_min_total_n,
+                                                 min_per_group_per_stratum = tier3_min_per_group_per_stratum,
+                                                 out_dir = out_dir)
+    log_decision("tier3", "eligibility",
+                 ifelse(isTRUE(tier3_eligibility$eligible), "pass", "fail"),
+                 reason = tier3_eligibility$reason,
+                 metrics = list(total_n = tier3_eligibility$total_n,
+                                min_stratum_n = tier3_eligibility$min_stratum_n))
+    if (!isTRUE(tier3_eligibility$eligible)) {
+      tier3_ineligible <- TRUE
+      msg <- sprintf("Tier3 confounding detected but eligibility failed (total_n=%s, min_stratum_n=%s).",
+                     tier3_eligibility$total_n, tier3_eligibility$min_stratum_n)
+      if (tier3_on_fail == "stop") {
+        stop(paste0(msg, " Stop for safety. Use tier3.on_fail=skip to proceed without Tier3."))
+      } else {
+        message("WARNING: ", msg, " Proceeding without Tier3 stratified/meta-analysis.")
+        tier3_mode <- FALSE
+      }
+    }
   }
   conf_df$effect_strength <- ifelse(conf_df$voi_type == "continuous", conf_df$r2, conf_df$cramer_v)
   eligible_df <- conf_df[conf_df$tier < 3, , drop = FALSE]
   if (nrow(eligible_df) > 0) {
     eligible_df <- eligible_df[order(eligible_df$tier, -eligible_df$effect_strength), ]
   }
-  batch_col <- if (nrow(eligible_df) > 0) eligible_df$batch[1] else NULL
+  batch_col <- NULL
+  if (nzchar(batch_col_override)) {
+    if (!(batch_col_override %in% colnames(targets))) {
+      stop(sprintf("Batch override column '%s' not found in metadata.", batch_col_override))
+    }
+    batch_col <- batch_col_override
+    log_decision("confounding", "batch_candidate_override", batch_col, reason = "manual_override")
+  } else if (nrow(eligible_df) > 0) {
+    batch_col <- eligible_df$batch[1]
+  }
   batch_tier <- if (!is.null(batch_col) && batch_col %in% conf_df$batch) conf_df$tier[match(batch_col, conf_df$batch)] else NA_integer_
   if (!is.null(batch_col)) {
     message(paste("  Selected batch candidate:", batch_col, "(tier", batch_tier, ")"))
@@ -3960,9 +7211,15 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
       perm_n = perm_n,
       vp_top = vp_top,
       prefix = prefix,
-      out_dir = out_dir
+      out_dir = out_dir,
+      method_pool = if (crf_enabled) mmc_methods else NULL
     )
     best_method <- sel$best_method
+    if (nzchar(batch_method_override)) {
+      best_method <- batch_method_override
+      log_decision("confounding", "batch_method_override", best_method, reason = "manual_override")
+      message(paste("  Batch method override applied:", best_method))
+    }
     if (!is.null(sel$candidates)) {
       batch_evaluated <- TRUE
       batch_candidates_df <- sel$candidates
@@ -3986,6 +7243,18 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     message("  Skipping batch method comparison (too few samples for stable evaluation).")
   } else {
     message("  No eligible batch factor found for batch method comparison.")
+  }
+  if (nzchar(batch_method_override) && is.null(batch_col)) {
+    message("  Batch method override requested but no batch column available; ignoring.")
+  } else if (nzchar(batch_method_override) && !is.null(batch_col) && best_method != batch_method_override) {
+    best_method <- batch_method_override
+    log_decision("confounding", "batch_method_override", best_method, reason = "manual_override_post_eval")
+    message(paste("  Batch method override applied:", best_method))
+  }
+  if (crf_enabled && best_method == "combat" && !isTRUE(combat_allowed)) {
+    message("  CRF guard: ComBat disabled for this sample size tier; falling back to none.")
+    log_decision("crf", "combat_guard", "disabled", reason = crf_tier)
+    best_method <- "none"
   }
   
   # Build Design Matrix
@@ -4214,13 +7483,24 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
       lambda_raw <- median(chisq_vals_raw) / qchisq(0.5, 1)
     }
   }
+  if (!is.null(betas_pre_correction) && nrow(betas_pre_correction) > 0) {
+    con_mask_raw <- targets$primary_group == clean_con
+    test_mask_raw <- targets$primary_group == clean_test
+    if (any(con_mask_raw) && any(test_mask_raw)) {
+      mean_beta_con_raw <- rowMeans(betas_pre_correction[, con_mask_raw, drop = FALSE], na.rm = TRUE)
+      mean_beta_test_raw <- rowMeans(betas_pre_correction[, test_mask_raw, drop = FALSE], na.rm = TRUE)
+      raw_delta_beta <- mean_beta_test_raw - mean_beta_con_raw
+    }
+  }
 
   # Apply the selected batch correction method to the modeling matrix
   betas_for_model <- betas
+  mvals_for_model <- NULL
   applied_batch_method <- "none"
   if (!is.null(batch_col) && (batch_col %in% colnames(targets)) && length(unique(targets[[batch_col]])) > 1) {
     bc_res <- apply_batch_correction(betas, best_method, batch_col, all_covariates, targets, design)
     betas_for_model <- bc_res$betas
+    if (!is.null(bc_res$mvals)) mvals_for_model <- bc_res$mvals
     applied_batch_method <- bc_res$method
     if (applied_batch_method != "none") {
       message(paste("  Batch correction applied for modeling using:", applied_batch_method))
@@ -4229,6 +7509,10 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     }
   }
   betas <- betas_for_model
+
+  # Persist processed matrices used for modeling (GEO processed files)
+  beta_out_path <- file.path(out_dir, paste0(prefix, "_BetaMatrix.tsv.gz"))
+  write_matrix_tsv_gz(betas, beta_out_path)
 
   # Effect sizes on the beta scale (paper-friendly interpretability)
   con_mask <- targets$primary_group == clean_con
@@ -4256,7 +7540,9 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   cm <- makeContrasts(contrasts = contrast_str, levels = design)
   
   # B. Stats
-  m_vals <- logit_offset(betas)
+  m_vals <- if (!is.null(mvals_for_model)) mvals_for_model else logit_offset(betas)
+  mval_out_path <- file.path(out_dir, paste0(prefix, "_MvalueMatrix.tsv.gz"))
+  write_matrix_tsv_gz(m_vals, mval_out_path)
   fit <- lmFit(m_vals, design)
   fit2 <- contrasts.fit(fit, cm)
   fit2 <- eBayes(fit2)
@@ -4266,6 +7552,29 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   res$Mean_Beta_Con <- mean_beta_con[res$CpG]
   res$Mean_Beta_Test <- mean_beta_test[res$CpG]
   res$Delta_Beta <- delta_beta[res$CpG]
+
+  effect_metrics <- compute_effect_size_consistency(
+    raw_res = raw_res,
+    corr_res = res,
+    raw_delta_beta = raw_delta_beta,
+    corr_delta_beta = delta_beta,
+    pval_thresh = pval_thresh,
+    lfc_thresh = lfc_thresh,
+    top_n = 1000
+  )
+  if (!is.null(effect_metrics)) {
+    effect_df <- data.frame(metric = names(effect_metrics),
+                            value = vapply(effect_metrics, function(x) ifelse(is.null(x), NA, x), numeric(1)),
+                            stringsAsFactors = FALSE)
+    write.csv(effect_df, file.path(out_dir, paste0(prefix, "_Signal_Preservation.csv")), row.names = FALSE)
+  }
+  marker_metrics <- evaluate_marker_retention(res, marker_list, pval_thresh, lfc_thresh, raw_res = raw_res)
+  if (!is.null(marker_metrics)) {
+    marker_df <- data.frame(metric = names(marker_metrics),
+                            value = vapply(marker_metrics, function(x) ifelse(is.null(x), NA, x), numeric(1)),
+                            stringsAsFactors = FALSE)
+    write.csv(marker_df, file.path(out_dir, paste0(prefix, "_Known_Marker_Summary.csv")), row.names = FALSE)
+  }
   
   # Add annotation
   res <- merge(res, curr_anno, by.x="CpG", by.y="CpG")
@@ -4290,6 +7599,46 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   chisq_vals <- qchisq(1 - p_vals, 1)
   lambda_val <- median(chisq_vals) / qchisq(0.5, 1)
   message(paste("  Genomic Inflation Factor (Lambda):", round(lambda_val, 3)))
+
+  lambda_guard_cfg <- config_settings$lambda_guard
+  if (!is.null(lambda_guard_cfg) && isTRUE(lambda_guard_cfg$enabled)) {
+    lambda_guard_action <- if (!is.null(lambda_guard_cfg$action)) as.character(lambda_guard_cfg$action) else "warn_simplify"
+    valid_actions <- c("none", "warn", "warn_simplify", "simplify")
+    if (!lambda_guard_action %in% valid_actions) lambda_guard_action <- "warn_simplify"
+    lambda_guard_threshold <- suppressWarnings(as.numeric(lambda_guard_cfg$threshold))
+    lambda_guard_min_samples <- suppressWarnings(as.integer(lambda_guard_cfg$min_samples))
+    if (!is.finite(lambda_guard_min_samples)) lambda_guard_min_samples <- 0L
+    if (!is.finite(lambda_val)) {
+      lambda_guard_status <- "missing_lambda"
+    } else if (!is.finite(lambda_guard_threshold)) {
+      lambda_guard_status <- "skipped_no_threshold"
+    } else if (nrow(targets) < lambda_guard_min_samples) {
+      lambda_guard_status <- "skipped_small_n"
+    } else if (lambda_val <= lambda_guard_threshold) {
+      lambda_guard_status <- "ok"
+    } else {
+      lambda_guard_status <- "triggered"
+      log_decision("lambda_guard", "triggered", sprintf("%.3f", lambda_val),
+                   reason = "lambda_above_threshold",
+                   metrics = list(threshold = lambda_guard_threshold,
+                                  n_samples = nrow(targets),
+                                  action = lambda_guard_action))
+      if (lambda_guard_action %in% c("warn", "warn_simplify", "simplify")) {
+        message(sprintf("  WARNING: Lambda guard triggered (lambda=%.3f, threshold=%.2f).",
+                        lambda_val, lambda_guard_threshold))
+      }
+      if (lambda_guard_action %in% c("warn_simplify", "simplify")) {
+        guard_res <- run_lambda_guard(betas_pre_correction, targets, "primary_group", prefix, out_dir,
+                                      max_points, pval_thresh, lfc_thresh)
+        if (!is.null(guard_res) && guard_res$status == "ok") {
+          lambda_guard_status <- "simplified"
+          lambda_guard_lambda <- guard_res$lambda
+        } else {
+          lambda_guard_status <- "simplify_failed"
+        }
+      }
+    }
+  }
   
   expected <- -log10(ppoints(n_p))
   observed <- -log10(sort(p_vals))
@@ -4482,269 +7831,41 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   save_datatable(top_for_table, paste0(prefix, "_Top_DMPs.html"), out_dir)
   
   # --- D. DMR Analysis (dmrff) ---
-  if (nrow(targets) < 4) {
+  if (tier3_mode) {
+    message("  Tier3 confounding detected: deferring DMR analysis to stratified/meta results.")
+    dmr_res <- data.frame()
+    dmr_status <- "deferred_tier3"
+    dmr_reason <- "tier3_non_identifiable_batch"
+    dmr_strategy <- "tier3_meta"
+  } else if (nrow(targets) < 4) {
     message("  Skipping DMR analysis (dmrff) due to very small sample size (<4).")
     dmr_res <- data.frame()
+    dmr_status <- "skipped_small_n"
+    dmr_reason <- "n_samples<4"
   } else {
-  message("  Running DMR analysis (dmrff)...")
-  
-  # Prepare inputs for dmrff
-  # We need: estimate (logFC), se, p.value, methylation, chr, pos
-  # fit2 has: coefficients (estimate), stdev.unscaled * sigma (se), p.value
-  
-  # Ensure we match the rows of fit2 and betas
-  use_idx <- match(rownames(fit2), rownames(betas))
-  betas_dmr <- betas[use_idx, ]
-  
-  dmr_est <- fit2$coefficients[, 1]
-  dmr_se <- fit2$stdev.unscaled[, 1] * fit2$sigma
-  dmr_p <- fit2$p.value[, 1]
-  dmr_mean_con <- rowMeans(betas_dmr[, con_mask, drop = FALSE], na.rm = TRUE)
-  dmr_mean_test <- rowMeans(betas_dmr[, test_mask, drop = FALSE], na.rm = TRUE)
-  
-  # Annotation for dmrff
-  dmr_anno <- curr_anno[match(names(dmr_est), rownames(curr_anno)), ]
-  
-  if (length(dmr_est) < 100) {
-    message("    - Too few CpGs for reliable DMR analysis (< 100). Skipping DMR detection.")
-    dmr_res <- data.frame()
-  } else {
-    annotate_dmr <- function(df, anno_tbl) {
-      if (nrow(df) == 0) return(df)
-      anno_tbl$Gene <- ifelse(is.na(anno_tbl$Gene), "", anno_tbl$Gene)
-      anno_tbl$Region <- ifelse(is.na(anno_tbl$Region), "", anno_tbl$Region)
-      gene_region <- function(chr, start, end, field) {
-        idx <- which(anno_tbl$chr == chr & anno_tbl$pos >= start & anno_tbl$pos <= end)
-        if (length(idx) == 0) return("")
-        vals <- unique(unlist(strsplit(anno_tbl[[field]][idx], ";")))
-        vals <- vals[nzchar(vals)]
-        if (length(vals) == 0) return("")
-        paste(head(vals, 5), collapse = ";")
-      }
-      df$Genes <- mapply(gene_region, df$chr, df$start, df$end, MoreArgs = list(field = "Gene"))
-      df$Regions <- mapply(gene_region, df$chr, df$start, df$end, MoreArgs = list(field = "Region"))
-      df
-    }
-
-    tryCatch({
-      dmr_res <- dmrff(
-        estimate = dmr_est,
-        se = dmr_se,
-        p.value = dmr_p,
-        methylation = betas_dmr,
-        chr = dmr_anno$chr,
-        pos = dmr_anno$pos,
-        maxgap = DMR_MAXGAP,
-        p.cutoff = dmr_p_cutoff
-      )
-      
-      if (nrow(dmr_res) > 0) {
-          if (DMR_MIN_CPGS > 1) {
-            dmr_before <- nrow(dmr_res)
-            dmr_res <- dmr_res[dmr_res$n >= DMR_MIN_CPGS, , drop = FALSE]
-            message(paste("    - Filtered DMRs by min CpGs >=", DMR_MIN_CPGS, ":", dmr_before, "->", nrow(dmr_res)))
-          }
-          if (nrow(dmr_res) > 0) {
-          dmr_res <- annotate_dmr(dmr_res, curr_anno)
-          dmr_res <- compute_dmr_delta_beta(dmr_res, dmr_anno, dmr_mean_con, dmr_mean_test)
-          dmr_res <- dmr_res[order(dmr_res$p.value, dmr_res$p.adjust, na.last = TRUE), ]
-          message(paste("    - Found", nrow(dmr_res), "DMRs."))
-          
-          # Save Table
-          dmr_filename <- paste0(prefix, "_DMRs_Table.html")
-          save_datatable(head(dmr_res, 3000), dmr_filename, out_dir, sort_col = "p.value")
-          write.csv(dmr_res, file.path(out_dir, paste0(prefix, "_DMRs.csv")), row.names = FALSE)
-          
-          # 1. DMR Volcano Plot
-          # dmrff returns 'estimate' (avg LogFC) and 'p.adjust'
-          dmr_res$diffexpressed <- "NO"
-          delta_pass_dmr <- delta_beta_pass(dmr_res$Delta_Beta)
-          dmr_res$diffexpressed[dmr_res$p.adjust < dmr_p_cutoff & dmr_res$estimate > 0 & delta_pass_dmr] <- "UP"
-          dmr_res$diffexpressed[dmr_res$p.adjust < dmr_p_cutoff & dmr_res$estimate < 0 & delta_pass_dmr] <- "DOWN"
-          dmr_res$plot_p <- pmax(dmr_res$p.value, 1e-300)
-          dmr_res$label <- ifelse(!is.na(dmr_res$Genes) & nzchar(dmr_res$Genes), dmr_res$Genes, dmr_res$Regions)
-          dmr_res$label <- sub(";.*", "", ifelse(is.na(dmr_res$label), "", dmr_res$label))
-          has_delta <- any(is.finite(dmr_res$Delta_Beta))
-          if (has_delta) {
-            dmr_res$plot_effect <- ifelse(is.finite(dmr_res$Delta_Beta), dmr_res$Delta_Beta, dmr_res$estimate)
-            x_label <- "Mean Beta Difference (Delta Beta)"
-          } else {
-            dmr_res$plot_effect <- dmr_res$estimate
-            x_label <- "Mean M-value Difference (Estimate)"
-          }
-          label_df <- dmr_res[order(dmr_res$p.value), ]
-          label_df <- head(label_df, DMR_LABEL_TOP_N)
-          label_df <- label_df[nzchar(label_df$label) & is.finite(label_df$plot_p), ]
-          
-          p_vol_dmr <- ggplot(dmr_res, aes(x=plot_effect, y=-log10(plot_p), color=diffexpressed,
-                          text=paste("Region:", paste0(chr, ":", start, "-", end),
-                                     "<br>Gene:", ifelse(nzchar(Genes), Genes, "NA"),
-                                     "<br>nCpG:", n,
-                                     "<br>P:", signif(p.value, 3),
-                                     "<br>FDR:", signif(p.adjust, 3)))) +
-              geom_point(alpha=0.6, size=2) + theme_minimal() +
-              scale_color_manual(values=c("DOWN"="blue", "NO"="grey", "UP"="red")) +
-              labs(title = paste(prefix, "DMR Volcano Plot"), 
-                   subtitle = "dmrff analysis",
-                   x = x_label, y = "-log10 P-value",
-                   color = "Status")
-          if (nrow(label_df) > 0) {
-            p_vol_dmr <- p_vol_dmr + ggrepel::geom_text_repel(
-              data = label_df,
-              aes(label = label),
-              size = 3,
-              max.overlaps = DMR_LABEL_TOP_N
-            )
-          }
-          save_interactive_plot(p_vol_dmr, paste0(prefix, "_DMR_Volcano.html"), out_dir)
-          save_static_plot(p_vol_dmr, paste0(prefix, "_DMR_Volcano.png"), out_dir, width = 6, height = 5)
-          
-          # 2. DMR Manhattan Plot
-          chr_map <- c(as.character(1:22), "X", "Y", "M")
-          chr_vals <- 1:25
-          names(chr_vals) <- chr_map
-          
-          clean_chr_dmr <- gsub("chr", "", dmr_res$chr, ignore.case = TRUE)
-          clean_chr_dmr[clean_chr_dmr == "MT"] <- "M"
-          dmr_res$chr_num <- chr_vals[clean_chr_dmr]
-          dmr_res$mid_pos <- (dmr_res$start + dmr_res$end) / 2
-          
-          plot_dmr_man <- dmr_res[!is.na(dmr_res$chr_num), ]
-          plot_dmr_man <- plot_dmr_man[order(plot_dmr_man$chr_num, plot_dmr_man$start), ]
-          
-          if (nrow(plot_dmr_man) > 0) {
-              chr_len_dmr <- tapply(plot_dmr_man$end, plot_dmr_man$chr_num, max) # approximate
-              cum_lengths <- cumsum(as.numeric(chr_len_dmr))
-              offsets <- c(0, cum_lengths[-length(cum_lengths)])
-              names(offsets) <- names(chr_len_dmr)
-              
-              plot_dmr_man$pos_cum <- plot_dmr_man$mid_pos + offsets[as.character(plot_dmr_man$chr_num)]
-              
-              axis_set_dmr <- plot_dmr_man %>%
-                  group_by(chr_num) %>%
-                  summarize(center = (min(pos_cum) + max(pos_cum)) / 2)
-              
-              chr_labels_dmr <- names(chr_vals)[match(axis_set_dmr$chr_num, chr_vals)]
-              
-              plot_dmr_man$plot_p <- pmax(plot_dmr_man$p.value, 1e-300)
-              label_df_man <- plot_dmr_man[order(plot_dmr_man$p.value), ]
-              label_df_man <- head(label_df_man, DMR_LABEL_TOP_N)
-              label_df_man <- label_df_man[nzchar(label_df_man$label) & is.finite(label_df_man$plot_p), ]
-              p_man_dmr <- ggplot(plot_dmr_man, aes(x=pos_cum, y=-log10(plot_p), color=as.factor(chr_num %% 2),
-                                  text=paste("Region:", paste0(chr, ":", start, "-", end),
-                                             "<br>Gene:", ifelse(nzchar(Genes), Genes, "NA"),
-                                             "<br>nCpG:", n,
-                                             "<br>P:", signif(p.value, 3),
-                                             "<br>FDR:", signif(p.adjust, 3)))) +
-                  geom_point(alpha=0.7, size=2) +
-                  scale_color_manual(values=c("0"="#2c3e50", "1"="#3498db")) +
-                  scale_x_continuous(label = chr_labels_dmr, breaks = axis_set_dmr$center) +
-                  theme_minimal() +
-                  theme(legend.position="none",
-                        panel.grid.major.x = element_blank(),
-                        panel.grid.minor.x = element_blank(),
-                        axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5)) +
-                  xlab("Chromosome") +
-                  ylab("-log10 P-value") +
-                  ggtitle(paste(prefix, "DMR Manhattan Plot"))
-              if (nrow(label_df_man) > 0) {
-                p_man_dmr <- p_man_dmr + ggrepel::geom_text_repel(
-                  data = label_df_man,
-                  aes(label = label),
-                  size = 3,
-                  max.overlaps = DMR_LABEL_TOP_N
-                )
-              }
-              
-              save_interactive_plot(p_man_dmr, paste0(prefix, "_DMR_Manhattan.html"), out_dir)
-              save_static_plot(p_man_dmr, paste0(prefix, "_DMR_Manhattan.png"), out_dir, width = 8, height = 4)
-          }
-          
-          # 3. DMR Heatmap (Top 50 DMRs - Average Methylation per Region)
-          top_dmrs <- head(dmr_res, 50)
-          
-          # Calculate average methylation for each top DMR across all samples
-          dmr_means <- matrix(NA, nrow=nrow(top_dmrs), ncol=ncol(betas_dmr))
-          rownames(dmr_means) <- paste0(top_dmrs$chr, ":", top_dmrs$start, "-", top_dmrs$end)
-          colnames(dmr_means) <- colnames(betas_dmr)
-          
-          for (i in 1:nrow(top_dmrs)) {
-              # Find CpGs in this region
-              # Using the annotation we prepared earlier (dmr_anno)
-              # dmrff results provide chr, start, end
-              # We need to find CpGs in dmr_anno that fall in this range
-              
-              # Filter annotation for this chr
-              chr_cpgs <- dmr_anno[dmr_anno$chr == top_dmrs$chr[i], ]
-              in_region <- chr_cpgs$pos >= top_dmrs$start[i] & chr_cpgs$pos <= top_dmrs$end[i]
-              cpg_ids <- rownames(chr_cpgs)[in_region]
-              cpg_ids <- intersect(cpg_ids, rownames(betas_dmr))
-              
-              if (length(cpg_ids) > 0) {
-                  if (length(cpg_ids) == 1) {
-                      dmr_means[i, ] <- betas_dmr[cpg_ids, ]
-                  } else {
-                      dmr_means[i, ] <- colMeans(betas_dmr[cpg_ids, , drop=FALSE], na.rm=TRUE)
-                  }
-              }
-          }
-          
-          dmr_means <- dmr_means[rowSums(is.na(dmr_means)) == 0, , drop=FALSE]
-          
-          if (nrow(dmr_means) >= 2) {
-               dmr_means_scaled <- t(scale(t(dmr_means)))
-               
-               hm_dmr_df <- expand.grid(Region = rownames(dmr_means_scaled), Sample = colnames(dmr_means_scaled))
-               hm_dmr_df$Value <- as.vector(dmr_means_scaled)
-               
-               hm_dmr_df$Group <- targets$primary_group[match(hm_dmr_df$Sample, targets[[gsm_col]])]
-               if(any(is.na(hm_dmr_df$Group))) {
-                    hm_dmr_df$Group <- targets$primary_group[match(hm_dmr_df$Sample, colnames(betas))]
-               }
-               
-               # Clustering order
-               hc_r <- hclust(dist(dmr_means_scaled))
-               hc_c <- hclust(dist(t(dmr_means_scaled)))
-               
-               hm_dmr_df$Region <- factor(hm_dmr_df$Region, levels = rownames(dmr_means_scaled)[hc_r$order])
-               
-               # Sample order: Control then Test, but clustered within
-               samples_ordered <- colnames(dmr_means_scaled)[hc_c$order]
-               grp_vec <- targets$primary_group[match(samples_ordered, targets[[gsm_col]])]
-               grp_vec[is.na(grp_vec)] <- targets$primary_group[match(samples_ordered, colnames(betas))]
-               
-               if (length(levels(targets$primary_group)) == 2) {
-                    g_lev <- levels(targets$primary_group)
-                    samples_by_group <- c(samples_ordered[grp_vec == g_lev[1]], samples_ordered[grp_vec == g_lev[2]])
-               } else {
-                    samples_by_group <- samples_ordered
-               }
-               hm_dmr_df$Sample <- factor(hm_dmr_df$Sample, levels = samples_by_group)
-               
-               p_heat_dmr <- ggplot(hm_dmr_df, aes(x=Sample, y=Region, fill=Value, text=paste("Group:", Group))) +
-                    geom_tile() +
-                    scale_fill_gradient2(low="blue", mid="white", high="red", midpoint=0) +
-                    theme_minimal() +
-                    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5, size=6),
-                          axis.text.y = element_text(size=6),
-                          axis.title.x = element_blank(),
-                          legend.position = "none") +
-                    ggtitle(paste(prefix, "Top 50 DMRs Heatmap (Avg Methylation)"))
-                    
-               save_interactive_plot(p_heat_dmr, paste0(prefix, "_Top_DMRs_Heatmap.html"), out_dir)
-               save_static_plot(p_heat_dmr, paste0(prefix, "_Top_DMRs_Heatmap.png"), out_dir, width = 8, height = 8)
-          }
-          
-      } else {
-          message("    - No DMRs remain after min CpG filter.")
-      }
-      } else {
-          message("    - No DMRs found.")
-      }
-    }, error = function(e) {
-        message("    - DMR analysis failed: ", e$message)
-    })
-  }
+    message("  Running DMR analysis (dmrff)...")
+    dmr_df <- data.frame(
+      CpG = rownames(fit2$coefficients),
+      logFC = fit2$coefficients[, 1],
+      SE = fit2$stdev.unscaled[, 1] * fit2$sigma,
+      P.Value = fit2$p.value[, 1],
+      stringsAsFactors = FALSE
+    )
+    dmr_out <- run_dmrff_with_inputs(
+      dmr_df = dmr_df,
+      betas = betas,
+      targets = targets,
+      curr_anno = curr_anno,
+      prefix = prefix,
+      out_dir = out_dir,
+      dmr_p_cutoff = dmr_p_cutoff,
+      dmr_min_cpgs = DMR_MIN_CPGS,
+      con_label = clean_con,
+      test_label = clean_test
+    )
+    dmr_res <- dmr_out$res
+    dmr_status <- dmr_out$status
+    dmr_reason <- dmr_out$reason
   }
 
   evaluate_batch <- function(data_betas, meta, label, file_suffix, allowed_vars) {
@@ -4753,7 +7874,9 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
      keep_cols <- vapply(allowed, function(nm) {
          if (nm == "primary_group") return(TRUE)
          if (grepl("^SV", nm)) return(length(unique(meta[[nm]])) > 1)
-         uniq <- length(unique(meta[[nm]]))
+         vals <- normalize_meta_vals(meta[[nm]])
+         vals <- vals[!is.na(vals)]
+         uniq <- length(unique(vals))
          return(uniq > 1 & uniq < nrow(meta))
      }, logical(1))
      test_meta <- meta[, allowed[keep_cols], drop=FALSE]
@@ -4780,18 +7903,24 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
      colnames(pvals) <- paste0("PC", 1:n_pcs)
      
      for (m in colnames(test_meta)) {
+         val <- normalize_meta_vals(test_meta[[m]])
+         cc <- !is.na(val)
+         if (sum(cc) < 3) next
+         val_cc <- val[cc]
+         if (length(unique(val_cc)) < 2) next
          for (k in 1:n_pcs) {
-             val <- test_meta[[m]]
-             if (is.numeric(val)) {
-                 fit <- lm(pcs[,k] ~ val)
-                 coefs <- summary(fit)$coefficients
-                 if (nrow(coefs) >= 2) {
-                     pvals[m,k] <- coefs[2,4]
-                 } else {
-                     pvals[m,k] <- NA
+             if (is.numeric(val_cc)) {
+                 fit <- tryCatch(lm(pcs[cc, k] ~ val_cc), error = function(e) NULL)
+                 if (!is.null(fit)) {
+                   coefs <- summary(fit)$coefficients
+                   if (nrow(coefs) >= 2) {
+                       pvals[m,k] <- coefs[2,4]
+                   } else {
+                       pvals[m,k] <- NA
+                   }
                  }
              } else {
-                 pvals[m,k] <- kruskal.test(pcs[,k] ~ as.factor(val))$p.value
+                 pvals[m,k] <- safe_kruskal_p(pcs[cc, k], val_cc)
              }
          }
      }
@@ -4839,9 +7968,11 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   
   # Permutation test on top-variable CpGs (optional)
   perm_summary <- NULL
+  perm_n_probes <- NA_real_
   if (perm_n > 0) {
       message(paste("  Running", perm_n, "permutations for null DMP counts (top", vp_top, "CpGs)..."))
       top_perm <- head(order(apply(betas, 1, var), decreasing = TRUE), min(vp_top, nrow(betas)))
+      perm_n_probes <- length(top_perm)
       m_perm <- logit_offset(betas[top_perm, , drop=FALSE])
       perm_results <- data.frame(run = integer(0), sig_count = integer(0), min_p = numeric(0),
                                  ks_p = numeric(0), lambda = numeric(0))
@@ -4911,11 +8042,15 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
               message(sprintf("    [perm %d/%d] elapsed: %.1f min, ETA: %.1f min", i, perm_n, elapsed, eta))
           }
       }
+      perm_mean_sig <- mean(perm_results$sig_count)
       perm_summary <- data.frame(
-        stat = c("mean_sig", "median_sig", "max_sig", "min_p_median", "ks_p_median", "lambda_median"),
-        value = c(mean(perm_results$sig_count), median(perm_results$sig_count),
+        stat = c("mean_sig", "median_sig", "max_sig", "min_p_median", "ks_p_median", "lambda_median",
+                 "n_probes", "mean_sig_rate"),
+        value = c(perm_mean_sig, median(perm_results$sig_count),
                   max(perm_results$sig_count), median(perm_results$min_p),
-                  median(perm_results$ks_p, na.rm = TRUE), median(perm_results$lambda, na.rm = TRUE))
+                  median(perm_results$ks_p, na.rm = TRUE), median(perm_results$lambda, na.rm = TRUE),
+                  perm_n_probes,
+                  ifelse(is.finite(perm_mean_sig) && perm_n_probes > 0, perm_mean_sig / perm_n_probes, NA))
       )
       write.csv(perm_results, file.path(out_dir, paste0(prefix, "_Permutation_Results.csv")), row.names = FALSE)
       write.csv(perm_summary, file.path(out_dir, paste0(prefix, "_Permutation_Summary.csv")), row.names = FALSE)
@@ -4945,13 +8080,10 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
       } else {
         form_str <- paste("~", paste(form_terms, collapse = " + "))
         form_vp <- as.formula(form_str)
-        vp_res <- tryCatch({
-          with_muffled_conditions(
-            fitExtractVarPartModel(m_vp, form_vp, meta_vp),
-            label = "variancePartition",
-            patterns = "boundary \\(singular\\) fit"
-          )
-        }, error = function(e) { message("    - variancePartition failed: ", e$message); NULL })
+        vp_fit <- fit_variance_partition_safe(m_vp, form_vp, meta_vp,
+                                              vp_cfg = config_settings$variance_partition,
+                                              label = "variancePartition")
+        vp_res <- vp_fit$result
         
         if (!is.null(vp_res)) {
           # vp_res: genes x variables; summarize by mean across genes
@@ -4972,25 +8104,137 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
       paste("Tier3 confounding detected for batch variable:", tier3_batch),
       "Primary VOI effect is not globally identifiable under batch removal.",
       "Primary inference uses stratified EWAS + meta-analysis across overlap strata.",
+      "Tier3_Primary outputs are the recommended results for interpretation.",
       "Pooled batch model and overlap-restricted analysis are reported as sensitivity checks."
     )
     writeLines(ident_lines, file.path(out_dir, paste0(prefix, "_Identifiability.txt")))
-    meta_res <- run_stratified_meta_analysis(
+    meta_out <- run_stratified_meta_analysis(
       betas_pre_correction, targets, tier3_batch, "primary_group",
-      used_covariates, prefix, out_dir, pval_thresh, lfc_thresh, delta_beta_thresh
+      used_covariates, forced_covariates, prefix, out_dir,
+      pval_thresh, lfc_thresh, delta_beta_thresh
     )
+    meta_res <- if (!is.null(meta_out)) meta_out$res else NULL
+    if (!is.null(meta_out)) {
+      if (!is.null(meta_out$method)) tier3_meta_method <- meta_out$method
+      if (!is.null(meta_out$i2_median)) tier3_meta_i2_median <- meta_out$i2_median
+    }
+    min_total_warn <- suppressWarnings(as.numeric(if (!is.null(config_settings$tier3_meta$min_total_warn))
+      config_settings$tier3_meta$min_total_warn else 20))
+    if (!is.finite(min_total_warn)) min_total_warn <- 20
+    min_stratum_warn <- suppressWarnings(as.numeric(if (!is.null(config_settings$tier3_meta$min_stratum_warn))
+      config_settings$tier3_meta$min_stratum_warn else 6))
+    if (!is.finite(min_stratum_warn)) min_stratum_warn <- 6
+    if (!is.null(meta_out)) {
+      if (is.finite(meta_out$total_n) && meta_out$total_n < min_total_warn) tier3_low_power <- TRUE
+      if (is.finite(meta_out$min_stratum_n) && meta_out$min_stratum_n < min_stratum_warn) tier3_low_power <- TRUE
+      if (tier3_low_power) {
+        log_decision("tier3", "low_power", "true",
+                     reason = "below_min_n",
+                     metrics = list(total_n = meta_out$total_n,
+                                    min_stratum_n = meta_out$min_stratum_n,
+                                    min_total_warn = min_total_warn,
+                                    min_stratum_warn = min_stratum_warn))
+      }
+    }
+    tier3_out <- emit_tier3_primary_outputs(meta_res, betas_pre_correction, targets, curr_anno,
+                                            prefix, out_dir, group_con_in, group_test_in,
+                                            clean_con, clean_test, max_points, pval_thresh, lfc_thresh,
+                                            meta_method = tier3_meta_method, i2_median = tier3_meta_i2_median,
+                                            tier3_stats = meta_out)
+    if (!is.null(tier3_out) && !is.null(tier3_out$res)) {
+      tier3_primary_res <- tier3_out$res
+      tier3_primary_lambda <- tier3_out$lambda
+      tier3_primary <- TRUE
+      res <- tier3_primary_res
+      log_decision("tier3", "primary_result", "stratified_meta", reason = "tier3_primary")
+    }
     pooled_res <- run_pooled_batch_model(betas_pre_correction, targets, tier3_batch, used_covariates, prefix, out_dir)
     overlap_res <- run_overlap_restricted_analysis(betas_pre_correction, targets, tier3_batch, "primary_group",
                                                    used_covariates, prefix, out_dir)
   }
 
-  if (!is.null(batch_candidates_df) && nrow(batch_candidates_df) > 0) {
+  if (tier3_mode) {
+    if (!is.null(tier3_primary_res)) {
+      tier3_cols_ok <- all(c("CpG", "logFC", "SE", "P.Value") %in% colnames(tier3_primary_res))
+      if (!isTRUE(tier3_cols_ok)) {
+        dmr_status <- "skipped_tier3_missing_columns"
+        dmr_reason <- "missing_columns"
+        dmr_strategy <- "tier3_meta"
+      } else {
+        tier3_prefix <- paste0(prefix, "_Tier3_Primary")
+        tier3_df <- tier3_primary_res[, c("CpG", "logFC", "SE", "P.Value")]
+        dmr_out <- run_dmrff_with_inputs(
+          dmr_df = tier3_df,
+          betas = betas_pre_correction,
+          targets = targets,
+          curr_anno = curr_anno,
+          prefix = tier3_prefix,
+          out_dir = out_dir,
+          dmr_p_cutoff = dmr_p_cutoff,
+          dmr_min_cpgs = DMR_MIN_CPGS,
+          con_label = clean_con,
+          test_label = clean_test
+        )
+        if (dmr_out$status == "ok") {
+          dmr_status <- "ran_tier3_meta"
+        } else if (dmr_out$status == "ok_empty") {
+          dmr_status <- "ran_tier3_meta_empty"
+        } else {
+          dmr_status <- dmr_out$status
+        }
+        dmr_reason <- dmr_out$reason
+        dmr_strategy <- "tier3_meta"
+      }
+    } else {
+      dmr_status <- "skipped_tier3_missing_meta"
+      dmr_reason <- "tier3_meta_unavailable"
+      dmr_strategy <- "tier3_meta"
+    }
+  }
+
+  mmc_res <- NULL
+  if (crf_enabled) {
+    mmc_methods_use <- mmc_methods
+    if (is.null(batch_col) || !(batch_col %in% colnames(targets)) || length(unique(targets[[batch_col]])) < 2) {
+      mmc_methods_use <- setdiff(mmc_methods_use, c("combat", "limma"))
+    }
+    if (length(mmc_methods_use) >= 2) {
+      max_mmc_probes <- suppressWarnings(as.integer(config_settings$crf$max_probes_mmc))
+      if (!is.finite(max_mmc_probes)) max_mmc_probes <- 0
+      mmc_res <- run_method_sensitivity(betas_pre_correction, targets_base, design_base, targets, design,
+                                        batch_col, used_covariates, mmc_methods_use,
+                                        prefix, out_dir, pval_thresh, lfc_thresh,
+                                        max_probes = max_mmc_probes)
+    }
+  } else if (!is.null(batch_candidates_df) && nrow(batch_candidates_df) > 0) {
     top_methods <- batch_candidates_df$method[order(-batch_candidates_df$total_score)]
     top_methods <- unique(top_methods)
     top_methods <- head(top_methods, 3)
     run_method_sensitivity(betas_pre_correction, targets_base, design_base, targets, design,
                            batch_col, used_covariates, top_methods,
                            prefix, out_dir, pval_thresh, lfc_thresh)
+  }
+
+  if (crf_enabled) {
+    crf_report <- run_crf_assessment(
+      betas_raw = betas_pre_correction,
+      betas_corr = betas,
+      targets = targets,
+      covariates = used_covariates,
+      tier_info = crf_tier_info,
+      batch_col = batch_col,
+      applied_batch_method = applied_batch_method,
+      out_dir = out_dir,
+      prefix = prefix,
+      pval_thresh = pval_thresh,
+      lfc_thresh = lfc_thresh,
+      config_settings = config_settings,
+      rgSet = rgSet,
+      mmc_res = mmc_res
+    )
+    if (!is.null(crf_report)) {
+      log_decision("crf", "report", "generated", reason = crf_tier)
+    }
   }
 
   # Metrics summary for reviewers
@@ -5001,15 +8245,66 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   grp_min_after <- tryCatch({
     if (is.null(pvals_after)) NA else suppressWarnings(min(pvals_after["primary_group",], na.rm=TRUE))
   }, error=function(e) NA)
+  primary_result_mode <- ifelse(tier3_ineligible,
+                                "tier3_ineligible",
+                                ifelse(tier3_primary,
+                                       ifelse(tier3_low_power, "tier3_low_power", "tier3_stratified_meta"),
+                                       "standard_model"))
+  tier3_batch_val <- ifelse(is.null(tier3_batch), "", tier3_batch)
+
+  caf_res <- NULL
+  caf_report_lines <- NULL
+  if (isTRUE(caf_enabled)) {
+    caf_res <- compute_caf_scores(
+      perm_summary = perm_summary,
+      perm_n_probes = perm_n_probes,
+      effect_metrics = effect_metrics,
+      marker_metrics = marker_metrics,
+      batch_before = batch_before,
+      batch_after = batch_after,
+      weights = caf_weights,
+      target_fpr = caf_target_fpr
+    )
+    caf_report_lines <- build_caf_report_lines(prefix, applied_batch_method, n_con_local, n_test_local,
+                                               perm_n, perm_n_probes, caf_res, marker_metrics, caf_target_fpr)
+    if (!is.null(caf_res)) {
+      caf_df <- data.frame(
+        metric = c("calibration_score", "preservation_score", "batch_removal_score", "cai",
+                   "null_fpr", "null_lambda", "null_ks_p",
+                   "marker_retention", "effect_concordance",
+                   "batch_reduction_ratio",
+                   "weight_calibration", "weight_preservation", "weight_batch"),
+        value = c(caf_res$calibration_score, caf_res$preservation_score, caf_res$batch_reduction,
+                  caf_res$cai, caf_res$null_fpr, caf_res$null_lambda, caf_res$null_ks_p,
+                  caf_res$marker_retention, caf_res$effect_concordance, caf_res$batch_reduction,
+                  caf_res$weights[["calibration"]], caf_res$weights[["preservation"]], caf_res$weights[["batch"]]),
+        stringsAsFactors = FALSE
+      )
+      write.csv(caf_df, file.path(out_dir, paste0(prefix, "_CAF_Summary.csv")), row.names = FALSE)
+    }
+    if (!is.null(caf_report_lines)) {
+      writeLines(caf_report_lines, file.path(out_dir, paste0(prefix, "_CAF_Report.txt")))
+    }
+  }
   
   metrics <- data.frame(
-    metric = c("pipeline", "lambda", "batch_method_applied", "batch_candidate", "batch_tier", "n_samples", "n_cpgs", "n_covariates_used", "covariates_used", "n_sv_used", "sv_used",
+    metric = c("pipeline", "lambda", "lambda_guard_status", "lambda_guard_action",
+               "lambda_guard_threshold", "lambda_guard_lambda",
+               "primary_result_mode", "tier3_batch", "tier3_primary_lambda", "tier3_low_power",
+               "tier3_ineligible", "tier3_meta_method", "tier3_meta_i2_median",
+               "batch_method_applied", "batch_candidate", "batch_tier", "n_samples", "n_cpgs",
+               "n_covariates_used", "covariates_used", "n_sv_used", "sv_used",
                "batch_sig_p_lt_0.05_before", "batch_min_p_before",
                "batch_sig_p_lt_0.05_after", "batch_min_p_after",
                "group_min_p_before", "group_min_p_after",
                "dropped_covariates",
-               "perm_mean_sig", "perm_max_sig", "perm_ks_p_median", "perm_lambda_median", "vp_primary_group_mean"),
-    value = c(prefix, lambda_val, applied_batch_method,
+               "perm_mean_sig", "perm_max_sig", "perm_ks_p_median", "perm_lambda_median", "vp_primary_group_mean",
+               "caf_score", "caf_calibration_score", "caf_preservation_score", "caf_batch_score"),
+    value = c(prefix, lambda_val, lambda_guard_status, lambda_guard_action,
+              lambda_guard_threshold, lambda_guard_lambda,
+              primary_result_mode, tier3_batch_val, tier3_primary_lambda, tier3_low_power,
+              tier3_ineligible, tier3_meta_method, tier3_meta_i2_median,
+              applied_batch_method,
               ifelse(is.null(batch_col), "", batch_col),
               ifelse(is.na(batch_tier), "", batch_tier),
               nrow(targets), nrow(betas), length(used_covariates),
@@ -5023,8 +8318,24 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
               if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat=="max_sig"] else NA,
               if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat=="ks_p_median"] else NA,
               if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat=="lambda_median"] else NA,
-              vp_primary)
+              vp_primary,
+              if (!is.null(caf_res)) caf_res$cai else NA,
+              if (!is.null(caf_res)) caf_res$calibration_score else NA,
+              if (!is.null(caf_res)) caf_res$preservation_score else NA,
+              if (!is.null(caf_res)) caf_res$batch_reduction else NA)
   )
+  if (!is.null(effect_metrics)) {
+    eff_df <- data.frame(metric = names(effect_metrics),
+                         value = vapply(effect_metrics, function(x) ifelse(is.null(x), NA, x), numeric(1)),
+                         stringsAsFactors = FALSE)
+    metrics <- rbind(metrics, eff_df)
+  }
+  if (!is.null(marker_metrics)) {
+    mk_df <- data.frame(metric = names(marker_metrics),
+                        value = vapply(marker_metrics, function(x) ifelse(is.null(x), NA, x), numeric(1)),
+                        stringsAsFactors = FALSE)
+    metrics <- rbind(metrics, mk_df)
+  }
   metrics_path <- file.path(out_dir, paste0(prefix, "_Metrics.csv"))
   write.csv(metrics, metrics_path, row.names = FALSE)
 
@@ -5080,6 +8391,22 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     batch_candidate = ifelse(is.null(batch_col), "", batch_col),
     batch_tier = ifelse(is.na(batch_tier), "", batch_tier),
     best_method = best_method,
+    lambda_guard_status = lambda_guard_status,
+    lambda_guard_action = lambda_guard_action,
+    lambda_guard_threshold = lambda_guard_threshold,
+    lambda_guard_lambda = lambda_guard_lambda,
+    tier3_mode = tier3_mode,
+    tier3_ineligible = tier3_ineligible,
+    tier3_low_power = tier3_low_power,
+    tier3_batch = tier3_batch_val,
+    primary_result_mode = primary_result_mode,
+    tier3_primary_lambda = tier3_primary_lambda,
+    tier3_meta_method = tier3_meta_method,
+    tier3_meta_i2_median = tier3_meta_i2_median,
+    dmr_status = dmr_status,
+    dmr_reason = dmr_reason,
+    dmr_strategy = dmr_strategy,
+    caf_score = if (!is.null(caf_res)) caf_res$cai else NA_real_,
     best_candidate_score = best_candidate_score,
     covariates_used = used_covariates,
     sv_used = sv_cols,
@@ -5107,6 +8434,10 @@ run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
     concord <- concord[is.finite(concord$logFC.Minfi) & is.finite(concord$logFC.Sesame), , drop = FALSE]
     delta_pass_minfi <- delta_beta_pass(concord$Delta_Beta.Minfi)
     delta_pass_sesame <- delta_beta_pass(concord$Delta_Beta.Sesame)
+    p1 <- pmin(pmax(concord$P.Value.Minfi, .Machine$double.xmin), 1)
+    p2 <- pmin(pmax(concord$P.Value.Sesame, .Machine$double.xmin), 1)
+    concord$P.Fisher <- pchisq(-2 * (log(p1) + log(p2)), df = 4, lower.tail = FALSE)
+    concord$adj.P.Fisher <- p.adjust(concord$P.Fisher, "BH")
 
     is_up <- concord$adj.P.Val.Minfi < pval_thresh &
       concord$adj.P.Val.Sesame < pval_thresh &
@@ -5252,6 +8583,16 @@ if (!is.null(beta_sesame_native)) {
   message("Sesame native pipeline skipped (no Sesame native betas available).")
 }
 
+sesame_dyebias_notes <- character(0)
+if (isTRUE(sesame_typeinorm_disabled)) sesame_dyebias_notes <- c(sesame_dyebias_notes, "typeinorm_disabled")
+if (isTRUE(sesame_dyebias_thread_error)) sesame_dyebias_notes <- c(sesame_dyebias_notes, "pthread_error")
+if (isTRUE(sesame_dyebias_typeinorm_failed)) sesame_dyebias_notes <- c(sesame_dyebias_notes, "typeinorm_failed")
+if (isTRUE(sesame_dyebias_missing_controls)) sesame_dyebias_notes <- c(sesame_dyebias_notes, "missing_controls")
+if (exists("sesame_cache_refresh_attempted", inherits = FALSE) && isTRUE(sesame_cache_refresh_attempted)) {
+  sesame_dyebias_notes <- c(sesame_dyebias_notes, "cache_refresh")
+}
+sesame_dyebias_note <- if (length(sesame_dyebias_notes) > 0) paste(unique(sesame_dyebias_notes), collapse = ";") else ""
+
 # --- Consensus (Intersection) between Minfi and Sesame ---
 consensus_counts <- run_intersection(res_minfi, res_sesame, "Intersection", "Sesame (Strict)")
 consensus_native_counts <- run_intersection(res_minfi, res_sesame_native, "Intersection_Native", "Sesame (Native)")
@@ -5272,6 +8613,24 @@ intersect_native_counts <- consensus_native_counts
 summary_n_con <- n_con
 summary_n_test <- n_test
 
+primary_branch <- "Minfi"
+primary_summary <- NULL
+primary_result_mode <- ""
+primary_tier3_batch <- ""
+primary_tier3_meta_method <- ""
+primary_tier3_meta_i2_median <- NA_real_
+primary_tier3_ineligible <- FALSE
+primary_tier3_low_power <- FALSE
+primary_caf_score <- NA_real_
+primary_dmr_status <- ""
+primary_dmr_reason <- ""
+primary_lambda_guard_status <- ""
+primary_lambda_guard_action <- ""
+primary_lambda_guard_lambda <- NA_real_
+primary_lambda_guard_threshold <- NA_real_
+primary_branch_override <- ""
+primary_branch_reason <- ""
+
 tryCatch({
   branch_df <- data.frame(
     branch = c("Minfi", "Sesame", "Sesame_Native"),
@@ -5282,31 +8641,90 @@ tryCatch({
     ),
     stringsAsFactors = FALSE
   )
-  branch_df <- branch_df[!is.na(branch_df$best_candidate_score), , drop = FALSE]
-  primary_branch <- if (nrow(branch_df) > 0) branch_df$branch[which.max(branch_df$best_candidate_score)] else "Minfi"
+  branch_df$excluded <- FALSE
+  branch_df$excluded_reason <- ""
+  sesame_issue <- isTRUE(sesame_dyebias_thread_error) || isTRUE(sesame_dyebias_missing_controls) ||
+    sesame_dyebias_mode %in% c("noob_only")
+  if (isTRUE(sesame_issue) && !is.null(minfi_summary)) {
+    branch_df$best_candidate_score[branch_df$branch %in% c("Sesame", "Sesame_Native")] <- NA
+    branch_df$excluded[branch_df$branch %in% c("Sesame", "Sesame_Native")] <- TRUE
+    primary_branch_override <- "Minfi"
+    sesame_issue_notes <- character(0)
+    if (isTRUE(sesame_dyebias_thread_error)) sesame_issue_notes <- c(sesame_issue_notes, "pthread_error")
+    if (isTRUE(sesame_dyebias_missing_controls)) sesame_issue_notes <- c(sesame_issue_notes, "missing_controls")
+    if (sesame_dyebias_mode %in% c("noob_only")) sesame_issue_notes <- c(sesame_issue_notes, "noob_only")
+    primary_branch_reason <- paste0("sesame_fallback:", paste(unique(sesame_issue_notes), collapse = ";"))
+    branch_df$excluded_reason[branch_df$branch %in% c("Sesame", "Sesame_Native")] <- primary_branch_reason
+    log_decision("consensus", "primary_branch_override", "Minfi", reason = primary_branch_reason)
+  }
+  missing_mask <- is.na(branch_df$best_candidate_score) & !nzchar(branch_df$excluded_reason)
+  branch_df$excluded[missing_mask] <- TRUE
+  branch_df$excluded_reason[missing_mask] <- "missing_score"
+  branch_df_use <- branch_df[!is.na(branch_df$best_candidate_score), , drop = FALSE]
+  primary_branch <- if (nrow(branch_df_use) > 0) branch_df_use$branch[which.max(branch_df_use$best_candidate_score)] else "Minfi"
   branch_df$primary <- branch_df$branch == primary_branch
   write.csv(branch_df, file.path(results_dirs$consensus, "comparison_metrics.csv"), row.names = FALSE)
   log_decision("consensus", "primary_branch", primary_branch, reason = "best_candidate_score")
   writeLines(primary_branch, file.path(results_dirs$consensus, "primary_branch.txt"))
 
-  summary_json <- sprintf(
-    paste0(
-      '{"n_con": %d, "n_test": %d, ',
-      '"minfi_up": %d, "minfi_down": %d, ',
-      '"sesame_up": %d, "sesame_down": %d, ',
-      '"sesame_native_up": %d, "sesame_native_down": %d, ',
-      '"intersect_up": %d, "intersect_down": %d, ',
-      '"intersect_native_up": %d, "intersect_native_down": %d}'
-    ),
-    summary_n_con, summary_n_test,
-    minfi_counts$up, minfi_counts$down,
-    sesame_counts$up, sesame_counts$down,
-    sesame_native_counts$up, sesame_native_counts$down,
-    intersect_counts$up, intersect_counts$down,
-    intersect_native_counts$up, intersect_native_counts$down
+  primary_summary <- switch(primary_branch,
+                            Minfi = minfi_summary,
+                            Sesame = sesame_summary,
+                            Sesame_Native = sesame_native_summary,
+                            NULL)
+  if (!is.null(primary_summary)) {
+    if (!is.null(primary_summary$primary_result_mode)) primary_result_mode <- primary_summary$primary_result_mode
+    if (!is.null(primary_summary$tier3_batch)) primary_tier3_batch <- primary_summary$tier3_batch
+    if (!is.null(primary_summary$tier3_meta_method)) primary_tier3_meta_method <- primary_summary$tier3_meta_method
+    if (!is.null(primary_summary$tier3_meta_i2_median)) primary_tier3_meta_i2_median <- primary_summary$tier3_meta_i2_median
+    if (!is.null(primary_summary$tier3_ineligible)) primary_tier3_ineligible <- primary_summary$tier3_ineligible
+    if (!is.null(primary_summary$tier3_low_power)) primary_tier3_low_power <- primary_summary$tier3_low_power
+    if (!is.null(primary_summary$caf_score)) primary_caf_score <- primary_summary$caf_score
+    if (!is.null(primary_summary$dmr_status)) primary_dmr_status <- primary_summary$dmr_status
+    if (!is.null(primary_summary$dmr_reason)) primary_dmr_reason <- primary_summary$dmr_reason
+    if (!is.null(primary_summary$lambda_guard_status)) primary_lambda_guard_status <- primary_summary$lambda_guard_status
+    if (!is.null(primary_summary$lambda_guard_action)) primary_lambda_guard_action <- primary_summary$lambda_guard_action
+    if (!is.null(primary_summary$lambda_guard_lambda)) primary_lambda_guard_lambda <- primary_summary$lambda_guard_lambda
+    if (!is.null(primary_summary$lambda_guard_threshold)) primary_lambda_guard_threshold <- primary_summary$lambda_guard_threshold
+  }
+
+  summary_payload <- list(
+    n_con = summary_n_con,
+    n_test = summary_n_test,
+    beginner_safe = beginner_safe,
+    minfi_up = minfi_counts$up,
+    minfi_down = minfi_counts$down,
+    sesame_up = sesame_counts$up,
+    sesame_down = sesame_counts$down,
+    sesame_native_up = sesame_native_counts$up,
+    sesame_native_down = sesame_native_counts$down,
+    intersect_up = intersect_counts$up,
+    intersect_down = intersect_counts$down,
+    intersect_native_up = intersect_native_counts$up,
+    intersect_native_down = intersect_native_counts$down,
+    primary_branch = primary_branch,
+    primary_result_mode = primary_result_mode,
+    primary_tier3_batch = primary_tier3_batch,
+    primary_tier3_meta_method = primary_tier3_meta_method,
+    primary_tier3_meta_i2_median = primary_tier3_meta_i2_median,
+    primary_tier3_ineligible = primary_tier3_ineligible,
+    primary_tier3_low_power = primary_tier3_low_power,
+    primary_caf_score = primary_caf_score,
+    primary_dmr_status = primary_dmr_status,
+    primary_dmr_reason = primary_dmr_reason,
+    primary_lambda_guard_status = primary_lambda_guard_status,
+    primary_lambda_guard_action = primary_lambda_guard_action,
+    primary_lambda_guard_lambda = primary_lambda_guard_lambda,
+    primary_lambda_guard_threshold = primary_lambda_guard_threshold,
+    primary_branch_override = primary_branch_override,
+    primary_branch_reason = primary_branch_reason,
+    sesame_dyebias_mode = sesame_dyebias_mode,
+    sesame_dyebias_note = sesame_dyebias_note,
+    crf_enabled = crf_enabled,
+    crf_sample_tier = crf_tier
   )
   
-  writeLines(summary_json, file.path(out_dir, "summary.json"))
+  write_json(summary_payload, file.path(out_dir, "summary.json"), auto_unbox = TRUE, pretty = TRUE, na = "null")
   message("Summary statistics saved to summary.json")
 
   consensus_files <- c(
@@ -5323,24 +8741,154 @@ tryCatch({
       file.copy(src, results_dirs$consensus, overwrite = TRUE)
     }
   }
+
+  caf_report_src <- file.path(out_dir, paste0(primary_branch, "_CAF_Report.txt"))
+  if (file.exists(caf_report_src)) {
+    caf_report_dest <- file.path(out_dir, "Correction_Adequacy_Report.txt")
+    file.copy(caf_report_src, caf_report_dest, overwrite = TRUE)
+    file.copy(caf_report_dest, results_dirs$reports, overwrite = TRUE)
+  }
+  caf_summary_src <- file.path(out_dir, paste0(primary_branch, "_CAF_Summary.csv"))
+  if (file.exists(caf_summary_src)) {
+    caf_summary_dest <- file.path(out_dir, "Correction_Adequacy_Summary.csv")
+    file.copy(caf_summary_src, caf_summary_dest, overwrite = TRUE)
+    file.copy(caf_summary_dest, results_dirs$reports, overwrite = TRUE)
+  }
+
+  crf_report_src <- file.path(out_dir, paste0(primary_branch, "_CRF_Report.txt"))
+  if (file.exists(crf_report_src)) {
+    crf_report_dest <- file.path(out_dir, "Correction_Robustness_Report.txt")
+    file.copy(crf_report_src, crf_report_dest, overwrite = TRUE)
+    file.copy(crf_report_dest, results_dirs$reports, overwrite = TRUE)
+  }
+  for (crf_name in c("CRF_MMC_Summary.csv", "CRF_NCS_Summary.csv", "CRF_SSS_Summary.csv")) {
+    src <- file.path(out_dir, paste0(primary_branch, "_", crf_name))
+    if (file.exists(src)) {
+      dest <- file.path(out_dir, crf_name)
+      file.copy(src, dest, overwrite = TRUE)
+      file.copy(dest, results_dirs$reports, overwrite = TRUE)
+    }
+  }
   
   sva_rule <- ifelse(disable_sva, "disabled", "best_method_or_no_batch")
-  params_json <- sprintf(
-    '{"pval_threshold": %.3f, "lfc_threshold": %.2f, "delta_beta_threshold": %.3f, "snp_maf": %.3f, "qc_intensity_threshold": %.1f, "detection_p_threshold": %.3f, "qc_sample_fail_frac": %.3f, "tissue": "%s", "tissue_source": "%s", "array_type": "%s", "cell_reference": "%s", "cell_reference_platform": "%s", "auto_covariate_alpha": %.3f, "auto_covariate_max_pcs": %d, "sesame_native_na_max_frac": %.2f, "sesame_native_impute_method": "%s", "sesame_native_knn_k": %d, "sesame_native_knn_max_rows": %d, "sesame_native_knn_ref_rows": %d, "sesame_cell_reference": "%s", "overcorrection_guard_ratio": %.2f, "undercorrection_guard_min_sv": %d, "sva_enabled": %s, "sva_inclusion_rule": "%s", "clock_covariates_enabled": %s, "sv_group_p_threshold": %.1e, "sv_group_eta2_threshold": %.2f, "pvca_min_samples": %d, "permutations": %d, "vp_top": %d, "dmr_maxgap": %d, "dmr_p_cutoff": %.3f, "dmr_min_cpgs": %d, "logit_offset": %.6f, "seed": %d, "preset": "%s", "config_yaml": "%s", "min_overlap_per_cell": %d, "confounding_tier1_v": %.2f, "confounding_tier2_v": %.2f, "confounding_tier1_r2": %.2f, "confounding_tier2_r2": %.2f, "calibration_ks_p": %.2f}',
-    pval_thresh, lfc_thresh, delta_beta_thresh, SNP_MAF_THRESHOLD, QC_MEDIAN_INTENSITY_THRESHOLD,
-    QC_DETECTION_P_THRESHOLD, QC_SAMPLE_DET_FAIL_FRAC, tissue_use, tissue_source,
-    ifelse(is.na(array_type), "", array_type), cell_reference, cell_reference_platform,
-    AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION, SESAME_NATIVE_NA_MAX_FRAC,
-    sesame_native_impute_method, SESAME_NATIVE_KNN_K, SESAME_NATIVE_KNN_MAX_ROWS, SESAME_NATIVE_KNN_REF_ROWS,
-    sesame_cell_reference,
-    OVERCORRECTION_GUARD_RATIO, UNDERCORRECTION_GUARD_MIN_SV, ifelse(disable_sva, "false", "true"), sva_rule, ifelse(include_clock_covariates, "true", "false"),
-    SV_GROUP_P_THRESHOLD, SV_GROUP_ETA2_THRESHOLD, PVCA_MIN_SAMPLES, perm_n, vp_top, DMR_MAXGAP, dmr_p_cutoff, DMR_MIN_CPGS, LOGIT_OFFSET, 12345,
-    preset_name, config_yaml_path, config_settings$min_overlap_per_cell,
-    config_settings$confounding$tier1_v, config_settings$confounding$tier2_v,
-    config_settings$confounding$tier1_r2, config_settings$confounding$tier2_r2,
-    config_settings$calibration$ks_p
+  config_yaml_resolved <- ifelse(file.exists(config_yaml_path), config_yaml_path, "")
+  params_payload <- list(
+    pval_threshold = pval_thresh,
+    lfc_threshold = lfc_thresh,
+    delta_beta_threshold = delta_beta_thresh,
+    beginner_safe_delta_beta = beginner_safe_delta_beta,
+    beginner_safe = beginner_safe,
+    snp_maf = SNP_MAF_THRESHOLD,
+    qc_intensity_threshold = QC_MEDIAN_INTENSITY_THRESHOLD,
+    detection_p_threshold = QC_DETECTION_P_THRESHOLD,
+    qc_sample_fail_frac = QC_SAMPLE_DET_FAIL_FRAC,
+    cross_reactive_enabled = cross_reactive_enabled,
+    unsafe_skip_cross_reactive = unsafe_skip_cross_reactive,
+    cross_reactive_active = cross_reactive_active,
+    cross_reactive_source = ifelse(nzchar(cross_reactive_source), cross_reactive_source, ""),
+    cross_reactive_version = ifelse(nzchar(cross_reactive_version), cross_reactive_version, ""),
+    cross_reactive_path = ifelse(nzchar(cross_reactive_path), cross_reactive_path, ""),
+    cross_reactive_local_dir = ifelse(nzchar(cross_reactive_local_dir), cross_reactive_local_dir, ""),
+    cross_reactive_count = ifelse(is.null(cross_reactive_probes), 0, length(cross_reactive_probes)),
+    sex_check_enabled = sex_check_enabled,
+    sex_check_action = sex_check_action,
+    sex_check_column = ifelse(nzchar(sex_check_column_used), sex_check_column_used, ""),
+    sex_mismatch_count = sex_mismatch_count,
+    sex_mismatch_dropped = samples_failed_sex,
+    auto_covariates_enabled = auto_cov_enabled,
+    auto_covariates_exclude_group_associated = auto_cov_exclude_group,
+    auto_covariates_group_assoc_p_threshold = auto_cov_group_p,
+    auto_covariates_max_cor = auto_cov_max_cor,
+    batch_override_column = ifelse(nzchar(batch_col_override), batch_col_override, ""),
+    batch_override_method = ifelse(nzchar(batch_method_override), batch_method_override, ""),
+    tissue = tissue_use,
+    tissue_source = tissue_source,
+    array_type = ifelse(is.na(array_type), "", array_type),
+    cell_reference = cell_reference,
+    cell_reference_platform = cell_reference_platform,
+    cell_ref_free_k = cell_ref_free_k,
+    cell_ref_free_max_probes = cell_ref_free_max_probes,
+    cell_confound_eta2_threshold = cell_confound_eta2_threshold,
+    cell_confound_action = cell_confound_action,
+    cell_adjustment_on_high_eta2 = cell_adjustment_action,
+    auto_covariate_alpha = AUTO_COVARIATE_ALPHA,
+    auto_covariate_max_pcs = MAX_PCS_FOR_COVARIATE_DETECTION,
+    sesame_native_na_max_frac = SESAME_NATIVE_NA_MAX_FRAC,
+    sesame_native_impute_method = sesame_native_impute_method,
+    sesame_native_knn_k = SESAME_NATIVE_KNN_K,
+    sesame_native_knn_max_rows = SESAME_NATIVE_KNN_MAX_ROWS,
+    sesame_native_knn_ref_rows = SESAME_NATIVE_KNN_REF_ROWS,
+    sesame_cell_reference = sesame_cell_reference,
+    sesame_typeinorm_enabled = sesame_typeinorm_enabled,
+    overcorrection_guard_ratio = OVERCORRECTION_GUARD_RATIO,
+    undercorrection_guard_min_sv = UNDERCORRECTION_GUARD_MIN_SV,
+    sva_enabled = !disable_sva,
+    sva_inclusion_rule = sva_rule,
+    clock_covariates_enabled = include_clock_covariates,
+    sv_group_p_threshold = SV_GROUP_P_THRESHOLD,
+    sv_group_eta2_threshold = SV_GROUP_ETA2_THRESHOLD,
+    pvca_min_samples = PVCA_MIN_SAMPLES,
+    permutations = perm_n,
+    crf_enabled = crf_enabled,
+    crf_sample_tier = crf_tier,
+    crf_mmc_methods = if (!is.null(mmc_methods)) paste(mmc_methods, collapse = ",") else "",
+    combat_par_prior = combat_par_prior,
+    combat_allowed = combat_allowed,
+    crf_ncs_types = if (!is.null(crf_tier_info$ncs_types)) paste(crf_tier_info$ncs_types, collapse = ",") else "",
+    crf_sss_mode = if (!is.null(crf_tier_info$sss_mode)) crf_tier_info$sss_mode else "",
+    crf_sss_iterations = if (!is.null(crf_tier_info$sss_iterations)) crf_tier_info$sss_iterations else NA,
+    crf_sss_top_k = if (!is.null(crf_tier_info$sss_top_k)) paste(crf_tier_info$sss_top_k, collapse = ",") else "",
+    crf_max_probes_mmc = if (!is.null(config_settings$crf$max_probes_mmc)) config_settings$crf$max_probes_mmc else NA,
+    crf_max_probes_sss = if (!is.null(config_settings$crf$max_probes_sss)) config_settings$crf$max_probes_sss else NA,
+    crf_housekeeping_path = if (!is.null(config_settings$crf$housekeeping_path)) config_settings$crf$housekeeping_path else "",
+    vp_top = vp_top,
+    dmr_maxgap = DMR_MAXGAP,
+    dmr_p_cutoff = dmr_p_cutoff,
+    dmr_min_cpgs = DMR_MIN_CPGS,
+    logit_offset = LOGIT_OFFSET,
+    seed = 12345,
+    preset = preset_name,
+    config_yaml = config_yaml_resolved,
+    min_overlap_per_cell = config_settings$min_overlap_per_cell,
+    confounding_tier1_v = config_settings$confounding$tier1_v,
+    confounding_tier2_v = config_settings$confounding$tier2_v,
+    confounding_tier1_r2 = config_settings$confounding$tier1_r2,
+    confounding_tier2_r2 = config_settings$confounding$tier2_r2,
+    calibration_ks_p = config_settings$calibration$ks_p,
+    caf_enabled = caf_enabled,
+    caf_target_fpr = caf_target_fpr,
+    caf_weights = caf_weights,
+    lambda_guard_enabled = ifelse(!is.null(config_settings$lambda_guard$enabled),
+                                  config_settings$lambda_guard$enabled, NA),
+    lambda_guard_threshold = ifelse(!is.null(config_settings$lambda_guard$threshold),
+                                    config_settings$lambda_guard$threshold, NA),
+    lambda_guard_min_samples = ifelse(!is.null(config_settings$lambda_guard$min_samples),
+                                      config_settings$lambda_guard$min_samples, NA),
+    lambda_guard_action = ifelse(!is.null(config_settings$lambda_guard$action),
+                                 config_settings$lambda_guard$action, ""),
+    variance_partition_autoscale_numeric = ifelse(!is.null(config_settings$variance_partition$autoscale_numeric),
+                                                  config_settings$variance_partition$autoscale_numeric, NA),
+    variance_partition_autoscale_on_fail = ifelse(!is.null(config_settings$variance_partition$autoscale_on_fail),
+                                                  config_settings$variance_partition$autoscale_on_fail, NA),
+    scoring_weights = scoring_preset$weights,
+    scoring_guards = scoring_preset$guards,
+    scoring_top_k = scoring_preset$top_k,
+    tier3_meta_method = ifelse(!is.null(config_settings$tier3_meta$method),
+                               config_settings$tier3_meta$method, "auto"),
+    tier3_meta_i2_threshold = ifelse(!is.null(config_settings$tier3_meta$i2_threshold),
+                                     config_settings$tier3_meta$i2_threshold, NA),
+    tier3_meta_min_total_n = ifelse(!is.null(config_settings$tier3_meta$min_total_n),
+                                    config_settings$tier3_meta$min_total_n, NA),
+    tier3_meta_min_per_group_per_stratum = ifelse(!is.null(config_settings$tier3_meta$min_per_group_per_stratum),
+                                                  config_settings$tier3_meta$min_per_group_per_stratum, NA),
+    tier3_meta_on_fail = ifelse(!is.null(config_settings$tier3_meta$on_fail),
+                                config_settings$tier3_meta$on_fail, ""),
+    tier3_meta_min_total_warn = ifelse(!is.null(config_settings$tier3_meta$min_total_warn),
+                                       config_settings$tier3_meta$min_total_warn, NA),
+    tier3_meta_min_stratum_warn = ifelse(!is.null(config_settings$tier3_meta$min_stratum_warn),
+                                         config_settings$tier3_meta$min_stratum_warn, NA)
   )
-  writeLines(params_json, file.path(out_dir, "analysis_parameters.json"))
+  write_json(params_payload, file.path(out_dir, "analysis_parameters.json"), auto_unbox = TRUE, pretty = TRUE, na = "null")
   message("Analysis parameters saved to analysis_parameters.json")
   
   git_hash <- tryCatch(system("git rev-parse HEAD 2>/dev/null", intern=TRUE), error = function(e) character(0))
@@ -5358,7 +8906,9 @@ writeLines(capture.output(sessionInfo()), file.path(out_dir, "sessionInfo.txt"))
 config_used <- list(
   preset = preset_name,
   config_yaml = ifelse(file.exists(config_yaml_path), config_yaml_path, ""),
+  beginner_safe = beginner_safe,
   min_overlap_per_cell = config_settings$min_overlap_per_cell,
+  logit_offset = LOGIT_OFFSET,
   qc = config_settings$qc,
   dmr = config_settings$dmr,
   confounding = config_settings$confounding,
@@ -5366,7 +8916,18 @@ config_used <- list(
   forced_adjust = config_settings$forced_adjust,
   allowed_adjust = config_settings$allowed_adjust,
   do_not_adjust = config_settings$do_not_adjust,
+  batch_override = config_settings$batch_override,
   calibration = config_settings$calibration,
+  unsafe = config_settings$unsafe,
+  caf = config_settings$caf,
+  auto_covariates = config_settings$auto_covariates,
+  lambda_guard = config_settings$lambda_guard,
+  variance_partition = config_settings$variance_partition,
+  tier3_meta = config_settings$tier3_meta,
+  cell_adjustment = config_settings$cell_adjustment,
+  cell_deconv = config_settings$cell_deconv,
+  cross_reactive = config_settings$cross_reactive,
+  sex_check = config_settings$sex_check,
   scoring_preset = scoring_preset,
   permutations = perm_n
 )
@@ -5399,9 +8960,10 @@ tryCatch({
     "disabled"
   }
   array_type_str <- ifelse(is.na(array_type) || !nzchar(array_type), "NA", array_type)
-  genome_build <- if (array_type_str == "EPICv2") {
+  array_label_str <- ifelse(nzchar(array_label), array_label, array_type_str)
+  genome_build <- if (array_label_str == "EPICv2") {
     "hg38"
-  } else if (array_type_str %in% c("EPIC", "EPICv1", "450k")) {
+  } else if (array_label_str %in% c("EPIC", "450K")) {
     "hg19"
   } else {
     "minfi annotation"
@@ -5419,6 +8981,51 @@ tryCatch({
   if (delta_beta_thresh > 0) {
     sig_line <- paste0(sig_line, sprintf(" and |DeltaBeta| >= %.3f", delta_beta_thresh))
   }
+  primary_result_mode_disp <- ifelse(nzchar(primary_result_mode), primary_result_mode, "unknown")
+  primary_tier3_batch_disp <- ifelse(nzchar(primary_tier3_batch), primary_tier3_batch, "none")
+  primary_tier3_meta_method_disp <- ifelse(nzchar(primary_tier3_meta_method), primary_tier3_meta_method, "fixed")
+  primary_tier3_meta_i2_disp <- ifelse(is.finite(primary_tier3_meta_i2_median),
+                                       sprintf("%.3f", primary_tier3_meta_i2_median), "NA")
+  tier3_low_power_line <- if (primary_result_mode_disp == "tier3_low_power") {
+    "WARNING: Tier3 stratified meta-analysis flagged low power; interpret results with extreme caution."
+  } else {
+    NULL
+  }
+  tier3_ineligible_line <- if (isTRUE(primary_tier3_ineligible) || primary_result_mode_disp == "tier3_ineligible") {
+    "WARNING: Tier3 confounding detected but eligibility failed; stratified/meta-analysis was not run."
+  } else {
+    NULL
+  }
+  primary_dmr_status_disp <- ifelse(nzchar(primary_dmr_status), primary_dmr_status, "unknown")
+  primary_dmr_reason_disp <- ifelse(nzchar(primary_dmr_reason), paste0(" (reason: ", primary_dmr_reason, ")"), "")
+  lambda_guard_status_disp <- ifelse(nzchar(primary_lambda_guard_status), primary_lambda_guard_status, "unknown")
+  lambda_guard_action_disp <- ifelse(nzchar(primary_lambda_guard_action), primary_lambda_guard_action, "unknown")
+  lambda_guard_threshold_disp <- ifelse(is.finite(primary_lambda_guard_threshold), sprintf("%.3f", primary_lambda_guard_threshold), "NA")
+  lambda_guard_lambda_disp <- ifelse(is.finite(primary_lambda_guard_lambda), sprintf("%.3f", primary_lambda_guard_lambda), "NA")
+  primary_branch_override_disp <- ifelse(nzchar(primary_branch_override), primary_branch_override, "none")
+  primary_branch_reason_disp <- ifelse(nzchar(primary_branch_reason), paste0(" (", primary_branch_reason, ")"), "")
+  sesame_dyebias_note_disp <- ifelse(nzchar(sesame_dyebias_note), paste0(" (", sesame_dyebias_note, ")"), "")
+  cross_reactive_line <- if (isTRUE(cross_reactive_active) && !is.null(cross_reactive_probes) &&
+                             length(cross_reactive_probes) > 0) {
+    source_disp <- ifelse(nzchar(cross_reactive_source), cross_reactive_source, "list")
+    sprintf("- Cross-reactive probes: removed using %s (n=%d). References: Pidsley 2016; McCartney 2016; Chen 2013.", source_disp, n_cross_probes)
+  } else if (isTRUE(cross_reactive_active)) {
+    "- Cross-reactive probes: filtering enabled but list unavailable (EPICv2 best-effort or missing local list)."
+  } else {
+    "- WARNING: Cross-reactive probe filtering was skipped (unsafe)."
+  }
+  sex_check_line <- if (isTRUE(sex_check_enabled)) {
+    col_disp <- ifelse(nzchar(sex_check_column_used), sex_check_column_used, "auto")
+    sprintf("- Sex mismatch QC: predicted sex via minfi::getSex() vs metadata column '%s' (action=%s; mismatches=%d).",
+            col_disp, sex_check_action, sex_mismatch_count)
+  } else {
+    "- Sex mismatch QC: disabled or not available."
+  }
+  beginner_line <- if (beginner_safe) {
+    sprintf("- Beginner-safe mode: enabled (min total n >= %d; |DeltaBeta| >= %.3f).", MIN_TOTAL_SIZE_STOP, delta_beta_thresh)
+  } else {
+    NULL
+  }
   methods_lines <- c(
     "# IlluMeta analysis methods (auto-generated)",
     "",
@@ -5426,11 +9033,13 @@ tryCatch({
     sprintf("- Config: `%s`", config_file),
     sprintf("- Output: `%s`", out_dir),
     sprintf("- Groups: control=`%s` (n=%s), test=`%s` (n=%s)", group_con_in, summary_n_con, group_test_in, summary_n_test),
+    beginner_line,
     sprintf("- Tissue: `%s` (source: %s)", tissue_use, tissue_source),
-    sprintf("- Array type detected: %s", array_type_str),
+    sprintf("- Array type detected: %s", array_label_str),
     sprintf("- Genomic coordinates: standardized to minfi annotation (%s) for cross-pipeline comparison.", genome_build),
     sprintf("- Cell reference: %s", cell_ref_str),
     sprintf("- Sesame cell composition: %s.", sesame_cell_reference),
+    sprintf("- Cell adjustment guard: action=%s when Eta^2 > %.2f.", cell_adjustment_action, cell_confound_eta2_threshold),
     sig_line,
     "",
     "## Overview",
@@ -5439,50 +9048,73 @@ tryCatch({
     "## Data input",
     "- Raw IDATs are read from the project `idat/` directory.",
     sprintf("- Samples are defined by `%s` and `primary_group` in `configure.tsv`.", gsm_col),
+    "- Auto-grouping (if used) is heuristic; users must verify group labels/counts before interpretation.",
     "",
     "## Sample-level QC",
     sprintf("- Detection P-value: samples with > %.0f%% probes failing (P > %.3g) are excluded.", QC_SAMPLE_DET_FAIL_FRAC * 100, QC_DETECTION_P_THRESHOLD),
     sprintf("- Signal intensity QC: %s.", qc_intensity_str),
     "- Mixed-array safeguard: samples whose IDAT array size deviates from the modal array size are excluded (unless `--force_idat`).",
+    sex_check_line,
     "",
     "## Probe-level QC (minfi-derived probe set)",
     sprintf("- Detection P-value filter: probes are retained only if P < %.3g in all retained samples.", QC_DETECTION_P_THRESHOLD),
-    sprintf("- SNP filtering: probes overlapping common SNPs (SBE/CpG; MAF ≥ %.2f) are removed using `minfi::dropLociWithSnps()`.", SNP_MAF_THRESHOLD),
+    cross_reactive_line,
+    sprintf("- SNP filtering: probes overlapping common SNPs (SBE/CpG; MAF >= %.2f) are removed using `minfi::dropLociWithSnps()`.", SNP_MAF_THRESHOLD),
     "- Sex chromosome probes (chrX/chrY) are removed.",
     "",
     "## Normalization (two pipelines)",
     "- **minfi**: `preprocessNoob()` followed by `mapToGenome()`; beta values are extracted with `getBeta()`.",
-    "- **sesame**: `noob()` + `dyeBiasCorrTypeINorm()` (fallback to `dyeBiasCorr()`, then `noob()` only if normalization controls are missing); beta values are extracted with `getBetas()`.",
+    "- **sesame**: `noob()` + `dyeBiasCorr()` by default; optional `dyeBiasCorrTypeINorm()` when `--sesame_typeinorm` is enabled (fallback to `dyeBiasCorr()`, then `noob()` only if normalization controls are missing); beta values are extracted with `getBetas()`.",
     "- **sesame strict view**: probes with any masked values are removed and then intersected with the minfi QC probe set for conservative cross-validation.",
-    sprintf("- **sesame native view**: probes with ≤ %.2f missingness are retained; remaining NAs are imputed via KNN (impute::impute.knn, k=%d) when available, with row-mean fallback if KNN is unavailable.", SESAME_NATIVE_NA_MAX_FRAC, SESAME_NATIVE_KNN_K),
+    sprintf("- **sesame native view**: probes with <= %.2f missingness are retained; remaining NAs are imputed via KNN (impute::impute.knn, k=%d) when available, with row-mean fallback if KNN is unavailable.", SESAME_NATIVE_NA_MAX_FRAC, SESAME_NATIVE_KNN_K),
     "",
     "## Covariates and batch control",
     sprintf("- Automatic covariate discovery: metadata variables associated with the top PCs (alpha=%.3f; up to %d PCs) are considered, then filtered for stability/confounding.", AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION),
+    sprintf("- Auto covariate guard: variables associated with the group (p < %.1g) are excluded by default.", auto_cov_group_p),
+    "- Auto-selected covariates may include mediators; verify biological plausibility before interpretation.",
     "- Small-n safeguard: if covariate count would eliminate residual degrees of freedom, covariates are capped using PC-association/variance ranking to preserve model stability.",
     sprintf("- Overcorrection guard: total covariates + SVs are capped at %.0f%% of sample size (excess terms are dropped to preserve power).", OVERCORRECTION_GUARD_RATIO * 100),
     sprintf("- Undercorrection guard: if SVA detects hidden structure, at least %d SV(s) are retained when possible (dropping non-forced covariates first).", UNDERCORRECTION_GUARD_MIN_SV),
-    "- Cell composition: when tissue is `Auto`, IlluMeta attempts to infer tissue from metadata; if unresolved, reference-free deconvolution is performed via RefFreeEWAS (K=5 latent components). Custom references via `--cell_reference` override defaults when provided.",
-    "- Sesame pipelines attempt Sesame-native cell composition; if unavailable, they try EpiDISH (Blood) or RefFreeEWAS on Sesame betas, and fall back to Minfi-derived covariates if needed.",
+    sprintf("- Cell composition: when tissue is `Auto`, IlluMeta attempts to infer tissue from metadata/heuristics; if unresolved, reference-free deconvolution is performed via RefFreeEWAS (K=%d latent components). For `Placenta`, IlluMeta uses planet::plCellCpGsThird with minfi::projectCellType (Houseman) when available. Custom references via `--cell_reference` override defaults when provided.", cell_ref_free_k),
+    "- Reference-based deconvolution can be biased if disease alters methylation states; interpret cell-adjusted models cautiously and consider RefFreeEWAS outputs.",
+    "- Sesame pipelines attempt Sesame-native cell composition; if unavailable, they try planet (Placenta), EpiDISH (Blood), or RefFreeEWAS on Sesame betas, and fall back to Minfi-derived covariates if needed.",
     sprintf("- Surrogate variable analysis (SVA): enabled unless `--disable_sva`; SVs are estimated on top-variable probes and included in the model only when selected as the best batch strategy or when no batch factor is evaluated (to avoid double correction). SVs strongly associated with the group (P < %.1e or Eta^2 > %.2f) are excluded to avoid over-correction.", SV_GROUP_P_THRESHOLD, SV_GROUP_ETA2_THRESHOLD),
     "- Epigenetic clock covariates: when `--include_clock_covariates` is enabled, clock outputs are merged into metadata and considered by auto covariate selection (clocks with missing/constant values are excluded).",
-    "- Batch method comparison: batch candidates are screened for VOI confounding (Cramer's V / R2 and overlap tiers). Tier 3 triggers stratified/meta-analysis fallbacks; Tier 0-2 proceed to scoring.",
+    "- Batch method comparison: batch candidates are screened for VOI confounding (Cramer's V / R2 and overlap tiers). Tier 3 triggers stratified/meta-analysis fallbacks when eligible; Tier 0-2 proceed to scoring.",
+    sprintf("- Tier3 eligibility constraints: min_total_n=%d, min_per_group_per_stratum=%d (on_fail=%s).",
+            tier3_min_total_n, tier3_min_per_group_per_stratum, tier3_on_fail),
     sprintf("- Optimization preset: `%s` (weights on batch removal, biology preservation, calibration, stability).", preset_name),
+    sprintf("- CRF v2.1 sample tier: %s (total_n=%d; min_per_group=%d).",
+            crf_tier, crf_tier_info$total_n, crf_tier_info$min_per_group),
     "- Calibration: permutation tests shuffle labels within batch strata to assess p-value uniformity (KS) and inflation.",
+    "- Lambda guard is a heuristic inflation check; interpret with EWAS correlation structure in mind.",
+    sprintf("- Correction Adequacy Framework (CAF): combines calibration (target FPR=%.2f), signal preservation, and batch removal into a single CAI; see `Correction_Adequacy_Report.txt`.", caf_target_fpr),
     "- Decision ledger: automated decisions (covariates, batch choice, method) are logged with reasons.",
     "",
     "## Differential methylation (DMP)",
     sprintf("- Beta values are transformed to M-values with a logit offset of %.6f.", LOGIT_OFFSET),
-    "- Differential methylation is tested using limma (`lmFit`/`eBayes`) with a group contrast (test − control).",
-    "- Multiple testing is controlled by Benjamini–Hochberg FDR.",
+    "- Differential methylation is tested using limma (`lmFit`/`eBayes`) with a group contrast (test - control).",
+    "- Multiple testing is controlled by Benjamini-Hochberg FDR.",
     "",
     "## Differentially methylated regions (DMR)",
     sprintf("- DMRs are called with `dmrff` (maxgap=%d; p.cutoff=%.3f; min_cpgs=%d).", DMR_MAXGAP, dmr_p_cutoff, DMR_MIN_CPGS),
     "",
     "## Consensus (intersection) call set",
     "- Consensus DMPs are defined as CpGs significant in **both** minfi and sesame with the **same direction** under the same thresholds.",
+    "- Intersection is intended as a high-confidence subset; pipeline-specific results may capture additional true positives and are reported as sensitivity/discovery sets.",
+    "- Intersection tables include Fisher-combined P-values as a heuristic cross-pipeline signal summary.",
     "- Consensus is computed for both the strict (Minfi-aligned) and native Sesame views.",
     "- Consensus outputs: `Intersection_Consensus_DMPs.*` and `Intersection_Native_Consensus_DMPs.*`, plus concordance/overlap plots.",
     "- Primary branch is selected by the optimization score (see `results/consensus/primary_branch.txt`); the other branch is reported as sensitivity.",
+    sprintf("- Primary branch override: %s%s.", primary_branch_override_disp, primary_branch_reason_disp),
+    sprintf("- Primary inference mode: %s (tier3_batch=%s).", primary_result_mode_disp, primary_tier3_batch_disp),
+    tier3_low_power_line,
+    tier3_ineligible_line,
+    sprintf("- Tier3 meta-analysis (primary): method=%s, I2_median=%s.", primary_tier3_meta_method_disp, primary_tier3_meta_i2_disp),
+    sprintf("- Lambda guard (primary): status=%s, action=%s, threshold=%s, lambda_guard_lambda=%s.",
+            lambda_guard_status_disp, lambda_guard_action_disp, lambda_guard_threshold_disp, lambda_guard_lambda_disp),
+    sprintf("- DMR status (primary): %s%s.", primary_dmr_status_disp, primary_dmr_reason_disp),
+    sprintf("- Sesame dye bias normalization: %s%s.", sesame_dyebias_mode, sesame_dyebias_note_disp),
     "",
     "## Reproducibility artifacts",
     "- `analysis_parameters.json`: run parameters and thresholds.",
@@ -5495,7 +9127,10 @@ tryCatch({
     sprintf("- Total_samples_input: %s", qc_val("Total_samples_input", NA)),
     sprintf("- Samples_failed_QC: %s", qc_val("Samples_failed_QC", NA)),
     sprintf("- Samples_passed_QC: %s", qc_val("Samples_passed_QC", NA)),
+    sprintf("- Samples_failed_sex_mismatch: %s", qc_val("Samples_failed_sex_mismatch", NA)),
+    sprintf("- Sex_mismatch_samples: %s", qc_val("Sex_mismatch_samples", NA)),
     sprintf("- Total_probes_raw: %s", qc_val("Total_probes_raw", NA)),
+    sprintf("- Probes_cross_reactive: %s", qc_val("Probes_cross_reactive", NA)),
     sprintf("- Probes_final: %s", qc_val("Probes_final", NA))
   )
   writeLines(methods_lines, file.path(out_dir, "methods.md"))

@@ -222,35 +222,43 @@ Auto-group is a convenience feature and **not** a substitute for manual group cu
 
 ## Installation
 
-IlluMeta is easiest to install with **conda**. If you are on **Windows**, we strongly recommend using **WSL2 (Ubuntu)** for the most reliable R package installation.
+> **Most users:** Just run the [Quick Start](#-quick-start-copy--paste) above. This section is for troubleshooting or advanced setup.
 
-### Quick full install (conda, all OS)
-This script creates or updates the conda env, installs Python deps, runs `setup_env.R`, then finishes with `illumeta.py doctor`.
-It requires `conda` or `mamba` in your PATH (Miniforge recommended).
+IlluMeta is easiest to install with **conda**. Windows users should use **WSL2 (Ubuntu)**.
+
+### Quick full install (all OS)
 ```bash
-./scripts/install_full.sh
+git clone https://github.com/kangk1204/illumeta.git && cd illumeta && ./scripts/install_full.sh
 ```
-Options:
+
+<details>
+<summary><strong>📋 install_full.sh options</strong></summary>
+
 - `--r45` uses `environment-r45.yml` (R 4.5).
 - `--env-file PATH` uses a custom conda env file.
 - `--env NAME` overrides the env name.
 - `--skip-doctor` skips the final `illumeta.py doctor` check.
 
 Logs are saved to `projects/illumeta_install_full_*.log`.
-If `illumeta.py doctor` reports missing **optional** packages, core features still work; those optional features will be skipped.
+</details>
 
-Before you start (important):
+<details>
+<summary><strong>⚠️ Important notes before installing</strong></summary>
+
 - **Pick one environment**: conda **or** system R. Do **not** mix them.
 - If using conda, always run `conda activate illumeta` before `Rscript`.
-- If you want to use system R instead, run `conda deactivate` first.
 - Quick check (should point inside your chosen environment):
 ```bash
 which R
 R -q -e 'cat(R.version.string, "\n"); cat(R.home(), "\n")'
 ```
-- If you previously installed with a different R version, run the **clean install** command below (it removes mismatched packages automatically).
+- If you previously installed with a different R version, the installer auto-cleans mismatched packages.
+</details>
 
-Choose your OS section below and follow steps 0-4. The commands are intentionally repeated for clarity.
+---
+
+<details>
+<summary><strong>🐧 Ubuntu / WSL2 - Detailed Installation</strong></summary>
 
 ### Ubuntu (native or WSL2)
 
@@ -402,6 +410,11 @@ Then rerun the setup command.
 ```bash
 python3 illumeta.py doctor
 ```
+
+</details>
+
+<details>
+<summary><strong>🍎 macOS (Apple Silicon & Intel) - Detailed Installation</strong></summary>
 
 ### macOS (Apple Silicon M1-M4 and Intel)
 
@@ -572,6 +585,11 @@ Then rerun the setup command.
 python3 illumeta.py doctor
 ```
 
+</details>
+
+<details>
+<summary><strong>🪟 Windows 11 (WSL2) - Detailed Installation</strong></summary>
+
 ### Windows 11 (WSL2 + Ubuntu)
 
 #### 0) Install prerequisites (WSL2 + Git + Conda)
@@ -729,7 +747,11 @@ Then rerun the setup command.
 python3 illumeta.py doctor
 ```
 
-Notes on R libraries:
+</details>
+
+---
+
+### Notes on R libraries
 - IlluMeta stores packages in per-R-version subfolders (e.g., `.r-lib/R-4.4` or `~/.illumeta/r-lib/R-4.4`) to avoid mixing binaries across R versions. Switching R versions will create a new folder; rerun setup (you can delete old folders to reclaim space).
 - IlluMeta **defaults to a repo-local** R library under `.r-lib/R-<major.minor>` for reproducibility.
 - To keep an externally-set `R_LIBS_USER`, run with `ILLUMETA_RESPECT_R_LIBS_USER=1`.

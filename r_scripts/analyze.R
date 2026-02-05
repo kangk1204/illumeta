@@ -86,13 +86,44 @@ if (!exists("findbars")) {
   findbars <- reformulas::findbars
 }
 
-# Statistical Analysis Pipeline References:
-# - Normalization: Triche et al. (2013) Nucleic Acids Res - Noob method
-# - M-value transformation: Du et al. (2010) BMC Bioinformatics
-# - Differential methylation: Ritchie et al. (2015) Nucleic Acids Res - limma
-# - Batch effect correction: Leek et al. (2012) Nat Rev Genet - SVA
-# - DMR analysis: Suderman et al. (2018) Bioinformatics - dmrff
-# - Multiple testing: Benjamini & Hochberg (1995) JRSS-B - FDR
+# =============================================================================
+# IlluMeta Statistical Analysis Pipeline (analyze.R)
+# =============================================================================
+#
+# DESCRIPTION:
+#   Core statistical analysis engine for IlluMeta. Implements dual-pipeline
+#   methylation analysis using minfi (Noob normalization) and sesame, with
+#   consensus intersection for high-confidence CpG calls.
+#
+# MAIN FEATURES:
+#   - Dual-pipeline normalization (minfi Noob + sesame)
+#   - Batch effect correction (SVA, ComBat, limma::removeBatchEffect)
+#   - Variance partitioning (PVCA) for batch assessment
+#   - Differential methylation analysis (DMPs via limma, DMRs via dmrff)
+#   - Cell composition deconvolution (EpiDISH, RefFreeEWAS)
+#   - Sample-size adaptive robustness (CRF v2.1)
+#   - Epigenetic clock estimation (methylclock, planet)
+#
+# STATISTICAL METHODS AND REFERENCES:
+#   - Normalization: Triche et al. (2013) Nucleic Acids Res - Noob method
+#   - M-value transformation: Du et al. (2010) BMC Bioinformatics
+#   - Differential methylation: Ritchie et al. (2015) Nucleic Acids Res - limma
+#   - Batch effect correction: Leek et al. (2012) Nat Rev Genet - SVA
+#   - DMR analysis: Suderman et al. (2018) Bioinformatics - dmrff
+#   - Multiple testing: Benjamini & Hochberg (1995) JRSS-B - FDR
+#   - Cell deconvolution: Teschendorff et al. (2017) Genome Biol - EpiDISH
+#   - Variance partition: Hoffman & Schadt (2016) BMC Bioinformatics
+#
+# KNOWN LIMITATIONS:
+#   - Sesame pthread errors may occur on some systems; single-thread mode is
+#     enforced by default (see force_single_thread())
+#   - Small sample sizes (n < 12) trigger "minimal" CRF tier with limited
+#     statistical power warnings
+#   - EPIC v2 requires R 4.4+ and Bioconductor 3.19+
+#
+# AUTHOR: Keunsoo Kang
+# LICENSE: Apache-2.0
+# =============================================================================
 
 option_list <- list(
   make_option(c("-c", "--config"), type="character", default=NULL, 
@@ -488,6 +519,22 @@ log_decision <- function(stage, decision, value, reason = "", metrics = NULL) {
       stringsAsFactors = FALSE
     )
   )
+}
+
+safe_ebayes <- function(fit, label = "") {
+  if (is.null(fit)) return(NULL)
+  out <- tryCatch(eBayes(fit), error = function(e) {
+    msg <- if (nzchar(label)) paste0(label, ": ") else ""
+    message("  eBayes skipped: ", msg, conditionMessage(e))
+    return(NULL)
+  })
+  if (is.null(out)) return(NULL)
+  if (!is.null(out$sigma) && all(!is.finite(out$sigma))) {
+    msg <- if (nzchar(label)) paste0(label, ": ") else ""
+    message("  eBayes skipped: ", msg, "no finite residual standard deviations.")
+    return(NULL)
+  }
+  out
 }
 
 if (is.null(opt$config) || is.null(opt$group_con) || is.null(opt$group_test)){
@@ -978,7 +1025,7 @@ compute_knn_mixing <- function(pca_scores, batch, k = 10, max_samples = 500) {
   n <- nrow(pca_scores)
   idx <- seq_len(n)
   if (n > max_samples) {
-    set.seed(123)
+    set.seed(seed_value)
     idx <- sort(sample(idx, max_samples))
   }
   pcs <- pca_scores[idx, , drop = FALSE]
@@ -1081,7 +1128,9 @@ compute_batch_stability <- function(betas, targets, batch_col, covariates, group
     design <- tryCatch(model.matrix(as.formula(formula_str), data = sub_targets), error = function(e) NULL)
     if (is.null(design)) next
     colnames(design) <- gsub("primary_group", "", colnames(design))
+    colnames(design) <- make.names(colnames(design), unique = TRUE)
     group_cols <- make.names(levels(sub_targets$primary_group))
+    group_cols <- intersect(group_cols, colnames(design))
     design_ld <- drop_linear_dependencies(design, group_cols = group_cols)
     design <- design_ld$mat
     if (ncol(design) < 2) next
@@ -1094,7 +1143,7 @@ compute_batch_stability <- function(betas, targets, batch_col, covariates, group
     if (is.null(cm)) next
     fit2 <- tryCatch(contrasts.fit(fit, cm), error = function(e) NULL)
     if (is.null(fit2)) next
-    fit2 <- tryCatch(eBayes(fit2), error = function(e) NULL)
+    fit2 <- safe_ebayes(fit2, "batch_stability")
     if (is.null(fit2)) next
     eff_list[[b]] <- fit2$coefficients[, 1]
   }
@@ -1112,6 +1161,25 @@ compute_batch_stability <- function(betas, targets, batch_col, covariates, group
   clamp01((median(cors, na.rm = TRUE) + 1) / 2)
 }
 
+#' Run Permutation-Based Null Calibration Test
+#'
+#' Performs label permutation to assess type I error calibration. Shuffles
+#' group labels within batches (if batch_col provided) to maintain batch
+#' structure, then runs differential analysis to generate null p-value
+#' distributions.
+#'
+#' @param betas Numeric matrix of beta values (CpGs x samples)
+#' @param targets Data frame with sample metadata
+#' @param group_col Character; column name for group labels
+#' @param covariates Character vector of covariate column names
+#' @param batch_col Character; batch column for stratified permutation (or NULL)
+#' @param perm_n Integer; number of permutations to run
+#' @param vp_top Integer; number of top-variable CpGs to use
+#' @return Data frame with columns: run, ks_p (KS test p-value vs uniform),
+#'   lambda (genomic inflation factor), n_sig (number of significant at 0.05)
+#' @details
+#' KS p-value < 0.05 suggests deviation from uniform null distribution.
+#' Lambda near 1.0 indicates well-calibrated test statistics.
 run_permutation_uniformity <- function(betas, targets, group_col, covariates, batch_col, perm_n, vp_top) {
   if (perm_n <= 0) return(NULL)
   top_perm <- head(order(apply(betas, 1, var), decreasing = TRUE), min(vp_top, nrow(betas)))
@@ -1146,7 +1214,8 @@ run_permutation_uniformity <- function(betas, targets, group_col, covariates, ba
     rownames(cm_perm) <- colnames(perm_design)
     fitp <- lmFit(m_perm, perm_design)
     fitp2 <- contrasts.fit(fitp, cm_perm)
-    fitp2 <- eBayes(fitp2)
+    fitp2 <- safe_ebayes(fitp2, "perm_uniformity")
+    if (is.null(fitp2)) next
     resp <- topTable(fitp2, coef = 1, number = Inf, adjust.method = "BH")
     pvals <- resp$P.Value
     ks_p <- tryCatch(ks.test(pvals, "punif")$p.value, error = function(e) NA_real_)
@@ -1157,6 +1226,35 @@ run_permutation_uniformity <- function(betas, targets, group_col, covariates, ba
   perm_results
 }
 
+#' Select Optimal Batch Correction Strategy
+#'
+#' Evaluates multiple batch correction methods (none, ComBat, limma, SVA) and
+#' covariate combinations to select the optimal strategy based on a weighted
+#' scoring system (Correction Auto-selection Framework, CAF).
+#'
+#' @param betas Numeric matrix of beta values (CpGs x samples)
+#' @param targets Data frame with sample metadata
+#' @param batch_col Character; column name for batch factor
+#' @param batch_tier Integer; confounding tier (0-3, where 3 = non-identifiable)
+#' @param covariate_sets Named list of covariate vectors to evaluate
+#' @param group_col Character; column name for group variable
+#' @param config_settings List; configuration from config.yaml
+#' @param scoring_preset List; weights and guards from scoring_presets
+#' @param perm_n Integer; number of permutations for calibration
+#' @param vp_top Integer; number of top-variable CpGs for evaluation
+#' @param prefix Character; output file prefix
+#' @param out_dir Character; output directory path
+#' @param method_pool Character vector; methods to evaluate (default: all)
+#' @return List with components:
+#'   - best_method: Selected correction method
+#'   - best_covariates: Selected covariate set
+#'   - candidates: Data frame of all evaluated candidates with scores
+#' @details
+#' Scoring weights (from config.yaml scoring_presets):
+#'   - batch: Batch effect reduction (median variance proportion)
+#'   - bio: Biological signal preservation (R2 with bio variables)
+#'   - cal: Calibration (permutation uniformity)
+#'   - stab: Stability (cross-batch effect correlation)
 select_batch_strategy <- function(betas, targets, batch_col, batch_tier, covariate_sets, group_col,
                                   config_settings, scoring_preset, perm_n, vp_top, prefix, out_dir,
                                   method_pool = NULL) {
@@ -1570,6 +1668,31 @@ extract_predicted_sex <- function(sex_obj) {
   NULL
 }
 
+#' Detect Sex Mismatches Between Metadata and Methylation Prediction
+#'
+#' Compares reported biological sex from metadata against predicted sex
+#' from X/Y chromosome probe intensities using minfi::getSex(). Generates
+#' detailed reports and diagnostic plots for quality control.
+#'
+#' @param rgSet RGChannelSet object containing raw IDAT data
+#' @param targets Data frame with sample metadata including sex/gender column
+#' @param gsm_col Character string specifying sample ID column in targets
+#' @param out_dir Output directory for reports and plots
+#' @param action Action on mismatch: "stop" (error), "warn", or "flag"
+#' @param column Optional specific column name for sex metadata
+#'
+#' @return List containing:
+#'   - mismatch_samples: Vector of sample IDs with sex mismatches
+#'   - mismatch_count: Number of mismatched samples
+#'   - column: Name of sex column used
+#'   - skipped: TRUE if check was skipped (with reason)
+#'
+#' @details
+#' Sex prediction uses X and Y chromosome median intensities (xMed, yMed).
+#' Metadata values are normalized (M/Male/1 -> M, F/Female/0 -> F).
+#' Outputs Sex_Check_Summary.csv with detailed per-sample results.
+#'
+#' @seealso minfi::getSex for prediction algorithm details
 run_sex_mismatch_check <- function(rgSet, targets, gsm_col, out_dir, action = "stop", column = "") {
   if (is.null(rgSet) || ncol(rgSet) == 0) return(list(skipped = TRUE, reason = "no_data"))
   sex_col <- resolve_sex_column(targets, column)
@@ -1932,12 +2055,16 @@ resolve_crf_tier <- function(n_con, n_test, crf_cfg) {
                       mmc = list(methods = c("none", "limma"), concordance_levels = c("core", "discordant")),
                       ncs = list(types = c("snp"), lambda_range = c(0.7, 1.3), interpret = "reference_only"),
                       sss = list(mode = "bootstrap", n_iterations = 100, top_k = c(20, 50), overlap_threshold = 0.20),
-                      warnings = c("Very small sample size: interpret all results with extreme caution."))
+                      warnings = c("CAUTION: Very small sample size (n<12). Statistical power is severely limited.",
+                                   "Treat all results as exploratory hypotheses requiring independent validation.",
+                                   "False discovery rate control may be unreliable at this sample size."))
   small_def <- list(threshold = 24, min_per_group = 6,
                     mmc = list(methods = c("none", "combat_np", "limma"), concordance_levels = c("core", "consensus", "weak")),
                     ncs = list(types = c("snp"), lambda_range = c(0.8, 1.2), interpret = "cautious"),
                     sss = list(mode = "leave_pair_out", n_iterations = 50, top_k = c(30, 100, 200), overlap_threshold = 0.30),
-                    warnings = c("Small sample size: results should be validated independently."))
+                    warnings = c("NOTE: Small sample size (n<24). Results should be validated in an independent cohort.",
+                                 "SVA is excluded due to instability at this sample size.",
+                                 "Effect size estimates may be imprecise; focus on direction rather than magnitude."))
   moderate_def <- list(threshold = 50, min_per_group = 12,
                        mmc = list(methods = c("none", "combat", "limma", "sva"), concordance_levels = c("core", "consensus", "weak")),
                        ncs = list(types = c("snp", "housekeeping"), lambda_range = c(0.9, 1.1), interpret = "standard"),
@@ -2308,6 +2435,36 @@ build_crf_report_lines <- function(tier_info, mmc_summary, ncs_summary, sss_summ
   lines
 }
 
+#' Correction Robustness Framework (CRF v2.1) Assessment
+#'
+#' Evaluates batch correction robustness through multiple complementary metrics:
+#' negative control stability, multi-method consistency, and signal preservation.
+#' Produces a comprehensive CRF report with tier-appropriate assessments.
+#'
+#' @param betas_raw Raw beta matrix before batch correction
+#' @param betas_corr Corrected beta matrix after batch correction
+#' @param targets Sample metadata data frame
+#' @param covariates Character vector of covariate column names
+#' @param tier_info List from get_crf_tier() containing sample tier info
+#' @param batch_col Character name of batch variable column
+#' @param applied_batch_method String identifying which correction was applied
+#' @param out_dir Output directory for CRF reports
+#' @param prefix Pipeline prefix (e.g., "Minfi_Noob", "Sesame_pOOBAH")
+#' @param pval_thresh P-value threshold for significance
+#' @param lfc_thresh Log-fold change threshold for effect size
+#' @param config_settings Full config list including crf settings
+#' @param rgSet Optional RGChannelSet for SNP probe analysis
+#' @param mmc_res Optional multi-method consistency results
+#'
+#' @return List containing CRF assessment results and pass/fail status
+#'
+#' @details
+#' CRF v2.1 includes three assessment modules:
+#' 1. Negative Control Stability (NCS): Lambda on control probes (SNP, OOB)
+#' 2. Multi-Method Consistency (MMC): Agreement across correction methods
+#' 3. Signal Stability Score (SSS): Top-K hit overlap before/after correction
+#'
+#' @seealso get_crf_tier for sample tier classification
 run_crf_assessment <- function(betas_raw, betas_corr, targets, covariates, tier_info,
                                batch_col, applied_batch_method, out_dir, prefix,
                                pval_thresh, lfc_thresh,
@@ -4013,6 +4170,33 @@ prepare_pvca_meta <- function(meta, factors) {
   return(out)
 }
 
+#' Principal Variance Component Analysis (PVCA) for Batch Effect Assessment
+#'
+#' Quantifies variance explained by technical and biological factors using
+#' a mixed-effects model approach. Identifies batch effects by examining the
+#' proportion of variance attributable to each experimental factor.
+#'
+#' @param betas Beta value matrix (probes x samples)
+#' @param meta Sample metadata data frame
+#' @param factors Character vector of factor column names to assess
+#' @param prefix Pipeline prefix for output file naming
+#' @param out_dir Output directory for PVCA results
+#' @param threshold Variance threshold for factor significance (default: 0.6)
+#' @param max_probes Maximum probes to use for estimation (default: 5000)
+#' @param sample_ids Optional vector of sample identifiers
+#'
+#' @return Data frame of variance components by factor, or NULL if skipped
+#'
+#' @details
+#' PVCA is skipped when: insufficient samples (< PVCA_MIN_SAMPLES),
+#' no usable factors, or crossed factor levels exceed sample size.
+#' Factors are automatically dropped if their cardinality would cause
+#' over-specification of the mixed model.
+#'
+#' @references
+#' Bushel et al. (2007) Simultaneous clustering of gene expression data
+#' with clinical chemistry and pathological evaluations reveals phenotypic
+#' prototypes. BMC Systems Biology 1:15
 run_pvca_assessment <- function(betas, meta, factors, prefix, out_dir, threshold = 0.6, max_probes = 5000, sample_ids = NULL) {
   pvca_meta <- prepare_pvca_meta(meta, factors)
   if (is.null(pvca_meta)) {
@@ -4765,7 +4949,7 @@ eval_batch_method <- function(M_mat, meta, group_col, batch_col, covariates, met
                 failed = TRUE, fail_reason = "Batch design failed.", note = note))
   }
   fit_batch <- tryCatch(lmFit(M_corr, design), error = function(e) NULL)
-  fit_batch <- if (is.null(fit_batch)) NULL else tryCatch(eBayes(fit_batch), error = function(e) NULL)
+  fit_batch <- safe_ebayes(fit_batch, "batch_eval")
   if (is.null(fit_batch)) {
     return(list(method = method, score = -Inf, batch_var = NA_real_, group_var = NA_real_,
                 n_pc_batch_sig = NA_real_, prop_batch_sig = NA_real_, M_corr = M_corr,
@@ -4777,7 +4961,7 @@ eval_batch_method <- function(M_mat, meta, group_col, batch_col, covariates, met
   } else {
     contrast_batch <- diag(ncol(design))[, batch_cols, drop = FALSE]
     fit_con <- tryCatch(contrasts.fit(fit_batch, contrast_batch), error = function(e) NULL)
-    fit_con <- if (is.null(fit_con)) NULL else tryCatch(eBayes(fit_con), error = function(e) NULL)
+    fit_con <- safe_ebayes(fit_con, "batch_eval_contrast")
     if (is.null(fit_con)) {
       prop_batch_sig <- NA_real_
     } else {
@@ -5028,15 +5212,8 @@ run_stratified_meta_analysis <- function(betas, targets, batch_col, group_col, c
     contrast_str <- paste0(group_cols[2], "-", group_cols[1])
     cm <- makeContrasts(contrasts = contrast_str, levels = design)
     fit2 <- contrasts.fit(fit, cm)
-    fit2 <- tryCatch(eBayes(fit2), error = function(e) {
-      message(sprintf("  - eBayes failed in stratum %s: %s", b, e$message))
-      NULL
-    })
+    fit2 <- safe_ebayes(fit2, label = paste0("stratum ", b))
     if (is.null(fit2)) next
-    if (!any(is.finite(fit2$sigma))) {
-      message(sprintf("  - Skipping stratum %s: no finite residual variance.", b))
-      next
-    }
     coef_idx <- 1
     eff <- fit2$coefficients[, coef_idx]
     se <- fit2$stdev.unscaled[, coef_idx] * fit2$sigma
@@ -5045,9 +5222,45 @@ run_stratified_meta_analysis <- function(betas, targets, batch_col, group_col, c
     out_df <- data.frame(CpG = rownames(fit2$coefficients), logFC = eff, SE = se)
     write.csv(out_df, file.path(out_dir, paste0(prefix, "_Stratum_", b, "_EWAS.csv")), row.names = FALSE)
   }
-  if (length(effects) < 2) return(NULL)
+  if (length(effects) > 0) {
+    keep <- vapply(names(effects), function(nm) {
+      eff <- effects[[nm]]
+      se <- ses[[nm]]
+      if (is.null(eff) || is.null(se)) return(FALSE)
+      if (length(eff) == 0 || length(se) == 0) return(FALSE)
+      if (length(eff) != length(se)) return(FALSE)
+      any(is.finite(eff) & is.finite(se))
+    }, logical(1))
+    if (any(!keep)) {
+      dropped <- names(effects)[!keep]
+      message(sprintf("  - Dropping stratum(s) with no finite effects/SE: %s", paste(dropped, collapse = ", ")))
+    }
+    effects <- effects[keep]
+    ses <- ses[keep]
+  }
+  if (length(effects) < 2) {
+    message("  Stratified meta-analysis skipped: fewer than 2 valid strata after QC.")
+    log_decision("tier3", "meta_status", "skipped",
+                 reason = "insufficient_valid_strata",
+                 metrics = list(valid_strata = length(effects), total_strata = length(strata)))
+    return(NULL)
+  }
   eff_mat <- do.call(cbind, effects)
   se_mat <- do.call(cbind, ses)
+  if (is.null(eff_mat) || is.null(se_mat) || ncol(eff_mat) < 2 || ncol(se_mat) < 2 || nrow(eff_mat) == 0) {
+    message("  Stratified meta-analysis skipped: invalid effect/SE matrix after QC.")
+    log_decision("tier3", "meta_status", "skipped",
+                 reason = "invalid_effect_matrix",
+                 metrics = list(valid_strata = length(effects), total_strata = length(strata)))
+    return(NULL)
+  }
+  if (!any(rowSums(is.finite(eff_mat) & is.finite(se_mat)) >= 2)) {
+    message("  Stratified meta-analysis skipped: no CpGs with >=2 valid strata.")
+    log_decision("tier3", "meta_status", "skipped",
+                 reason = "no_valid_cpgs",
+                 metrics = list(valid_strata = length(effects), total_strata = length(strata)))
+    return(NULL)
+  }
   meta_fixed <- meta_analysis_fixed(eff_mat, se_mat)
   meta_random <- meta_analysis_random(eff_mat, se_mat)
   tier3_cfg <- if (exists("config_settings")) config_settings$tier3_meta else NULL
@@ -5332,7 +5545,10 @@ run_pooled_batch_model <- function(betas, targets, batch_col, covariates, prefix
   if (length(covars) > 0) formula_str <- paste(formula_str, "+", paste(covars, collapse = " + "))
   design <- model.matrix(as.formula(formula_str), data = targets)
   colnames(design) <- gsub("primary_group", "", colnames(design))
+  colnames(design) <- make.names(colnames(design), unique = TRUE)
   group_cols <- make.names(levels(targets$primary_group))
+  group_cols <- intersect(group_cols, colnames(design))
+  if (length(group_cols) < 2) return(NULL)
   design_ld <- drop_linear_dependencies(design, group_cols = group_cols)
   design <- design_ld$mat
   if (ncol(design) < 2) return(NULL)
@@ -5340,10 +5556,15 @@ run_pooled_batch_model <- function(betas, targets, batch_col, covariates, prefix
   mval_out_path <- file.path(out_dir, paste0(prefix, "_MvalueMatrix.tsv.gz"))
   write_matrix_tsv_gz(m_vals, mval_out_path)
   fit <- lmFit(m_vals, design)
+  if (!is.null(fit$df.residual) && all(is.finite(fit$df.residual)) && all(fit$df.residual <= 0)) {
+    message("  Pooled batch model skipped: no residual degrees of freedom.")
+    return(NULL)
+  }
   contrast_str <- paste0(group_cols[2], "-", group_cols[1])
   cm <- makeContrasts(contrasts = contrast_str, levels = design)
   fit2 <- contrasts.fit(fit, cm)
-  fit2 <- eBayes(fit2)
+  fit2 <- safe_ebayes(fit2, "pooled_batch_model")
+  if (is.null(fit2)) return(NULL)
   res <- topTable(fit2, coef = 1, number = Inf, adjust.method = "BH")
   res$CpG <- rownames(res)
   write.csv(res, file.path(out_dir, paste0(prefix, "_Pooled_Batch_DMPs.csv")), row.names = FALSE)
@@ -5357,21 +5578,40 @@ run_overlap_restricted_analysis <- function(betas, targets, batch_col, group_col
   idx <- targets[[batch_col]] %in% overlap_batches
   sub_targets <- targets[idx, , drop = FALSE]
   sub_betas <- betas[, idx, drop = FALSE]
+  if (!(group_col %in% colnames(sub_targets))) return(NULL)
+  sub_targets[[group_col]] <- as.factor(sub_targets[[group_col]])
+  group_counts <- table(sub_targets[[group_col]])
+  if (length(group_counts) < 2) {
+    message("  Overlap restricted analysis skipped: <2 groups after overlap filter.")
+    return(NULL)
+  }
+  if (any(group_counts < 2)) {
+    message("  Overlap restricted analysis skipped: insufficient samples per group in overlap strata.")
+    return(NULL)
+  }
   covars <- intersect(covariates, colnames(sub_targets))
   formula_str <- "~ 0 + primary_group"
   if (length(covars) > 0) formula_str <- paste(formula_str, "+", paste(covars, collapse = " + "))
   design <- model.matrix(as.formula(formula_str), data = sub_targets)
   colnames(design) <- gsub("primary_group", "", colnames(design))
+  colnames(design) <- make.names(colnames(design), unique = TRUE)
   group_cols <- make.names(levels(sub_targets$primary_group))
+  group_cols <- intersect(group_cols, colnames(design))
+  if (length(group_cols) < 2) return(NULL)
   design_ld <- drop_linear_dependencies(design, group_cols = group_cols)
   design <- design_ld$mat
   if (ncol(design) < 2) return(NULL)
   m_vals <- logit_offset(sub_betas)
   fit <- lmFit(m_vals, design)
+  if (!is.null(fit$df.residual) && all(is.finite(fit$df.residual)) && all(fit$df.residual <= 0)) {
+    message("  Overlap restricted analysis skipped: no residual degrees of freedom.")
+    return(NULL)
+  }
   contrast_str <- paste0(group_cols[2], "-", group_cols[1])
   cm <- makeContrasts(contrasts = contrast_str, levels = design)
   fit2 <- contrasts.fit(fit, cm)
-  fit2 <- eBayes(fit2)
+  fit2 <- safe_ebayes(fit2, "overlap_restricted")
+  if (is.null(fit2)) return(NULL)
   res <- topTable(fit2, coef = 1, number = Inf, adjust.method = "BH")
   res$CpG <- rownames(res)
   write.csv(res, file.path(out_dir, paste0(prefix, "_Overlap_Restricted_DMPs.csv")), row.names = FALSE)
@@ -5382,6 +5622,10 @@ run_overlap_restricted_analysis <- function(betas, targets, batch_col, group_col
 run_limma_dmp <- function(betas, design, group_levels, m_vals = NULL) {
   if (is.null(design) || ncol(design) < 2) return(NULL)
   if (length(group_levels) < 2) return(NULL)
+  colnames(design) <- make.names(colnames(design), unique = TRUE)
+  group_levels <- make.names(group_levels)
+  group_levels <- intersect(group_levels, colnames(design))
+  if (length(group_levels) < 2) return(NULL)
   contrast_str <- paste0(group_levels[2], "-", group_levels[1])
   cm <- makeContrasts(contrasts = contrast_str, levels = design)
   if (is.null(m_vals)) {
@@ -5389,7 +5633,8 @@ run_limma_dmp <- function(betas, design, group_levels, m_vals = NULL) {
   }
   fit <- lmFit(m_vals, design)
   fit2 <- contrasts.fit(fit, cm)
-  fit2 <- eBayes(fit2)
+  fit2 <- safe_ebayes(fit2, "limma_dmp")
+  if (is.null(fit2)) return(NULL)
   res <- topTable(fit2, coef = 1, number = Inf, adjust.method = "BH")
   res$CpG <- rownames(res)
   res
@@ -5751,7 +5996,8 @@ run_batch_pseudo_voi <- function(betas, targets, batch_col, covariates, prefix, 
   if (length(batch_cols) == 0) return(NULL)
   contrast_batch <- diag(ncol(design))[, batch_cols, drop = FALSE]
   fit_con <- contrasts.fit(fit, contrast_batch)
-  fit_con <- eBayes(fit_con)
+  fit_con <- safe_ebayes(fit_con, "batch_pseudo_voi")
+  if (is.null(fit_con)) return(NULL)
   p_batch <- fit_con$F.p.value
   fdr_batch <- p.adjust(p_batch, "BH")
   sig_count <- sum(fdr_batch < 0.05, na.rm = TRUE)
@@ -5803,7 +6049,9 @@ write_input_profile <- function(targets, out_dir) {
 
 # --- 1. Load and Prepare Data ---
 
-set.seed(12345) # Ensure reproducibility
+seed_value <- suppressWarnings(as.integer(Sys.getenv("ILLUMETA_SEED", "")))
+if (!is.finite(seed_value) || seed_value <= 0) seed_value <- 12345
+set.seed(seed_value) # Ensure reproducibility
 
 message("Loading configuration...")
 first_line <- tryCatch(readLines(config_file, n = 1, warn = FALSE), error = function(e) "")
@@ -6026,6 +6274,17 @@ write.csv(data.frame(tier = crf_tier,
                      min_per_group = crf_tier_info$min_per_group,
                      warnings = paste(crf_tier_info$warnings, collapse = "; ")),
           file.path(out_dir, "CRF_Sample_Tier.csv"), row.names = FALSE)
+
+# Display tier-specific warnings prominently in console
+if (length(crf_tier_info$warnings) > 0 && crf_tier %in% c("minimal", "small")) {
+  message("\n", strrep("=", 70))
+  message(sprintf("  CRF SAMPLE SIZE WARNING (Tier: %s, n=%d)", toupper(crf_tier), crf_tier_info$total_n))
+  message(strrep("=", 70))
+  for (w in crf_tier_info$warnings) {
+    message("  * ", w)
+  }
+  message(strrep("=", 70), "\n")
+}
 
 preflight_summary <- data.frame(
   metric = c("Total_samples_config", "Samples_group_filtered", "Control_group_n", "Test_group_n",
@@ -6850,6 +7109,37 @@ if (is.null(targets_sesame) && !is.null(beta_sesame_native)) {
 
 # --- Pipeline Function ---
 
+#' Main DMP/DMR Analysis Pipeline
+#'
+#' Core analysis function that executes the complete methylation differential
+#' analysis workflow: preprocessing, batch correction, DMP detection, DMR
+#' identification, and comprehensive reporting.
+#'
+#' @param betas Beta value matrix (probes x samples) with normalized values
+#' @param prefix Pipeline identifier (e.g., "Minfi_Noob", "Sesame_pOOBAH")
+#' @param annotation_df Probe annotation data frame with chr, pos, gene info
+#' @param targets_override Optional metadata to use instead of global targets
+#'
+#' @return List containing:
+#'   - dmp_result: Limma DMP results data frame
+#'   - dmr_result: DMR regions if computed
+#'   - batch_method: Applied batch correction method
+#'   - crf_result: CRF assessment outcome
+#'   - stats: Summary statistics for dashboard
+#'
+#' @details
+#' Pipeline steps:
+#' 1. Probe filtering (low range, zero variance, cross-reactive)
+#' 2. PCA computation and visualization
+#' 3. Batch effect detection and correction selection
+#' 4. DMP analysis with limma (eBayes/robust)
+#' 5. Lambda inflation guard check
+#' 6. CRF robustness assessment
+#' 7. DMR analysis (DMRcate or dmrff)
+#' 8. Epigenetic clock estimation (if enabled)
+#' 9. HTML/CSV output generation
+#'
+#' @seealso run_crf_assessment, run_intersection, select_batch_strategy
 run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) {
   message(paste("Running pipeline for:", prefix))
   # Work on a local copy of targets to avoid altering the shared metadata across pipelines
@@ -7545,7 +7835,41 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   write_matrix_tsv_gz(m_vals, mval_out_path)
   fit <- lmFit(m_vals, design)
   fit2 <- contrasts.fit(fit, cm)
-  fit2 <- eBayes(fit2)
+  fit2 <- safe_ebayes(fit2, paste(prefix, "primary_model"))
+  if (is.null(fit2)) {
+    message("  Skipping stats: eBayes failed; no DMP/DMR results generated for this pipeline.")
+    branch_summary <- list(
+      pipeline = prefix,
+      n_samples = nrow(targets),
+      n_cpgs = nrow(betas),
+      batch_candidate = ifelse(is.null(batch_col), "", batch_col),
+      batch_tier = ifelse(is.na(batch_tier), "", batch_tier),
+      best_method = best_method,
+      lambda_guard_status = lambda_guard_status,
+      lambda_guard_action = lambda_guard_action,
+      lambda_guard_threshold = lambda_guard_threshold,
+      lambda_guard_lambda = lambda_guard_lambda,
+      tier3_mode = tier3_mode,
+      tier3_ineligible = tier3_ineligible,
+      tier3_low_power = tier3_low_power,
+      tier3_batch = ifelse(is.null(tier3_batch), "", tier3_batch),
+      primary_result_mode = "analysis_failed",
+      tier3_primary_lambda = NA_real_,
+      tier3_meta_method = "",
+      tier3_meta_i2_median = NA_real_,
+      dmr_status = "skipped",
+      dmr_reason = "ebayes_failed",
+      dmr_strategy = "standard",
+      caf_score = NA_real_,
+      best_candidate_score = best_candidate_score,
+      covariates_used = used_covariates,
+      sv_used = sv_cols,
+      permutations = perm_n,
+      perm_ks_p_median = NA_real_,
+      perm_lambda_median = NA_real_
+    )
+    return(list(res = NULL, n_con = n_con_local, n_test = n_test_local, n_samples = nrow(targets), summary = branch_summary))
+  }
   res <- topTable(fit2, coef = 1, number = Inf, adjust.method = "BH")
   res$CpG <- rownames(res)
 
@@ -7575,6 +7899,12 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
                             stringsAsFactors = FALSE)
     write.csv(marker_df, file.path(out_dir, paste0(prefix, "_Known_Marker_Summary.csv")), row.names = FALSE)
   }
+
+  sig_delta_pass <- delta_beta_pass(res$Delta_Beta)
+  sig_up <- sum(res$adj.P.Val < pval_thresh & res$logFC > lfc_thresh & sig_delta_pass, na.rm = TRUE)
+  sig_down <- sum(res$adj.P.Val < pval_thresh & res$logFC < -lfc_thresh & sig_delta_pass, na.rm = TRUE)
+  no_signal <- (sig_up + sig_down) == 0
+  no_signal_reason <- if (no_signal) "no_significant_dmps_after_thresholds" else ""
   
   # Add annotation
   res <- merge(res, curr_anno, by.x="CpG", by.y="CpG")
@@ -8010,7 +8340,8 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
           
           fitp <- lmFit(m_perm, perm_design)
           fitp2 <- contrasts.fit(fitp, cm_perm)
-          fitp2 <- eBayes(fitp2)
+          fitp2 <- safe_ebayes(fitp2, "perm_null")
+          if (is.null(fitp2)) next
           resp <- topTable(fitp2, coef = 1, number = Inf, adjust.method = "BH")
           
           delta_pass_perm <- rep(TRUE, nrow(resp))
@@ -8096,7 +8427,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
       }
   }
   
-  if (!is.null(tier3_batch)) {
+  if (isTRUE(tier3_mode) && !is.null(tier3_batch)) {
     msg <- paste("Tier3 confounding detected for", tier3_batch, "- running stratified/meta analyses.")
     message(paste("  ", msg))
     log_decision("tier3", "fallback", tier3_batch, reason = "non_identifiable_batch")
@@ -8151,6 +8482,10 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     pooled_res <- run_pooled_batch_model(betas_pre_correction, targets, tier3_batch, used_covariates, prefix, out_dir)
     overlap_res <- run_overlap_restricted_analysis(betas_pre_correction, targets, tier3_batch, "primary_group",
                                                    used_covariates, prefix, out_dir)
+  } else if (!is.null(tier3_batch) && !isTRUE(tier3_mode)) {
+    reason <- if (!is.null(tier3_eligibility$reason)) tier3_eligibility$reason else "ineligible"
+    log_decision("tier3", "skipped", "ineligible", reason = reason)
+    message("  Tier3 analyses skipped due to ineligible strata.")
   }
 
   if (tier3_mode) {
@@ -8290,7 +8625,8 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   metrics <- data.frame(
     metric = c("pipeline", "lambda", "lambda_guard_status", "lambda_guard_action",
                "lambda_guard_threshold", "lambda_guard_lambda",
-               "primary_result_mode", "tier3_batch", "tier3_primary_lambda", "tier3_low_power",
+               "primary_result_mode", "no_signal", "no_signal_reason",
+               "tier3_batch", "tier3_primary_lambda", "tier3_low_power",
                "tier3_ineligible", "tier3_meta_method", "tier3_meta_i2_median",
                "batch_method_applied", "batch_candidate", "batch_tier", "n_samples", "n_cpgs",
                "n_covariates_used", "covariates_used", "n_sv_used", "sv_used",
@@ -8302,7 +8638,8 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
                "caf_score", "caf_calibration_score", "caf_preservation_score", "caf_batch_score"),
     value = c(prefix, lambda_val, lambda_guard_status, lambda_guard_action,
               lambda_guard_threshold, lambda_guard_lambda,
-              primary_result_mode, tier3_batch_val, tier3_primary_lambda, tier3_low_power,
+              primary_result_mode, no_signal, no_signal_reason,
+              tier3_batch_val, tier3_primary_lambda, tier3_low_power,
               tier3_ineligible, tier3_meta_method, tier3_meta_i2_median,
               applied_batch_method,
               ifelse(is.null(batch_col), "", batch_col),
@@ -8383,7 +8720,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
           }
       }
   }
-  
+
   branch_summary <- list(
     pipeline = prefix,
     n_samples = nrow(targets),
@@ -8400,6 +8737,8 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     tier3_low_power = tier3_low_power,
     tier3_batch = tier3_batch_val,
     primary_result_mode = primary_result_mode,
+    no_signal = no_signal,
+    no_signal_reason = no_signal_reason,
     tier3_primary_lambda = tier3_primary_lambda,
     tier3_meta_method = tier3_meta_method,
     tier3_meta_i2_median = tier3_meta_i2_median,
@@ -8417,6 +8756,30 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   return(list(res = res, n_con = n_con_local, n_test = n_test_local, n_samples = nrow(targets), summary = branch_summary))
 }
 
+#' Dual-Pipeline Consensus Intersection Analysis
+#'
+#' Identifies high-confidence differentially methylated positions by requiring
+#' significance in both Minfi and Sesame pipelines. Applies Fisher's method for
+#' combined p-values and generates concordance visualizations.
+#'
+#' @param res_minfi Data frame of Minfi DMP results (CpG, logFC, P.Value, adj.P.Val)
+#' @param res_sesame Data frame of Sesame DMP results with matching columns
+#' @param prefix Output file prefix (e.g., "Intersect_Noob_pOOBAH")
+#' @param sesame_label Label for Sesame pipeline variant in plots
+#'
+#' @return List containing:
+#'   - up: Count of consensus hypermethylated CpGs
+#'   - down: Count of consensus hypomethylated CpGs
+#'
+#' @details
+#' Consensus criteria:
+#' - adj.P.Val < threshold in BOTH pipelines
+#' - Concordant logFC direction (both positive or both negative)
+#' - Delta beta above minimum threshold in both pipelines
+#'
+#' Generates: Consensus_DMPs.csv, LogFC_Concordance plot, Overlap_Summary plot
+#'
+#' @seealso run_pipeline for individual pipeline analysis
 run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
   consensus_counts <- list(up = 0, down = 0)
   if (is.null(res_minfi) || is.null(res_sesame)) {
@@ -8471,7 +8834,7 @@ run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
     concord$Consensus <- (is_up | is_down)
     plot_df <- concord
     if (nrow(plot_df) > max_points) {
-      set.seed(12345)
+      set.seed(seed_value)
       idx <- sample(seq_len(nrow(plot_df)), max_points)
       plot_df <- plot_df[idx, , drop = FALSE]
     }
@@ -8624,6 +8987,8 @@ primary_tier3_low_power <- FALSE
 primary_caf_score <- NA_real_
 primary_dmr_status <- ""
 primary_dmr_reason <- ""
+primary_no_signal <- FALSE
+primary_no_signal_reason <- ""
 primary_lambda_guard_status <- ""
 primary_lambda_guard_action <- ""
 primary_lambda_guard_lambda <- NA_real_
@@ -8682,6 +9047,8 @@ tryCatch({
     if (!is.null(primary_summary$caf_score)) primary_caf_score <- primary_summary$caf_score
     if (!is.null(primary_summary$dmr_status)) primary_dmr_status <- primary_summary$dmr_status
     if (!is.null(primary_summary$dmr_reason)) primary_dmr_reason <- primary_summary$dmr_reason
+    if (!is.null(primary_summary$no_signal)) primary_no_signal <- primary_summary$no_signal
+    if (!is.null(primary_summary$no_signal_reason)) primary_no_signal_reason <- primary_summary$no_signal_reason
     if (!is.null(primary_summary$lambda_guard_status)) primary_lambda_guard_status <- primary_summary$lambda_guard_status
     if (!is.null(primary_summary$lambda_guard_action)) primary_lambda_guard_action <- primary_summary$lambda_guard_action
     if (!is.null(primary_summary$lambda_guard_lambda)) primary_lambda_guard_lambda <- primary_summary$lambda_guard_lambda
@@ -8709,6 +9076,8 @@ tryCatch({
     primary_tier3_meta_i2_median = primary_tier3_meta_i2_median,
     primary_tier3_ineligible = primary_tier3_ineligible,
     primary_tier3_low_power = primary_tier3_low_power,
+    primary_no_signal = primary_no_signal,
+    primary_no_signal_reason = primary_no_signal_reason,
     primary_caf_score = primary_caf_score,
     primary_dmr_status = primary_dmr_status,
     primary_dmr_reason = primary_dmr_reason,
@@ -8726,6 +9095,14 @@ tryCatch({
   
   write_json(summary_payload, file.path(out_dir, "summary.json"), auto_unbox = TRUE, pretty = TRUE, na = "null")
   message("Summary statistics saved to summary.json")
+
+  tryCatch({
+    ledger_path <- file.path(out_dir, "decision_ledger.tsv")
+    write.table(decision_log, ledger_path, sep = "\t", row.names = FALSE, quote = FALSE)
+    message("Decision ledger saved to decision_ledger.tsv")
+  }, error = function(e) {
+    message("Warning: failed to write decision_ledger.tsv: ", e$message)
+  })
 
   consensus_files <- c(
     "Intersection_Consensus_DMPs.csv",
@@ -8846,7 +9223,7 @@ tryCatch({
     dmr_p_cutoff = dmr_p_cutoff,
     dmr_min_cpgs = DMR_MIN_CPGS,
     logit_offset = LOGIT_OFFSET,
-    seed = 12345,
+    seed = seed_value,
     preset = preset_name,
     config_yaml = config_yaml_resolved,
     min_overlap_per_cell = config_settings$min_overlap_per_cell,
@@ -8996,6 +9373,11 @@ tryCatch({
   } else {
     NULL
   }
+  no_signal_line <- if (isTRUE(primary_no_signal)) {
+    "WARNING: No significant DMPs detected at the configured thresholds; results likely underpowered or overly stringent."
+  } else {
+    NULL
+  }
   primary_dmr_status_disp <- ifelse(nzchar(primary_dmr_status), primary_dmr_status, "unknown")
   primary_dmr_reason_disp <- ifelse(nzchar(primary_dmr_reason), paste0(" (reason: ", primary_dmr_reason, ")"), "")
   lambda_guard_status_disp <- ifelse(nzchar(primary_lambda_guard_status), primary_lambda_guard_status, "unknown")
@@ -9110,6 +9492,7 @@ tryCatch({
     sprintf("- Primary inference mode: %s (tier3_batch=%s).", primary_result_mode_disp, primary_tier3_batch_disp),
     tier3_low_power_line,
     tier3_ineligible_line,
+    no_signal_line,
     sprintf("- Tier3 meta-analysis (primary): method=%s, I2_median=%s.", primary_tier3_meta_method_disp, primary_tier3_meta_i2_disp),
     sprintf("- Lambda guard (primary): status=%s, action=%s, threshold=%s, lambda_guard_lambda=%s.",
             lambda_guard_status_disp, lambda_guard_action_disp, lambda_guard_threshold_disp, lambda_guard_lambda_disp),

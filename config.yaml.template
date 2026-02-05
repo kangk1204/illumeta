@@ -79,9 +79,9 @@ crf:
         top_k: [20, 50]
         overlap_threshold: 0.20
       warnings:
-        - "Very small sample size: interpret all results with extreme caution"
-        - "Statistical power severely limited"
-        - "Consider this analysis exploratory only"
+        - "CAUTION: Very small sample size (n<12). Statistical power is severely limited."
+        - "Treat all results as exploratory hypotheses requiring independent validation."
+        - "False discovery rate control may be unreliable at this sample size."
     small:
       threshold: 24
       min_per_group: 6
@@ -98,8 +98,9 @@ crf:
         top_k: [30, 100, 200]
         overlap_threshold: 0.30
       warnings:
-        - "Small sample size: results should be validated independently"
-        - "SVA excluded due to instability"
+        - "NOTE: Small sample size (n<24). Results should be validated in an independent cohort."
+        - "SVA is excluded due to instability at this sample size."
+        - "Effect size estimates may be imprecise; focus on direction rather than magnitude."
     moderate:
       threshold: 50
       min_per_group: 12

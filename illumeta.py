@@ -128,6 +128,28 @@ EXCLUDE_GROUP_HINTS = (
     "file",
     "url",
 )
+
+TIER1_KEYWORDS = {
+    "diagnosis", "disease", "cancer", "tumor", "subtype", "response", "treatment",
+    "genotype", "mutation", "histology", "grade", "stage", "phenotype", "case", "control",
+}
+TIER2_KEYWORDS = {
+    "sex", "gender", "age", "agegroup", "age_group", "race", "ethnicity", "smoker",
+    "smoking", "bmi", "gestationalage", "gestational_age",
+}
+TIER3_KEYWORDS = {
+    "batch", "plate", "slide", "array", "sentrix", "position", "chip", "run",
+    "center", "hospital", "site", "date",
+}
+
+ROMAN_MAP = {
+    "i": 1, "ii": 2, "iii": 3, "iv": 4, "v": 5, "vi": 6, "vii": 7, "viii": 8, "ix": 9, "x": 10,
+}
+ORDERED_SETS = [
+    ["low", "medium", "high"],
+    ["mild", "moderate", "severe"],
+    ["early", "mid", "late"],
+]
 CONTROL_SYNONYMS = {
     "control",
     "controls",
@@ -213,6 +235,53 @@ def profile_values(values):
         "non_missing_frac": (non_missing_count / len(cleaned)) if cleaned else 0.0,
     }
 
+def guess_tier(name_lower: str):
+    if any(k in name_lower for k in TIER1_KEYWORDS):
+        return "primary", 100
+    if any(k in name_lower for k in TIER3_KEYWORDS):
+        return "technical", -100
+    if any(k in name_lower for k in TIER2_KEYWORDS):
+        return "demographic", -5
+    return "unknown", 0
+
+def ordinal_rank(value: str):
+    norm = normalize_group_value(value)
+    if not norm:
+        return None
+    if norm.isdigit():
+        return int(norm)
+    for prefix in ("stage", "grade"):
+        if norm.startswith(prefix):
+            tail = norm[len(prefix):]
+            if tail.isdigit():
+                return int(tail)
+            if tail in ROMAN_MAP:
+                return ROMAN_MAP[tail]
+    if norm in ROMAN_MAP:
+        return ROMAN_MAP[norm]
+    for seq in ORDERED_SETS:
+        for idx, token in enumerate(seq, start=1):
+            if norm == token:
+                return idx
+    return None
+
+def is_ordinal(values):
+    non_missing = [v for v in values if v not in ("", None)]
+    if len(non_missing) < 3:
+        return False, {}
+    ranks = {}
+    valid = 0
+    for v in non_missing:
+        rank = ordinal_rank(v)
+        if rank is not None:
+            valid += 1
+            ranks.setdefault(v, rank)
+    if valid / max(1, len(non_missing)) < 0.7:
+        return False, {}
+    if len(set(ranks.values())) < 3:
+        return False, {}
+    return True, ranks
+
 def score_group_candidate(name: str, values):
     prof = profile_values(values)
     unique_count = prof["unique_count"]
@@ -220,6 +289,7 @@ def score_group_candidate(name: str, values):
     if any(h in name_lower for h in EXCLUDE_GROUP_HINTS):
         if "source_name" not in name_lower:
             return None
+    tier, tier_score = guess_tier(name_lower)
     keyword_score = 2 if any(k in name_lower for k in GROUP_COLUMN_HINTS) else 0
     value_norms = {normalize_group_value(v) for v in prof["unique_values"]}
     synonym_score = 0
@@ -236,7 +306,8 @@ def score_group_candidate(name: str, values):
     substring_score = 1 if substring_score > 0 else 0
     if unique_count < 2:
         return None
-    if prof["numeric_frac"] >= 0.9 and unique_count > 3:
+    ordinal_flag, ordinal_map = is_ordinal(prof["unique_values"])
+    if prof["numeric_frac"] >= 0.8 and unique_count >= 7 and not ordinal_flag:
         return None
     signal_score = keyword_score + synonym_score + substring_score
     max_unique_allow = max(6, int(len(values) * 0.25))
@@ -248,7 +319,9 @@ def score_group_candidate(name: str, values):
     balance_ratio = (min_ct / max_ct) if max_ct else 0
     balance_score = 2 if balance_ratio >= 0.5 else 1 if balance_ratio >= 0.25 else 0
     unique_score = 2 if unique_count == 2 else 1 if unique_count == 3 else 0
-    unique_penalty = -1 if unique_count >= 5 else 0
+    unique_penalty = -1 if unique_count >= 5 and not ordinal_flag else 0
+    if unique_count >= 7 and not ordinal_flag:
+        unique_penalty -= 1
     missing_score = 1 if prof["missing_frac"] < 0.1 else 0
     coverage = prof["non_missing_frac"]
     if coverage >= 0.9:
@@ -263,7 +336,8 @@ def score_group_candidate(name: str, values):
     max_frac = (max_ct / sum(counts)) if counts else 0
     imbalance_penalty = -1 if max_frac >= 0.85 else 0
     total = (
-        keyword_score
+        tier_score
+        + keyword_score
         + synonym_score
         + substring_score
         + unique_score
@@ -278,8 +352,11 @@ def score_group_candidate(name: str, values):
         "name": name,
         "values": values,
         "score": total,
+        "tier": tier,
+        "tier_score": tier_score,
         "missing_frac": prof["missing_frac"],
         "unique_count": unique_count,
+        "ordinal": ordinal_flag,
         "keyword_score": keyword_score,
         "synonym_score": synonym_score,
         "substring_score": substring_score,
@@ -287,6 +364,8 @@ def score_group_candidate(name: str, values):
         "balance_score": balance_score,
         "coverage": coverage,
         "non_missing_count": prof["non_missing_count"],
+        "numeric_frac": prof["numeric_frac"],
+        "ordinal_map": ordinal_map,
     }
 
 def extract_characteristics_keys(rows, headers):
@@ -310,7 +389,7 @@ def extract_characteristics_keys(rows, headers):
             entry["values"][idx] = value
     return key_map
 
-def infer_group_source(rows, headers, id_column=None):
+def collect_group_candidates(rows, headers, id_column=None):
     candidates = []
     for col in headers:
         if col in {"primary_group", "Basename"}:
@@ -326,20 +405,68 @@ def infer_group_source(rows, headers, id_column=None):
         if cand:
             cand["source"] = f"characteristics:{entry['label']}"
             candidates.append(cand)
-    signal_candidates = [c for c in candidates if (c["keyword_score"] + c["synonym_score"]) > 0]
-    if not signal_candidates:
+    return candidates
+
+def write_group_candidates(path, candidates):
+    if not candidates:
+        return
+    fieldnames = [
+        "rank", "name", "source", "score", "tier", "tier_score",
+        "unique_count", "ordinal", "balance_ratio", "coverage", "missing_frac", "numeric_frac",
+    ]
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t")
+        writer.writeheader()
+        for idx, cand in enumerate(candidates, start=1):
+            writer.writerow(
+                {
+                    "rank": idx,
+                    "name": cand.get("name", ""),
+                    "source": cand.get("source", ""),
+                    "score": cand.get("score", ""),
+                    "tier": cand.get("tier", ""),
+                    "tier_score": cand.get("tier_score", ""),
+                    "unique_count": cand.get("unique_count", ""),
+                    "ordinal": cand.get("ordinal", ""),
+                    "balance_ratio": f"{cand.get('balance_ratio', 0):.3f}",
+                    "coverage": f"{cand.get('coverage', 0):.3f}",
+                    "missing_frac": f"{cand.get('missing_frac', 0):.3f}",
+                    "numeric_frac": f"{cand.get('numeric_frac', 0):.3f}",
+                }
+            )
+
+def infer_group_source(rows, headers, id_column=None, allow_technical=False):
+    candidates = collect_group_candidates(rows, headers, id_column=id_column)
+    if not candidates:
         return None
-    best = max(
-        signal_candidates,
+    tier_buckets = {"primary": [], "unknown": [], "demographic": [], "technical": []}
+    for cand in candidates:
+        tier_buckets.setdefault(cand.get("tier", "unknown"), []).append(cand)
+
+    preferred = []
+    if tier_buckets["primary"]:
+        preferred = tier_buckets["primary"]
+    elif tier_buckets["unknown"]:
+        preferred = tier_buckets["unknown"]
+    elif tier_buckets["demographic"]:
+        preferred = tier_buckets["demographic"]
+    elif allow_technical:
+        preferred = tier_buckets["technical"]
+
+    if not preferred:
+        return None
+
+    preferred.sort(
         key=lambda c: (
             c["score"],
             c.get("coverage", 0),
             c.get("balance_ratio", 0),
-            -c["missing_frac"],
-            -c["unique_count"],
+            -c.get("missing_frac", 0),
+            -c.get("unique_count", 0),
         ),
+        reverse=True,
     )
-    return best
+    return preferred[0]
 
 def apply_group_mapping(value, mapping, group_con, group_test):
     raw = value or ""
@@ -373,6 +500,7 @@ def auto_group_config(
     output_path: str = None,
     id_column: str = None,
     overwrite: bool = False,
+    allow_technical: bool = False,
 ):
     rows, headers, delim = load_config_rows(config_path)
     if delim != "\t":
@@ -414,7 +542,7 @@ def auto_group_config(
             resolved_id = resolve_id_column(headers, override=id_column)
         except ValueError:
             resolved_id = None
-        inferred = infer_group_source(rows, headers, id_column=resolved_id)
+        inferred = infer_group_source(rows, headers, id_column=resolved_id, allow_technical=allow_technical)
         if not inferred:
             raise ValueError(
                 "Unable to auto-detect a group column. Provide --group-column or --group-key "
@@ -422,6 +550,28 @@ def auto_group_config(
             )
         source_values = inferred["values"]
         source_label = inferred["source"]
+
+    # Emit candidate report for transparency/debugging.
+    candidates_path = None
+    try:
+        resolved_id = resolve_id_column(headers, override=id_column)
+    except ValueError:
+        resolved_id = None
+    candidates = collect_group_candidates(rows, headers, id_column=resolved_id)
+    if candidates:
+        candidates.sort(
+            key=lambda c: (
+                c.get("score", 0),
+                c.get("coverage", 0),
+                c.get("balance_ratio", 0),
+                -c.get("missing_frac", 0),
+                -c.get("unique_count", 0),
+            ),
+            reverse=True,
+        )
+        report_path = os.path.join(os.path.dirname(os.path.abspath(config_path)), "auto_group_candidates.tsv")
+        write_group_candidates(report_path, candidates)
+        candidates_path = report_path
 
     for idx in pending_idx:
         mapped = apply_group_mapping(source_values[idx], mapping, group_con, group_test)
@@ -439,6 +589,7 @@ def auto_group_config(
         "updated": True,
         "source": source_label,
         "output_path": out_path,
+        "candidates_path": candidates_path,
         "group_counts": dict(counts),
         "filled_rows": len(pending_idx),
         "total_rows": len(rows),
@@ -1274,6 +1425,25 @@ def run_search(args):
     write_search_tsv(summaries, args.output)
     log("[*] Done.")
 
+def write_failure_summary(base_dir: str, stage: str, code: str, message: str, details=None):
+    if not base_dir:
+        base_dir = os.getcwd()
+    os.makedirs(base_dir, exist_ok=True)
+    payload = {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "stage": stage,
+        "code": code,
+        "message": message,
+        "details": details or {},
+    }
+    try:
+        with open(os.path.join(base_dir, "failure_summary.json"), "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, ensure_ascii=True)
+        with open(os.path.join(base_dir, "failure_reason.txt"), "w", encoding="utf-8") as handle:
+            handle.write(f"{code}: {message}\n")
+    except Exception as e:
+        log_err(f"[!] Failed to write failure summary: {e}")
+
 def run_analysis(args):
     """Executes the analysis step."""
     # Resolve Config Path
@@ -1285,14 +1455,21 @@ def run_analysis(args):
     
     if not config_path:
         log_err("Error: You must provide either --input-dir or --config.")
+        write_failure_summary(args.input_dir or os.getcwd(), "config", "CONFIG_MISSING",
+                              "Missing --input-dir/--config.")
         sys.exit(1)
 
     log(f"[*] Starting analysis pipeline using configuration: {config_path}...")
     
     if not os.path.exists(config_path):
         log_err(f"Error: Configuration file {config_path} not found.")
+        write_failure_summary(args.input_dir or os.getcwd(), "config", "CONFIG_NOT_FOUND",
+                              f"Configuration file not found: {config_path}")
         sys.exit(1)
     config_base_dir = os.path.dirname(os.path.abspath(config_path))
+    default_dir_base = args.input_dir if args.input_dir else config_base_dir
+    default_folder = safe_path_component(f"{args.group_test}_vs_{args.group_con}_results", fallback="analysis_results")
+    planned_output_dir = args.output or os.path.join(default_dir_base, default_folder)
 
     if args.beginner_safe:
         # Enforce more conservative defaults for novice safety
@@ -1315,6 +1492,7 @@ def run_analysis(args):
                 output_path=args.auto_group_output,
                 id_column=args.id_column,
                 overwrite=args.auto_group_overwrite,
+                allow_technical=args.auto_group_allow_technical,
             )
             if auto_group_info and auto_group_info.get("updated"):
                 log(f"[*] Auto-group: filled primary_group using {auto_group_info.get('source')} -> {config_path}")
@@ -1322,6 +1500,7 @@ def run_analysis(args):
                 log("[*] Auto-group: primary_group already filled; using existing configure.tsv")
         except ValueError as e:
             log_err(f"[!] Auto-group failed: {e}")
+            write_failure_summary(planned_output_dir, "auto_group", "AUTO_GROUP_FAILED", str(e))
             sys.exit(1)
 
     if args.beginner_safe:
@@ -1352,6 +1531,7 @@ def run_analysis(args):
                 )
         except ValueError as e:
             log_err(f"[!] Beginner-safe check failed: {e}")
+            write_failure_summary(planned_output_dir, "beginner_safe", "BEGINNER_SAFE_FAILED", str(e))
             sys.exit(1)
         
     # Determine output directory
@@ -1449,6 +1629,7 @@ def run_analysis(args):
             idat_dir = os.path.join(os.path.dirname(os.path.abspath(config_path)), idat_dir)
         if not os.path.isdir(idat_dir):
             log_err(f"[!] IDAT directory not found: {idat_dir}")
+            write_failure_summary(output_dir, "idat", "IDAT_DIR_MISSING", f"IDAT directory not found: {idat_dir}")
             sys.exit(1)
         cmd.extend(["--idat_dir", idat_dir])
 
@@ -1498,6 +1679,7 @@ def run_analysis(args):
             )
     except ValueError as e:
         log_err(f"[!] Preflight check failed: {e}")
+        write_failure_summary(output_dir, "preflight", "PREFLIGHT_FAILED", str(e))
         sys.exit(1)
     if args.force_idat:
         cmd.append("--force_idat")
@@ -1566,6 +1748,13 @@ def run_analysis(args):
         
     except subprocess.CalledProcessError as e:
         log_err(f"[!] Error during analysis step: {e}")
+        write_failure_summary(
+            output_dir,
+            "analysis",
+            "R_SCRIPT_FAILED",
+            "R analysis command failed",
+            details={"returncode": e.returncode, "cmd": getattr(e, "cmd", cmd)},
+        )
         sys.exit(1)
 
 def safe_int(val):
@@ -1633,6 +1822,17 @@ def collect_dashboard_warnings(stats, analysis_params, qc_summary, cell_summary=
             warnings.append("Tier3 stratified/meta-analysis flagged low power; interpret with extreme caution.")
         if primary_mode == "tier3_ineligible" or _as_bool(stats.get("primary_tier3_ineligible")):
             warnings.append("Tier3 confounding detected but eligibility failed; stratified/meta-analysis was not run.")
+        no_signal_flag = _as_bool(stats.get("primary_no_signal"))
+        if not no_signal_flag:
+            inter_native_total = safe_int(stats.get("intersect_native_up")) + safe_int(stats.get("intersect_native_down"))
+            inter_total = safe_int(stats.get("intersect_up")) + safe_int(stats.get("intersect_down"))
+            minfi_total = safe_int(stats.get("minfi_up")) + safe_int(stats.get("minfi_down"))
+            sesame_total = safe_int(stats.get("sesame_up")) + safe_int(stats.get("sesame_down"))
+            sesame_native_total = safe_int(stats.get("sesame_native_up")) + safe_int(stats.get("sesame_native_down"))
+            no_signal_flag = (inter_native_total == 0 and inter_total == 0 and minfi_total == 0 and
+                              sesame_total == 0 and sesame_native_total == 0)
+        if no_signal_flag:
+            warnings.append("No significant DMPs detected at configured thresholds; likely underpowered or overly stringent.")
 
     if cell_summary:
         methods = [row.get("Method", "") for row in cell_summary if row.get("Method")]
@@ -2928,6 +3128,7 @@ def generate_dashboard(output_dir, group_test, group_con):
         ("analysis_parameters.json", "Analysis Parameters", "Run settings and thresholds (JSON).", "DOC"),
         ("sessionInfo.txt", "R Session Info", "Full R session and package versions.", "DOC"),
         ("code_version.txt", "Code Version", "Git commit hash when available.", "DOC"),
+        ("decision_ledger.tsv", "Decision Ledger", "Automated decision log with reasons (TSV).", "DOC"),
         ("Correction_Adequacy_Report.txt", "Correction Adequacy Report", "CAF summary for the primary branch.", "DOC"),
         ("Correction_Adequacy_Summary.csv", "Correction Adequacy Summary", "CAF metrics for the primary branch.", "CSV"),
         ("Correction_Robustness_Report.txt", "Correction Robustness Report", "CRF v2.1 sample-size adaptive report.", "DOC"),
@@ -3140,6 +3341,8 @@ def main():
                                  help="Output path for auto-grouped configure.tsv (default: configure_autogroup.tsv)")
     parser_analysis.add_argument("--auto-group-overwrite", action="store_true",
                                  help="Overwrite existing primary_group values when auto-grouping")
+    parser_analysis.add_argument("--auto-group-allow-technical", action="store_true",
+                                 help="Allow technical/batch columns if no biological candidate exists (not recommended)")
     parser_analysis.add_argument("--keep-missing-idat", action="store_true",
                                  help="Do not auto-filter samples with missing IDAT pairs (default: auto-filter)")
     parser_analysis.add_argument("--max_plots", type=int, default=10000, help="Max points for interactive plots (default: 10000)")

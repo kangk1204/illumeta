@@ -2,17 +2,21 @@
 cache/
 GSE*/
 geo_idat_methylation.tsv
+
 # Python bytecode
 __pycache__/
 *.pyc
+*.pyo
+
 # Local Python venv
 .venv/
+venv/
+
 # Local R library (auto-created)
 .r-lib/
-# Local R library path marker
 .illumeta_r_lib_path
-# R setup marker (local)
 .r_setup_done
+
 # Local analysis outputs / scratch
 projects/
 ablation_runs/
@@ -20,8 +24,30 @@ ablation_runs/
 *_results_*/
 *_results_index.html
 *_results*_index.html
+
+# Benchmark data (large files)
+benchmarks/
+00_CDH7/
+search/
+
+# Temporary/local files
 batch_report.csv
 batch_runner.py
 cancer_candidates.tsv
-benchmarks/benchmark_summary.tsv
-benchmarks/benchmark_summary.md
+batch_run.log
+*.log
+.~lock.*
+*.xlsx
+
+# Reference data (downloaded separately)
+references/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

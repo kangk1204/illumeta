@@ -75,29 +75,58 @@ New to DNA methylation analysis? Here are the key terms you'll encounter:
 
 ## 🚀 Quick Start (Copy & Paste)
 
-Copy and paste the block below into your terminal.
+> **Prerequisites:** You need `conda` (or `mamba`) installed. If not installed, see [Installation](#installation) first.
 
+### Option A: One-line installer (Recommended for beginners)
 ```bash
-# 1) Install (Conda env)
+git clone https://github.com/kangk1204/illumeta.git && cd illumeta && ./scripts/install_full.sh
+```
+This takes **30-60 minutes** (downloads R packages). Grab a coffee! ☕
+
+### Option B: Step-by-step
+```bash
+# 1) Clone and create conda environment
 git clone https://github.com/kangk1204/illumeta.git
 cd illumeta
 conda env create -f environment.yml
 conda activate illumeta
 
-# 2) R package setup (one-time)
+# 2) Install R packages (takes 10-30 min)
 Rscript r_scripts/setup_env.R
 
-# 3) Run an example
-# Downloads GSE121633 and analyzes Control vs Case using disease_state
+# 3) Verify installation
+python3 illumeta.py doctor
+```
+
+### Run an example
+```bash
+# Download a GEO dataset and analyze
 python3 illumeta.py download GSE121633
 python3 illumeta.py analysis -i projects/GSE121633 --auto-group \
   --group-column disease_state --group_con Control --group_test Case
 ```
 
-Open the dashboard:  
+Open the dashboard:
 `projects/GSE121633/Case_vs_Control_results/Case_vs_Control_index.html`
 
-Prefer a single installer? Use `./scripts/install_full.sh` (see **Installation**).
+<details>
+<summary><strong>❓ "conda: command not found"?</strong></summary>
+
+Install Miniforge first:
+```bash
+# Linux
+curl -L -o Miniforge3.sh https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
+bash Miniforge3.sh -b && ~/miniforge3/bin/conda init && source ~/.bashrc
+
+# macOS (Apple Silicon M1-M4)
+curl -L -o Miniforge3.sh https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-arm64.sh
+bash Miniforge3.sh -b && ~/miniforge3/bin/conda init zsh && source ~/.zshrc
+
+# macOS (Intel)
+curl -L -o Miniforge3.sh https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-x86_64.sh
+bash Miniforge3.sh -b && ~/miniforge3/bin/conda init zsh && source ~/.zshrc
+```
+</details>
 
 ---
 
@@ -331,7 +360,9 @@ sudo apt-get install -y libxml2-dev zlib1g-dev liblzma-dev pkg-config
 sudo apt-get install -y libgit2-dev libharfbuzz-dev libfribidi-dev libfontconfig1-dev libexpat1-dev
 ```
 
-This installs required R/Bioconductor packages into the repo-local library (`.r-lib/R-<major.minor>`) and may take ~10-30 minutes.
+This installs required R/Bioconductor packages into the repo-local library (`.r-lib/R-<major.minor>`).
+
+> **Expected time:** 10-30 minutes (core), 30-60 minutes (full install with clocks/devtools). The terminal may appear "stuck" while compiling - this is normal.
 
 Recommended (Beginner, core features):
 - Works on R 4.3+ (EPIC v2 is optional).
@@ -372,25 +403,32 @@ Then rerun the setup command.
 python3 illumeta.py doctor
 ```
 
-### macOS (Apple Silicon M1-M4)
+### macOS (Apple Silicon M1-M4 and Intel)
 
 #### 0) Install prerequisites (Git + Conda)
-Install Xcode Command Line Tools (includes git and compilers):
+
+**Step 1: Install Xcode Command Line Tools** (includes git and compilers):
 ```bash
 xcode-select --install
 ```
+> A popup will appear. Click **"Install"** and wait for completion (may take 5-10 minutes).
 
-Install Homebrew (if you do not already have it):
+**Step 2: Install Homebrew** (if not already installed):
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
-If you plan to use system R or install `devtools`/`roxygen2` (xml2/XML), install system libraries once:
+
+**Step 3 (Optional but recommended):** Install system libraries for devtools/tidyverse:
 ```bash
 brew install cmake git pandoc pkg-config openssl@3 libxml2 freetype libpng libtiff jpeg webp harfbuzz fribidi fontconfig libgit2 libomp gcc
 ```
 Skipping this often causes `xml2`/`roxygen2` install errors.
 
-Install **Miniforge (conda)**:
+**Step 4: Install Miniforge (conda)**:
+
+<details>
+<summary><strong>Apple Silicon (M1/M2/M3/M4)</strong></summary>
+
 ```bash
 curl -L -o Miniforge3.sh \
   https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-arm64.sh
@@ -399,7 +437,24 @@ bash Miniforge3.sh -b -p "$HOME/miniforge3"
 source ~/.zshrc
 conda --version
 ```
-If you use bash, replace `zsh` with `bash` and source `~/.bashrc` instead.
+</details>
+
+<details>
+<summary><strong>Intel Mac (x86_64)</strong></summary>
+
+```bash
+curl -L -o Miniforge3.sh \
+  https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-x86_64.sh
+bash Miniforge3.sh -b -p "$HOME/miniforge3"
+"$HOME/miniforge3/bin/conda" init zsh
+source ~/.zshrc
+conda --version
+```
+</details>
+
+> **Tip:** Not sure which Mac you have? Run `uname -m`. If it says `arm64`, you have Apple Silicon. If it says `x86_64`, you have Intel.
+
+If you use bash instead of zsh, replace `zsh` with `bash` and source `~/.bashrc` instead.
 
 #### 1) Clone the repository
 ```bash
@@ -474,7 +529,9 @@ brew install libxml2 zlib xz pkg-config
 brew install libgit2 harfbuzz fribidi fontconfig expat
 ```
 
-This installs required R/Bioconductor packages into the repo-local library (`.r-lib/R-<major.minor>`) and may take ~10-30 minutes.
+This installs required R/Bioconductor packages into the repo-local library (`.r-lib/R-<major.minor>`).
+
+> **Expected time:** 10-30 minutes (core), 30-60 minutes (full install with clocks/devtools). The terminal may appear "stuck" while compiling - this is normal.
 
 Recommended (Beginner, core features):
 - Works on R 4.3+ (EPIC v2 is optional).
@@ -629,7 +686,9 @@ sudo apt-get install -y libxml2-dev zlib1g-dev liblzma-dev pkg-config
 sudo apt-get install -y libgit2-dev libharfbuzz-dev libfribidi-dev libfontconfig1-dev libexpat1-dev
 ```
 
-This installs required R/Bioconductor packages into the repo-local library (`.r-lib/R-<major.minor>`) and may take ~10-30 minutes.
+This installs required R/Bioconductor packages into the repo-local library (`.r-lib/R-<major.minor>`).
+
+> **Expected time:** 10-30 minutes (core), 30-60 minutes (full install with clocks/devtools). The terminal may appear "stuck" while compiling - this is normal.
 
 Recommended (Beginner, core features):
 - Works on R 4.3+ (EPIC v2 is optional).

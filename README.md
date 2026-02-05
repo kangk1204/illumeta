@@ -1,46 +1,184 @@
-# IlluMeta
+# ✨ IlluMeta: Automated DNA Methylation Analysis Pipeline
 
-IlluMeta (Illuminating Methylation Analytics) is an end-to-end pipeline that transforms a GEO accession (or raw IDAT files) into publication-ready DNA methylation results and an interactive HTML dashboard.
-IlluMeta currently supports Illumina array IDATs (450k/EPIC/EPIC v2). Sequencing-based methylation (WGBS/methyl-capture) is on the roadmap but not yet implemented.
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Focus](https://img.shields.io/badge/focus-Epigenetics-green.svg)]()
 
-## Highlights
-- **One-command workflow**: `download` → (auto-group or edit `configure.tsv`) → `analysis`.
-- **Two independent pipelines**: **minfi (Noob)** and **sesame** run side-by-side; Sesame is reported in both **strict (Minfi-aligned)** and **native (pOOBAH-preserving)** views.
-- **High-confidence consensus set (intersection)**: CpGs significant in **both** pipelines with the **same direction**. This is a conservative subset and may miss signals present in only one pipeline; review Minfi/Sesame results for sensitivity.
-- **Sesame-native covariates**: when available, Sesame uses EpiDISH-based cell composition; otherwise Minfi-derived covariates are reused for stability.
-- **Batch handling**: evaluates correction strategies (SVA/ComBat/limma) when a batch factor exists.
-- **Primary-branch selection**: uses a documented multi-criteria scoring heuristic (not a global optimum); weights are saved in `analysis_parameters.json`.
-- **CRF v2.1 robustness**: sample-size–adaptive robustness report (MMC/NCS/SSS) with tiered warnings plus lambda CI, MMC Spearman concordance, and SSS sign-consistency metrics.
-- **Defensive stats**: guards against low-variance or single-group covariates to prevent hard failures in small studies.
-- **Executive summary dashboard**: verdict + CRF quick stats + warnings surfaced at the top for fast interpretation.
-- **Auto-group helper**: can populate `primary_group` from metadata when a reliable group column exists.
-- **Auto-group caution**: auto-grouping is heuristic; always verify group labels/counts (see `preflight_report.json`, `decision_ledger.tsv`).
-- **Paper-ready artifacts**: interactive HTML + static PNG figures, plus `methods.md`, `summary.json`, `analysis_parameters.json`, `sessionInfo.txt`, and `code_version.txt`.
+> **"From IDATs to a publication-ready dashboard in one command."**
+> IlluMeta transforms a GEO accession (or raw IDATs) into reproducible methylation results plus an interactive HTML report.
 
-## Quick start (conda, recommended)
-1. Clone:
+---
+
+## 🎯 What is IlluMeta?
+
+**IlluMeta** is a user-friendly tool for analyzing DNA methylation data from Illumina arrays (450K, EPIC, EPIC v2).
+
+**In simple terms:** DNA methylation is a chemical modification that can turn genes "on" or "off". Scientists study methylation differences between groups (e.g., healthy vs. disease) to understand biological processes and discover disease biomarkers.
+
+### Who is this for?
+
+| You are... | IlluMeta helps you... |
+|------------|----------------------|
+| 🔬 **Biologist** with methylation data | Get publication-ready results without coding |
+| 🎓 **Graduate student** learning EWAS | Understand the analysis workflow step-by-step |
+| 👨‍💻 **Bioinformatician** | Save time with automated dual-pipeline analysis |
+| 📊 **Researcher** writing a paper | Generate reproducible figures and methods |
+
+### How does it work?
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  1. INPUT   │ ──► │  2. PROCESS │ ──► │ 3. ANALYZE  │ ──► │  4. OUTPUT  │
+│             │     │             │     │             │     │             │
+│ • GEO ID or │     │ • Quality   │     │ • Find DMPs │     │ • Dashboard │
+│ • IDAT files│     │   control   │     │   (changed  │     │ • Tables    │
+│ • Sample    │     │ • Normalize │     │   sites)    │     │ • Figures   │
+│   groups    │     │   data      │     │ • Find DMRs │     │ • Reports   │
+│             │     │ • Batch     │     │   (regions) │     │             │
+│             │     │   correct   │     │ • Consensus │     │             │
+└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
+```
+
+---
+
+## 📚 Key Terms (Glossary)
+
+New to DNA methylation analysis? Here are the key terms you'll encounter:
+
+| Term | What it means | Simple analogy |
+|------|---------------|----------------|
+| **IDAT** | Raw data files from Illumina arrays | Like a "RAW" photo file |
+| **CpG** | A location in DNA where methylation occurs | An address on a street |
+| **Beta value** | Methylation level (0-1, where 1 = fully methylated) | Dimmer switch (0=off, 1=full) |
+| **DMP** | Differentially Methylated Position (single CpG) | One changed address |
+| **DMR** | Differentially Methylated Region (multiple CpGs) | A changed neighborhood |
+| **FDR** | False Discovery Rate (adjusted p-value) | Confidence after checking many sites |
+| **Batch effect** | Technical variation between experiments | Different lighting in photos |
+| **Normalization** | Removing technical variation | Color-correcting photos |
+
+<details>
+<summary><strong>📖 More terms (click to expand)</strong></summary>
+
+| Term | What it means |
+|------|---------------|
+| **GEO** | Gene Expression Omnibus - public database for genomic data |
+| **Minfi** | R package for methylation analysis (method 1) |
+| **Sesame** | R package for methylation analysis (method 2) |
+| **Consensus** | CpGs found significant by BOTH methods (high confidence) |
+| **Covariate** | Variables like age, sex that might affect results |
+| **SVA** | Surrogate Variable Analysis - finds hidden batch effects |
+| **ComBat** | Method to remove known batch effects |
+| **Lambda (λ)** | Genomic inflation factor - checks for bias (ideal ≈ 1.0) |
+
+</details>
+
+---
+
+## 🚀 Quick Start (Copy & Paste)
+
+Copy and paste the block below into your terminal.
+
 ```bash
+# 1) Install (Conda env)
 git clone https://github.com/kangk1204/illumeta.git
 cd illumeta
-```
-2. Full install (EPIC v2 + devtools + clocks):
-```bash
-./scripts/install_full.sh
-```
-If you need R 4.5:
-```bash
-./scripts/install_full.sh --r45
-```
-3. Activate the environment:
-```bash
+conda env create -f environment.yml
 conda activate illumeta
+
+# 2) R package setup (one-time)
+Rscript r_scripts/setup_env.R
+
+# 3) Run an example
+# Downloads GSE121633 and analyzes Control vs Case using disease_state
+python3 illumeta.py download GSE121633
+python3 illumeta.py analysis -i projects/GSE121633 --auto-group \
+  --group-column disease_state --group_con Control --group_test Case
 ```
-If you used `--r45`, activate `illumeta-r45` instead.
-4. Run:
+
+Open the dashboard:  
+`projects/GSE121633/Case_vs_Control_results/Case_vs_Control_index.html`
+
+Prefer a single installer? Use `./scripts/install_full.sh` (see **Installation**).
+
+---
+
+## 📊 What You Get
+
+![Dashboard preview](docs/assets/dashboard_preview.gif)
+
+*Interactive dashboard generated automatically. No additional coding required.*
+
+---
+
+## 🚑 If Something Breaks
+
+Run the self-check doctor:
+
 ```bash
-python3 illumeta.py download GSEXXXXX -o projects/GSEXXXXX
-python3 illumeta.py analysis -c projects/GSEXXXXX/configure.tsv --auto-group
+python3 illumeta.py doctor
 ```
+
+---
+
+## 📦 OS-Specific Install (Collapsed)
+
+<details>
+<summary><strong>Windows (WSL2 required)</strong></summary>
+
+1. Install WSL2 (Ubuntu).
+2. Follow the **Ubuntu** section in Installation below.
+</details>
+
+<details>
+<summary><strong>Mac (Apple Silicon)</strong></summary>
+
+1. Install Miniforge (conda).
+2. Follow the **Mac** section in Installation below.
+</details>
+
+<details>
+<summary><strong>Linux</strong></summary>
+
+1. Install Git + Conda.
+2. Follow the **Ubuntu** section in Installation below.
+</details>
+
+---
+
+## ✨ Why IlluMeta?
+
+### For Beginners
+- 🎯 **Simple workflow**: Just 3 commands from data to results
+- 🔍 **Automatic quality control**: Catches problems before they affect your analysis
+- 📊 **Interactive dashboard**: Explore results without coding
+- 📝 **Auto-generated methods**: Ready-to-use text for your paper
+
+### For Experts
+- **Dual-pipeline design**: Runs both **Minfi** and **Sesame** independently
+- **Consensus calling**: High-confidence results where both methods agree
+- **Adaptive batch correction**: Automatically selects optimal method (SVA/ComBat/limma)
+- **CRF v2.1 robustness framework**: Sample-size-adaptive quality assessment
+- **Full reproducibility**: All parameters and decisions logged
+
+<details>
+<summary><strong>🔬 Technical highlights (click to expand)</strong></summary>
+
+- **Two independent pipelines**: Minfi (Noob) and Sesame run side-by-side; Sesame reports both strict (Minfi-aligned) and native (pOOBAH-preserving) views.
+- **High-confidence consensus**: CpGs significant in BOTH pipelines with the SAME direction.
+- **Batch handling**: Evaluates correction strategies (SVA/ComBat/limma) when a batch factor exists.
+- **CRF v2.1**: Sample-size-adaptive robustness report (MMC/NCS/SSS) with tiered warnings.
+- **Defensive stats**: Guards against low-variance or single-group covariates.
+- **Executive dashboard**: Verdict + CRF quick stats + warnings at the top.
+- **Paper-ready outputs**: HTML + PNG figures, methods.md, summary.json, sessionInfo.txt.
+
+</details>
+
+## Supplementary materials (recommended for manuscripts)
+For transparency and reproducibility, we recommend including the following files in your Supplementary Materials:
+1. `preflight_report.json` - input data validation record
+2. `analysis_parameters.json` - full analysis parameters
+3. `decision_ledger.tsv` - automated decision log
+4. `CRF_Sample_Tier.csv` - sample size tier assessment
+5. `methods.md` - auto-generated Methods text
 
 ## Scope and supported data
 - Supported: Illumina array IDATs (450k/EPIC/EPIC v2).
@@ -616,13 +754,32 @@ Open the generated HTML:
 `projects/GSE121633/Case_vs_Control_results_index.html`
 
 ### 5) Interpret results (beginner checklist)
-1. **QC first**: open `QC_Summary.csv`, `Sample_QC_DetectionP_FailFraction.html`, and `Sample_QC_Intensity_Medians.html`. If many samples fail QC, stop and fix QC before interpreting DMP/DMR.
-2. **Batch check**: compare `*_Batch_Evaluation_Before.html` vs `*_Batch_Evaluation_After.html`. After-correction should reduce batch association without erasing group signal. The chosen method (SVA/ComBat/limma/none) and covariates are logged in `decision_ledger.tsv`.
-3. **Consensus vs pipeline results**:  
-   - **Consensus (Strict)** = Minfi ∩ Sesame (strict alignment); most conservative.  
-   - **Consensus (Native)** = Minfi ∩ Sesame native; more sensitive to Sesame’s masking philosophy.  
-4. **DMP tables**: use `*_Top_DMPs.html` for top hits (sorted by P.Value). Full tables are `*_DMPs_full.csv`.
-5. **DMR tables**: use `*_DMRs_Table.html` / `*_DMRs.csv` (sorted by p.value). Check volcano/manhattan for signal distribution.
+
+**🎯 Quick interpretation guide:**
+
+| Step | What to check | Where to look | What's good? |
+|------|---------------|---------------|--------------|
+| 1️⃣ | **Quality Control** | `QC_Summary.csv` | >90% samples pass |
+| 2️⃣ | **Batch Effects** | Dashboard "Batch" section | Reduced after correction |
+| 3️⃣ | **Lambda (inflation)** | Dashboard header | λ ≈ 0.9 - 1.1 |
+| 4️⃣ | **DMP counts** | Dashboard summary | Depends on your study |
+| 5️⃣ | **Top hits** | `*_Top_DMPs.html` | Biologically relevant genes |
+
+**📂 Key output files explained:**
+
+| File | What it contains | When to use it |
+|------|------------------|----------------|
+| `*_index.html` | Interactive dashboard | First look at results |
+| `Intersection_Consensus_DMPs.csv` | High-confidence DMPs | Primary results for paper |
+| `*_Volcano.html` | Effect size vs significance plot | Visualize overall signal |
+| `*_Manhattan.html` | Genomic distribution of hits | Check for regional enrichment |
+| `methods.md` | Auto-generated methods text | Copy to your paper |
+| `decision_ledger.tsv` | All automated decisions | Reproducibility/debugging |
+
+**⚠️ Red flags to watch for:**
+- Lambda (λ) > 1.5 or < 0.8 → possible bias or batch issues
+- Many samples failing QC → data quality problems
+- Zero consensus DMPs but many pipeline-specific → methods disagree (check data)
 
 ## Usage
 
@@ -974,6 +1131,158 @@ Common issues:
 - **Sesame: `No normalization control probes found!`**: some EPIC IDATs do not include normalization controls or the cache is stale. IlluMeta now attempts a one-time refresh of `EPIC.1.SigDF` and retries automatically; you can also run `R -q -e 'library(sesame); sesameDataCache("EPIC.1.SigDF")'` manually. If it persists, IlluMeta continues without dye bias correction (or use `--skip-sesame`).
 - **CSV configure file**: IlluMeta requires `configure.tsv` to be **tab-delimited**. Convert CSV to TSV and retry.
 - **Auto-group failed**: IlluMeta could not find a reliable grouping column; pass `--group-column` or `--group-key`, or edit `configure.tsv` manually.
+
+## ❓ Frequently Asked Questions (FAQ)
+
+<details>
+<summary><strong>🆕 I'm completely new to methylation analysis. Where do I start?</strong></summary>
+
+1. **Install IlluMeta** using the Quick Start section above
+2. **Run the example** with GSE121633 (it's small and fast)
+3. **Open the dashboard** and explore the interactive plots
+4. **Read the methods.md** file - it explains what was done in plain English
+5. **Check QC first** - look at `QC_Summary.csv` to ensure data quality
+
+</details>
+
+<details>
+<summary><strong>📊 Which results should I use - Minfi, Sesame, or Consensus?</strong></summary>
+
+| Use this... | When you want... | Trade-off |
+|-------------|------------------|-----------|
+| **Consensus** | Highest confidence, conservative | May miss some real signals |
+| **Minfi** | Well-established, widely used | Single method perspective |
+| **Sesame** | Latest algorithms, masking low-quality probes | Different from traditional minfi |
+
+**Recommendation for papers**: Report Consensus as primary results, mention Minfi/Sesame counts for comparison.
+
+</details>
+
+<details>
+<summary><strong>⚠️ I got very few (or zero) significant DMPs. Is something wrong?</strong></summary>
+
+This is common! Check these in order:
+
+1. **Sample size**: Small n (< 20) often yields few significant results
+2. **QC**: Look at `QC_Summary.csv` - are many samples/probes failing?
+3. **Effect size**: Your groups may have subtle differences
+4. **Lambda**: Check the λ value in dashboard - should be near 1.0
+5. **Try relaxing thresholds**: Use `--pval 0.1` or `--delta-beta 0` temporarily to see if signals exist
+
+Zero DMPs doesn't mean your experiment failed - it might mean no large methylation differences exist.
+
+</details>
+
+<details>
+<summary><strong>🔢 How many samples do I need?</strong></summary>
+
+| Sample size | What to expect |
+|-------------|----------------|
+| **6-12 total** | Exploratory only; very limited power |
+| **12-24 total** | Can detect large effects; validate findings independently |
+| **24-50 total** | Reasonable power for moderate effects |
+| **50+ total** | Good power; robust statistical analysis |
+
+**Rule of thumb**: Aim for at least 10-15 samples per group for publishable results.
+
+</details>
+
+<details>
+<summary><strong>📁 What files should I include in my paper's supplementary?</strong></summary>
+
+**Essential (for reproducibility)**:
+- `methods.md` - Auto-generated methods text
+- `analysis_parameters.json` - All parameters used
+- `decision_ledger.tsv` - All automated decisions
+
+**Recommended (for transparency)**:
+- `QC_Summary.csv` - Quality control summary
+- `*_Metrics.csv` - Lambda, batch correction details
+- `Intersection_Consensus_DMPs.csv` - Full consensus results
+
+</details>
+
+<details>
+<summary><strong>🐛 The analysis is taking very long / seems stuck</strong></summary>
+
+Normal analysis times:
+| Sample count | Expected time |
+|--------------|---------------|
+| 20 samples | 10-20 minutes |
+| 50 samples | 30-60 minutes |
+| 100+ samples | 1-3 hours |
+
+If stuck for >2x expected time:
+1. Check memory usage (`htop` or Activity Monitor)
+2. Look at the log file in the output directory
+3. Try running with `--skip-sesame` to isolate issues
+
+</details>
+
+<details>
+<summary><strong>🔄 Can I rerun with different parameters?</strong></summary>
+
+Yes! Just specify a different output folder:
+
+```bash
+# Stricter thresholds
+python3 illumeta.py analysis -i projects/GSE12345 \
+  --group_con Control --group_test Case \
+  --pval 0.01 --lfc 1.0 \
+  --output projects/GSE12345/strict_results
+
+# Different batch correction
+python3 illumeta.py analysis -i projects/GSE12345 \
+  --group_con Control --group_test Case \
+  --disable-sva \
+  --output projects/GSE12345/no_sva_results
+```
+
+</details>
+
+---
+
+## Known Limitations
+
+### Sesame pthread errors on non-standard R builds
+
+On certain R installations (particularly with OpenBLAS or non-standard threading configurations), Sesame's internal parallelization may trigger `pthread` errors or segmentation faults. IlluMeta automatically:
+1. Detects these errors during Sesame normalization
+2. Falls back to single-threaded mode (`SESAME_NTHREAD=1`)
+3. Retries the normalization
+
+If you see warnings like `"pthread_create: Resource temporarily unavailable"` or `"caught segfault"`, IlluMeta handles these gracefully. To force single-threaded mode from the start:
+
+```bash
+SESAME_NTHREAD=1 python3 illumeta.py analysis ...
+```
+
+### Small sample size limitations
+
+IlluMeta implements a sample-size-adaptive Correction Robustness Framework (CRF v2.1):
+
+| Tier | Total n | Per-group min | Key limitations |
+|------|---------|---------------|-----------------|
+| **Minimal** | < 12 | 3 | Exploratory only; severe power limitation; SVA disabled |
+| **Small** | 12-23 | 6 | Independent validation required; SVA disabled |
+| **Moderate** | 24-49 | 12 | Full pipeline available; moderate power |
+| **Large** | >= 50 | 25 | All robustness checks fully powered |
+
+For minimal/small tiers, interpret results cautiously and plan for replication in independent cohorts.
+
+### EPIC v2 (EPICv2) array support
+
+IlluMeta supports EPIC v2 arrays with automatic manifest detection. However:
+- Some probe annotations may differ between EPIC v1 and v2
+- Cross-reactive probe lists are v1-based; v2-specific lists are being incorporated
+- DMR analysis uses EPIC v1 annotations; v2-specific boundaries may vary slightly
+
+### Multi-batch studies
+
+When analyzing studies with multiple batches:
+- ComBat assumes balanced designs; highly imbalanced batches may introduce bias
+- For >=3 batches with small per-batch n, consider stratified analysis (`--tier3-batch`)
+- Cross-platform (450K + EPIC) studies should subset to overlapping probes first
 
 ## Citation
 See `CITATION.cff`.

@@ -107,7 +107,7 @@ python3 illumeta.py analysis -i projects/GSE121633 --auto-group \
 ```
 
 Open the dashboard:
-`projects/GSE121633/Case_vs_Control_results/Case_vs_Control_index.html`
+`projects/GSE121633/Case_vs_Control_results_index.html`
 
 <details>
 <summary><strong>❓ "conda: command not found"?</strong></summary>
@@ -132,7 +132,8 @@ bash Miniforge3.sh -b && ~/miniforge3/bin/conda init zsh && source ~/.zshrc
 
 ## 📊 What You Get
 
-![Dashboard preview](docs/assets/dashboard_preview.gif)
+<!-- Dashboard preview screenshot will be added before publication -->
+<!-- ![Dashboard preview](docs/assets/dashboard_preview.gif) -->
 
 *Interactive dashboard generated automatically. No additional coding required.*
 
@@ -185,7 +186,7 @@ python3 illumeta.py doctor
 - **Dual-pipeline design**: Runs both **Minfi** and **Sesame** independently
 - **Consensus calling**: High-confidence results where both methods agree
 - **Adaptive batch correction**: Automatically selects optimal method (SVA/ComBat/limma)
-- **CRF v2.1 robustness framework**: Sample-size-adaptive quality assessment
+- **CRF robustness framework**: Sample-size-adaptive quality assessment
 - **Full reproducibility**: All parameters and decisions logged
 
 <details>
@@ -194,12 +195,80 @@ python3 illumeta.py doctor
 - **Two independent pipelines**: Minfi (Noob) and Sesame run side-by-side; Sesame reports both strict (Minfi-aligned) and native (pOOBAH-preserving) views.
 - **High-confidence consensus**: CpGs significant in BOTH pipelines with the SAME direction.
 - **Batch handling**: Evaluates correction strategies (SVA/ComBat/limma) when a batch factor exists.
-- **CRF v2.1**: Sample-size-adaptive robustness report (MMC/NCS/SSS) with tiered warnings.
+- **CRF**: Sample-size-adaptive robustness report (MMC/NCS/SSS) with tiered warnings.
 - **Defensive stats**: Guards against low-variance or single-group covariates.
 - **Executive dashboard**: Verdict + CRF quick stats + warnings at the top.
 - **Paper-ready outputs**: HTML + PNG figures, methods.md, summary.json, sessionInfo.txt.
 
 </details>
+
+## Analysis Pipeline Overview
+
+IlluMeta runs a fully automated dual-pipeline analysis. The diagram below shows the complete flow from raw IDAT files to the interactive dashboard:
+
+```
+Input: IDAT files + sample sheet
+        │
+        ├── Preflight ── validate samples, detect array (450k / EPIC / EPIC v2)
+        │
+        ├── Sample QC ── median intensity check, sex mismatch detection
+        │
+        ├── Cell Composition ── reference-based (blood/saliva) or reference-free (RefFreeEWAS)
+        │
+        ├── Probe QC ── detection P, cross-reactive, SNP (MAF), sex chromosome removal
+        │
+        │       ┌──────────────────────┬────────────────────────┐
+        │       │                      │                        │
+        ▼       ▼                      ▼                        ▼
+    ┌────────────────┐   ┌──────────────────┐   ┌───────────────────────┐
+    │     Minfi      │   │  SeSAMe (Strict) │   │   SeSAMe (Native)     │
+    │  Noob + Funnorm│   │  Same probe set   │   │  pOOBAH-preserved     │
+    │                │   │  as Minfi         │   │  probe set (wider)    │
+    └───────┬────────┘   └────────┬─────────┘   └──────────┬────────────┘
+            │                     │                        │
+            ├── Auto-covariate selection (PCA + PVCA)      │
+            ├── Batch evaluation (SVA / ComBat / limma)    │
+            ├── DMP analysis (limma) + lambda QC           │
+            ├── DMR analysis (dmrff)                       │
+            ├── Permutation testing (FPR)                  │
+            ├── variancePartition                          │
+            └── Epigenetic clocks (methylclock)            │
+                     │                                     │
+                     ▼                                     │
+        ┌─────────────────────────┐                        │
+        │  Consensus Intersection │◄───────────────────────┘
+        │  (Strict & Native)     │
+        │  Same direction + both │
+        │  pipelines significant │
+        └────────┬────────────────┘
+                 │
+                 ▼
+        ┌──────────────────────────────────────┐
+        │  CRF Robustness Assessment      │
+        │  + CAF Score + Signal Preservation    │
+        │  + summary.json + decision_ledger.tsv │
+        └────────┬─────────────────────────────┘
+                 │
+                 ▼
+        Interactive HTML Dashboard + methods.md
+```
+
+**Key design principle**: Minfi and SeSAMe use fundamentally different preprocessing algorithms. By requiring significance in **both** pipelines (consensus intersection), IlluMeta minimizes false positives and increases reproducibility.
+
+## Dashboard Navigation
+
+IlluMeta generates an interactive HTML dashboard as the primary interface for exploring results. The dashboard includes:
+
+| Section | What it shows |
+|---------|---------------|
+| **Executive Summary** | Verdict badge, DMP counts, key metrics (lambda, stability, CRF tier) |
+| **Beginner Path** | 3-step guide: (1) Check QC, (2) Review consensus intersection, (3) Explore pipelines |
+| **Run Controls & QC** | Analysis parameters, sample/probe QC summary |
+| **Pipeline Tabs** | 5 tabs: Intersection Native, Intersection Strict, Minfi, Sesame Strict, Sesame Native |
+
+Each pipeline tab contains expandable sections for Primary Results (volcano, Manhattan, heatmap, DMP table), Region-Level Results (DMRs), Quality & Diagnostics (PCA, Q-Q, PVCA), Batch & Covariates, and Clocks & Age.
+
+For a complete dashboard guide with interpretation instructions, see the **Supplementary Data** document (generate via `python3 scripts/build_supplementary_data_docx.py`).
 
 ## Supplementary materials (recommended for manuscripts)
 For transparency and reproducibility, we recommend including the following files in your Supplementary Materials:
@@ -984,6 +1053,59 @@ python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_te
 python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --permutations 50
 ```
 
+### Cell Composition Estimation
+
+IlluMeta estimates cell type composition to adjust for cellular heterogeneity, which is critical for accurate differential methylation analysis.
+
+#### Supported Methods
+
+| `--tissue` | Method | Cell Types | Best For |
+|------------|--------|------------|----------|
+| `Auto` | **RefFreeEWAS** | Latent1-5 (data-driven) | Unknown tissue, tumors, mixed samples |
+| `Blood` | FlowSorted.Blood.EPIC | CD8T, CD4T, NK, Bcell, Mono, Neu | Blood/PBMC samples |
+| `CordBlood` | FlowSorted.CordBlood | Nucleated RBC, CD8T, CD4T, etc. | Cord blood samples |
+| `Placenta` | planet | Trophoblast, Stromal, etc. | Placenta samples |
+| `DLPFC` | FlowSorted.DLPFC | NeuN+, NeuN- | Brain (prefrontal cortex) |
+
+#### Which method should I use?
+
+<details>
+<summary><strong>Decision guide (click to expand)</strong></summary>
+
+**Use `--tissue Auto` (Reference-Free) when:**
+- You don't know the exact tissue type
+- Analyzing tumor samples (disease may alter cell methylation signatures)
+- Mixed or heterogeneous samples
+- You want a method that works across all tissues
+
+**Use `--tissue Blood` (Reference-Based) when:**
+- Analyzing blood or PBMC samples
+- You need interpretable cell type names (CD8T, CD4T, NK, etc.)
+- Clinical/epidemiological studies where cell types matter
+
+**Pros and Cons:**
+
+| Aspect | Reference-Free (Auto) | Reference-Based (Blood, etc.) |
+|--------|----------------------|------------------------------|
+| **Interpretability** | Low (Latent1, Latent2...) | High (CD8T, NK, Mono...) |
+| **Tissue flexibility** | Any tissue | Tissue-specific only |
+| **Disease bias** | None | May be biased if disease alters cell methylation |
+| **Precision** | Moderate | High for matched tissues |
+
+</details>
+
+#### Examples
+```bash
+# Reference-free (works for any tissue)
+python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --tissue Auto
+
+# Blood samples with reference-based deconvolution
+python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --tissue Blood
+
+# Placenta samples
+python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --tissue Placenta
+```
+
 ### Permutation test ("perm") for beginners
 This checks how many significant DMPs you would get by chance if labels were shuffled.
 
@@ -1340,7 +1462,7 @@ SESAME_NTHREAD=1 python3 illumeta.py analysis ...
 
 ### Small sample size limitations
 
-IlluMeta implements a sample-size-adaptive Correction Robustness Framework (CRF v2.1):
+IlluMeta implements a sample-size-adaptive Correction Robustness Framework (CRF):
 
 | Tier | Total n | Per-group min | Key limitations |
 |------|---------|---------------|-----------------|
@@ -1365,8 +1487,13 @@ When analyzing studies with multiple batches:
 - For >=3 batches with small per-batch n, consider stratified analysis (`--tier3-batch`)
 - Cross-platform (450K + EPIC) studies should subset to overlapping probes first
 
-## Citation
-See `CITATION.cff`.
+## Citing IlluMeta
+
+If you use IlluMeta in your research, please cite:
+
+> Kang, K. (2026). IlluMeta: an automated dual-pipeline framework for robust DNA methylation analysis. *Bioinformatics* (submitted).
+
+See `CITATION.cff` for machine-readable citation metadata.
 
 ## License
 Apache-2.0 (see `LICENSE`).

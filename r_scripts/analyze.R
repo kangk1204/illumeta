@@ -101,7 +101,7 @@ if (!exists("findbars")) {
 #   - Variance partitioning (PVCA) for batch assessment
 #   - Differential methylation analysis (DMPs via limma, DMRs via dmrff)
 #   - Cell composition deconvolution (EpiDISH, RefFreeEWAS)
-#   - Sample-size adaptive robustness (CRF v2.1)
+#   - Sample-size adaptive robustness (CRF)
 #   - Epigenetic clock estimation (methylclock, planet)
 #
 # STATISTICAL METHODS AND REFERENCES:
@@ -1207,9 +1207,12 @@ run_permutation_uniformity <- function(betas, targets, group_col, covariates, ba
     }
     perm_ld <- drop_linear_dependencies(perm_design, group_cols = perm_group_cols)
     perm_design <- perm_ld$mat
-    if (ncol(perm_design) < 2) next
+    # Find group columns by name rather than assuming fixed positions
+    grp_idx <- match(perm_group_cols, colnames(perm_design))
+    grp_idx <- grp_idx[!is.na(grp_idx)]
+    if (length(grp_idx) < 2) next
     cont_vec <- rep(0, ncol(perm_design))
-    cont_vec[2] <- 1; cont_vec[1] <- -1
+    cont_vec[grp_idx[2]] <- 1; cont_vec[grp_idx[1]] <- -1
     cm_perm <- matrix(cont_vec, ncol = 1)
     rownames(cm_perm) <- colnames(perm_design)
     fitp <- lmFit(m_perm, perm_design)
@@ -2377,7 +2380,7 @@ compute_sss_overlap <- function(betas, targets, group_col, covariates, mode, n_i
 build_crf_report_lines <- function(tier_info, mmc_summary, ncs_summary, sss_summary, prefix) {
   tier_name <- toupper(tier_info$tier)
   lines <- c(
-    "CORRECTION ROBUSTNESS REPORT (CRF v2.1)",
+    "CORRECTION ROBUSTNESS REPORT (CRF)",
     "",
     sprintf("Pipeline: %s", prefix),
     sprintf("Samples: %d (Control=%d, Test=%d)", tier_info$total_n, tier_info$n_con, tier_info$n_test),
@@ -2435,7 +2438,7 @@ build_crf_report_lines <- function(tier_info, mmc_summary, ncs_summary, sss_summ
   lines
 }
 
-#' Correction Robustness Framework (CRF v2.1) Assessment
+#' Correction Robustness Framework (CRF) Assessment
 #'
 #' Evaluates batch correction robustness through multiple complementary metrics:
 #' negative control stability, multi-method consistency, and signal preservation.
@@ -2459,7 +2462,7 @@ build_crf_report_lines <- function(tier_info, mmc_summary, ncs_summary, sss_summ
 #' @return List containing CRF assessment results and pass/fail status
 #'
 #' @details
-#' CRF v2.1 includes three assessment modules:
+#' CRF includes three assessment modules:
 #' 1. Negative Control Stability (NCS): Lambda on control probes (SNP, OOB)
 #' 2. Multi-Method Consistency (MMC): Agreement across correction methods
 #' 3. Signal Stability Score (SSS): Top-K hit overlap before/after correction
@@ -2473,7 +2476,7 @@ run_crf_assessment <- function(betas_raw, betas_corr, targets, covariates, tier_
   crf_cfg <- config_settings$crf
   if (!isTRUE(tier_info$eligible)) {
     warn_lines <- c("CRF assessment skipped: sample size below minimum threshold.")
-    lines <- c("CORRECTION ROBUSTNESS REPORT (CRF v2.1)",
+    lines <- c("CORRECTION ROBUSTNESS REPORT (CRF)",
                "", sprintf("Pipeline: %s", prefix),
                sprintf("Samples: %d (Control=%d, Test=%d)", tier_info$total_n, tier_info$n_con, tier_info$n_test),
                sprintf("Sample Tier: %s", toupper(tier_info$tier)), "",
@@ -5360,10 +5363,19 @@ check_tier3_eligibility <- function(targets, batch_col, group_col,
   counts$N <- as.integer(counts$N)
   counts$Pass_Group_Min <- counts$N >= min_per_group_per_stratum
   total_n <- nrow(targets)
-  min_stratum_n <- if (nrow(counts) > 0) min(counts$N) else 0
-  batch_ok <- tapply(counts$Pass_Group_Min, counts$Batch, all)
+  # Only check overlap batches (batches containing both groups) for eligibility;
+  # non-overlap batches (one group only) are excluded from stratified analysis anyway.
+  groups_in_data <- unique(as.character(counts$Group[counts$N > 0]))
+  n_groups <- length(groups_in_data)
+  overlap_batches <- if (n_groups >= 2) {
+    grp_per_batch <- tapply(counts$N > 0, counts$Batch, sum)
+    names(grp_per_batch)[grp_per_batch >= n_groups]
+  } else character(0)
+  overlap_counts <- counts[counts$Batch %in% overlap_batches, , drop = FALSE]
+  min_stratum_n <- if (nrow(overlap_counts) > 0) min(overlap_counts$N) else 0
+  batch_ok <- tapply(overlap_counts$Pass_Group_Min, overlap_counts$Batch, all)
   pass_total <- total_n >= min_total_n
-  pass_strata <- all(batch_ok)
+  pass_strata <- length(batch_ok) > 0 && all(batch_ok)
   eligible <- isTRUE(pass_total && pass_strata)
   counts$Batch_Pass <- batch_ok[match(counts$Batch, names(batch_ok))]
   counts$Total_N <- total_n
@@ -6128,8 +6140,11 @@ if (!"Basename" %in% colnames(targets)) {
 find_basename_for_id <- function(sample_id, basenames) {
   exact <- basenames[basename(basenames) == sample_id]
   if (length(exact) > 0) return(exact[1])
-  contains <- basenames[grepl(sample_id, basename(basenames), fixed = TRUE)]
-  if (length(contains) > 0) return(contains[1])
+  # Fallback: match basenames starting with sample_id followed by '_' or end of string.
+  # This avoids GSM1234 matching GSM12345 (substring collision).
+  pattern <- paste0("^", gsub("([.+?^${}()|\\[\\]\\\\])", "\\\\\\1", sample_id), "(_|$)")
+  prefix_match <- basenames[grepl(pattern, basename(basenames))]
+  if (length(prefix_match) > 0) return(prefix_match[1])
   return(NA_character_)
 }
 
@@ -6193,7 +6208,11 @@ if (length(missing_pair_idx) > 0) {
 
 dup_basename_count <- sum(duplicated(targets$Basename))
 if (dup_basename_count > 0) {
-  message("WARNING: Duplicate Basename entries detected (", dup_basename_count, "). Results may be biased.")
+  dup_ids <- targets$SampleID[duplicated(targets$Basename)]
+  stop(paste0("Duplicate Basename entries detected (", dup_basename_count,
+              " duplicates). Affected sample IDs: ",
+              paste(head(dup_ids, 10), collapse = ", "),
+              ". Each sample must map to a unique IDAT pair."))
 }
 
 # Drop samples whose IDAT array size deviates from the modal value (prevents mixed-platform parsing errors)
@@ -6253,7 +6272,7 @@ message(paste("Found", nrow(targets), "samples for analysis."))
 message(paste("  - Control Group:", group_con_in, paste0("(n=", n_con, ")")))
 message(paste("  - Test Group:   ", group_test_in, paste0("(n=", n_test, ")")))
 
-# CRF v2.1: sample size tiering
+# CRF: sample size tiering
 crf_cfg <- config_settings$crf
 crf_enabled <- !is.null(crf_cfg) && isTRUE(crf_cfg$enabled)
 crf_tier_info <- resolve_crf_tier(n_con, n_test, crf_cfg)
@@ -8331,10 +8350,13 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
           
           perm_ld <- drop_linear_dependencies(perm_design, group_cols = perm_group_cols)
           perm_design <- perm_ld$mat
-          if (ncol(perm_design) < 2) next
-          
+          # Find group columns by name rather than assuming fixed positions
+          grp_idx <- match(perm_group_cols, colnames(perm_design))
+          grp_idx <- grp_idx[!is.na(grp_idx)]
+          if (length(grp_idx) < 2) next
+
           cont_vec <- rep(0, ncol(perm_design))
-          cont_vec[2] <- 1; cont_vec[1] <- -1
+          cont_vec[grp_idx[2]] <- 1; cont_vec[grp_idx[1]] <- -1
           cm_perm <- matrix(cont_vec, ncol = 1)
           rownames(cm_perm) <- colnames(perm_design)
           
@@ -9466,7 +9488,7 @@ tryCatch({
     sprintf("- Tier3 eligibility constraints: min_total_n=%d, min_per_group_per_stratum=%d (on_fail=%s).",
             tier3_min_total_n, tier3_min_per_group_per_stratum, tier3_on_fail),
     sprintf("- Optimization preset: `%s` (weights on batch removal, biology preservation, calibration, stability).", preset_name),
-    sprintf("- CRF v2.1 sample tier: %s (total_n=%d; min_per_group=%d).",
+    sprintf("- CRF sample tier: %s (total_n=%d; min_per_group=%d).",
             crf_tier, crf_tier_info$total_n, crf_tier_info$min_per_group),
     "- Calibration: permutation tests shuffle labels within batch strata to assess p-value uniformity (KS) and inflation.",
     "- Lambda guard is a heuristic inflation check; interpret with EWAS correlation structure in mind.",

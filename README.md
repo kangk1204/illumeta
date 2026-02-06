@@ -100,14 +100,18 @@ python3 illumeta.py doctor
 
 ### Run an example
 ```bash
-# Download a GEO dataset and analyze
-python3 illumeta.py download GSE121633 -o projects/GSE121633
-python3 illumeta.py analysis -i projects/GSE121633 \
-  --group_con Control --group_test Case
+# Download a GEO dataset (DCIS vs Normal breast tissue, 450K, n=55)
+python3 illumeta.py download GSE66313 -o projects/GSE66313
+
+# Run analysis with auto-grouping
+python3 illumeta.py analysis -i projects/GSE66313 \
+  --group_con Control --group_test Case \
+  --auto-group --group-column source_name_ch1 \
+  --group-map "Adjacent-Normal=Control;DCIS=Case"
 ```
 
 Open the dashboard:
-`projects/GSE121633/Case_vs_Control_results_index.html`
+`projects/GSE66313/Case_vs_Control_results_index.html`
 
 <details>
 <summary><strong>❓ "conda: command not found"?</strong></summary>
@@ -841,9 +845,11 @@ docker run --rm -it -v "$PWD":/app illumeta doctor
 Run analysis (mount your project directory):
 ```bash
 docker run --rm -it -v "$PWD":/app illumeta analysis \
-  -i projects/GSE121633 \
+  -i projects/GSE66313 \
   --group_con Control \
-  --group_test Case
+  --group_test Case \
+  --auto-group --group-column source_name_ch1 \
+  --group-map "Adjacent-Normal=Control;DCIS=Case"
 ```
 
 ## Quick start
@@ -858,17 +864,15 @@ docker run --rm -it -v "$PWD":/app illumeta analysis \
 # - Conda: conda activate illumeta
 # - venv:  source .venv/bin/activate
 
-python3 illumeta.py download GSE121633 -o projects/GSE121633
+python3 illumeta.py download GSE66313 -o projects/GSE66313
 # If a GEO series has multiple platforms, force one by GPL ID:
-python3 illumeta.py download GSE121633 -o projects/GSE121633 --platform GPL21145
+python3 illumeta.py download GSE66313 -o projects/GSE66313 --platform GPL13534
 ```
 
 ### 2) Assign groups (manual or auto)
 Option A (manual):
-Edit `projects/GSE121633/configure.tsv` and fill in `primary_group` (e.g., `Control` / `Case`).
+Edit `projects/GSE66313/configure.tsv` and fill in `primary_group` (e.g., `Control` / `Case`).
 `configure.tsv` must be **tab-delimited (TSV)**; CSV is not supported.
-
-> **Note:** For GSE121633, `primary_group` is already pre-filled during download — you can skip this step and go straight to step 3.
 
 Option B (auto-group on analysis):
 If your dataset's `primary_group` is empty, IlluMeta can populate it from metadata:
@@ -885,26 +889,30 @@ If your grouping is encoded in GEO characteristics, you can use `--group-key` (e
 ### 3) Run analysis
 ```bash
 python3 illumeta.py analysis \
-  -i projects/GSE121633 \
+  -i projects/GSE66313 \
   --group_con Control \
-  --group_test Case
+  --group_test Case \
+  --auto-group --group-column source_name_ch1 \
+  --group-map "Adjacent-Normal=Control;DCIS=Case"
 ```
-If you chose auto-grouping above, include the same `--auto-group` flags here instead of editing the TSV.
+If you filled `primary_group` manually (Option A), you can omit the `--auto-group` flags.
 Note: the default output folder name is derived from the group labels. If it contains non-ASCII characters, IlluMeta normalizes it to a safe ASCII name for filesystem compatibility (the dashboard filename follows the folder name).
 Optional (signal preservation checks):
 ```bash
 # Provide a CpG marker list (TSV/CSV with CpG column or one CpG per line)
 python3 illumeta.py analysis \
-  -i projects/GSE121633 \
+  -i projects/GSE66313 \
   --group_con Control \
   --group_test Case \
+  --auto-group --group-column source_name_ch1 \
+  --group-map "Adjacent-Normal=Control;DCIS=Case" \
   --marker-list markers.tsv
 ```
 This generates `*_Signal_Preservation.csv` and (if provided) `*_Known_Marker_Summary.csv`.
 
 ### 4) Open the dashboard
 Open the generated HTML:
-`projects/GSE121633/Case_vs_Control_results_index.html`
+`projects/GSE66313/Case_vs_Control_results_index.html`
 
 ### 5) Interpret results (beginner checklist)
 
@@ -1344,7 +1352,7 @@ Common issues:
 <summary><strong>🆕 I'm completely new to methylation analysis. Where do I start?</strong></summary>
 
 1. **Install IlluMeta** using the Quick Start section above
-2. **Run the example** with GSE121633 (it's small and fast)
+2. **Run the example** with GSE66313 (DCIS vs Normal, 450K, 55 samples)
 3. **Open the dashboard** and explore the interactive plots
 4. **Read the methods.md** file - it explains what was done in plain English
 5. **Check QC first** - look at `QC_Summary.csv` to ensure data quality

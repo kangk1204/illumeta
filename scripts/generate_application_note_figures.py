@@ -10,20 +10,13 @@ import os
 import sys
 from pathlib import Path
 
-# Check for required packages
 try:
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     import numpy as np
 except ImportError:
-    print("Installing required packages...")
-    import subprocess
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "matplotlib", "numpy", "-q"])
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    import numpy as np
+    sys.exit("Missing required packages. Install with: pip install -r requirements-paper.txt")
 
 # Publication-quality settings
 plt.rcParams.update({

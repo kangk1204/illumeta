@@ -1,0 +1,5 @@
+# Extra dependencies for Application Note figure/document generation
+# Install: pip install -r requirements-paper.txt
+matplotlib>=3.5.0
+numpy>=1.21.0
+python-docx>=0.8.11

@@ -2674,6 +2674,7 @@ def generate_dashboard(output_dir, group_test, group_con):
     # CSS Style Block (Using format to avoid curly brace hell)
     style_block = """
         @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+        /* Offline fallback: system sans-serif fonts are used when Google Fonts unavailable */
         :root {
             --ink: #1d2628;
             --primary: #2f6b64;
@@ -3395,7 +3396,7 @@ def main():
     parser_analysis.add_argument("--fail-on-missing-idat", action="store_true",
                                  help="Fail if any samples have missing IDAT pairs instead of auto-filtering them (default: auto-filter)")
     parser_analysis.add_argument("--keep-missing-idat", action="store_true",
-                                 help="[Deprecated: use --fail-on-missing-idat] Alias for --fail-on-missing-idat")
+                                 help="[Deprecated] Misleading name retained for back-compat; equivalent to --fail-on-missing-idat (aborts on missing IDATs instead of auto-filtering)")
     parser_analysis.add_argument("--max_plots", type=int, default=10000, help="Max points for interactive plots (default: 10000)")
     parser_analysis.add_argument("--pval", type=float, default=0.05, help="Adjusted P-value threshold (default: 0.05)")
     parser_analysis.add_argument("--lfc", type=float, default=0.5, help="Log2 Fold Change threshold (default: 0.5)")

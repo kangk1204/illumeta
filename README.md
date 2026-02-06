@@ -101,9 +101,9 @@ python3 illumeta.py doctor
 ### Run an example
 ```bash
 # Download a GEO dataset and analyze
-python3 illumeta.py download GSE121633
-python3 illumeta.py analysis -i projects/GSE121633 --auto-group \
-  --group-column disease_state --group_con Control --group_test Case
+python3 illumeta.py download GSE121633 -o projects/GSE121633
+python3 illumeta.py analysis -i projects/GSE121633 \
+  --group_con Control --group_test Case
 ```
 
 Open the dashboard:
@@ -222,8 +222,8 @@ Input: IDAT files + sample sheet
         ▼       ▼                      ▼                        ▼
     ┌────────────────┐   ┌──────────────────┐   ┌───────────────────────┐
     │     Minfi      │   │  SeSAMe (Strict) │   │   SeSAMe (Native)     │
-    │  Noob + Funnorm│   │  Same probe set   │   │  pOOBAH-preserved     │
-    │                │   │  as Minfi         │   │  probe set (wider)    │
+    │  Noob + Funnorm│   │  Same probe set  │   │  pOOBAH-preserved     │
+    │                │   │  as Minfi        │   │  probe set (wider)    │
     └───────┬────────┘   └────────┬─────────┘   └──────────┬────────────┘
             │                     │                        │
             ├── Auto-covariate selection (PCA + PVCA)      │
@@ -237,17 +237,17 @@ Input: IDAT files + sample sheet
                      ▼                                     │
         ┌─────────────────────────┐                        │
         │  Consensus Intersection │◄───────────────────────┘
-        │  (Strict & Native)     │
-        │  Same direction + both │
-        │  pipelines significant │
+        │  (Strict & Native)      │
+        │  Same direction + both  │
+        │  pipelines significant  │
         └────────┬────────────────┘
                  │
                  ▼
-        ┌──────────────────────────────────────┐
-        │  CRF Robustness Assessment      │
+        ┌───────────────────────────────────────┐
+        │  CRF Robustness Assessment            │
         │  + CAF Score + Signal Preservation    │
         │  + summary.json + decision_ledger.tsv │
-        └────────┬─────────────────────────────┘
+        └────────┬──────────────────────────────┘
                  │
                  ▼
         Interactive HTML Dashboard + methods.md
@@ -868,14 +868,17 @@ Option A (manual):
 Edit `projects/GSE121633/configure.tsv` and fill in `primary_group` (e.g., `Control` / `Case`).
 `configure.tsv` must be **tab-delimited (TSV)**; CSV is not supported.
 
+> **Note:** For GSE121633, `primary_group` is already pre-filled during download — you can skip this step and go straight to step 3.
+
 Option B (auto-group on analysis):
+If your dataset's `primary_group` is empty, IlluMeta can populate it from metadata:
 ```bash
 python3 illumeta.py analysis \
-  -i projects/GSE121633 \
+  -i projects/GSE12345 \
   --group_con Control \
   --group_test Case \
   --auto-group \
-  --group-column disease_state
+  --group-column <your_column_name>
 ```
 If your grouping is encoded in GEO characteristics, you can use `--group-key` (e.g., `--group-key disease`).
 

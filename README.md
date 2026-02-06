@@ -107,7 +107,8 @@ python3 illumeta.py download GSE66313 -o projects/GSE66313
 python3 illumeta.py analysis -i projects/GSE66313 \
   --group_con Control --group_test Case \
   --auto-group --group-column source_name_ch1 \
-  --group-map "Adjacent-Normal=Control;DCIS=Case"
+  --group-map "Adjacent-Normal=Control;DCIS=Case" \
+  --tier3-on-fail skip
 ```
 
 Open the dashboard:
@@ -849,7 +850,8 @@ docker run --rm -it -v "$PWD":/app illumeta analysis \
   --group_con Control \
   --group_test Case \
   --auto-group --group-column source_name_ch1 \
-  --group-map "Adjacent-Normal=Control;DCIS=Case"
+  --group-map "Adjacent-Normal=Control;DCIS=Case" \
+  --tier3-on-fail skip
 ```
 
 ## Quick start
@@ -893,7 +895,8 @@ python3 illumeta.py analysis \
   --group_con Control \
   --group_test Case \
   --auto-group --group-column source_name_ch1 \
-  --group-map "Adjacent-Normal=Control;DCIS=Case"
+  --group-map "Adjacent-Normal=Control;DCIS=Case" \
+  --tier3-on-fail skip
 ```
 If you filled `primary_group` manually (Option A), you can omit the `--auto-group` flags.
 Note: the default output folder name is derived from the group labels. If it contains non-ASCII characters, IlluMeta normalizes it to a safe ASCII name for filesystem compatibility (the dashboard filename follows the folder name).
@@ -906,6 +909,7 @@ python3 illumeta.py analysis \
   --group_test Case \
   --auto-group --group-column source_name_ch1 \
   --group-map "Adjacent-Normal=Control;DCIS=Case" \
+  --tier3-on-fail skip \
   --marker-list markers.tsv
 ```
 This generates `*_Signal_Preservation.csv` and (if provided) `*_Known_Marker_Summary.csv`.
@@ -1002,7 +1006,7 @@ If your metadata already contains a reliable group column, IlluMeta can populate
 python3 illumeta.py analysis -i projects/GSE12345 \
   --group_con Control --group_test Case \
   --auto-group --group-column disease_state \
-  --group-map "normal=Control,tumor=Case"
+  --group-map "normal=Control;tumor=Case"
 ```
 For GEO characteristics, use a key (parsed from `key: value` patterns):
 ```bash
@@ -1019,7 +1023,7 @@ Auto-group prioritizes columns with high coverage and low category counts; numer
 ```bash
 # Auto-group from a metadata column
 python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case \
-  --auto-group --group-column disease_state --group-map "normal=Control,tumor=Case"
+  --auto-group --group-column disease_state --group-map "normal=Control;tumor=Case"
 
 # Tighten thresholds
 python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --pval 0.01 --lfc 1.0

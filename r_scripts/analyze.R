@@ -17,7 +17,10 @@ force_single_thread <- function() {
   }
 }
 
-force_single_thread()
+# Respect ILLUMETA_SESAME_SINGLE_THREAD env var (default "1" = single-thread)
+if (Sys.getenv("ILLUMETA_SESAME_SINGLE_THREAD", "1") == "1") {
+  force_single_thread()
+}
 
 suppressPackageStartupMessages(library(optparse))
 suppressPackageStartupMessages(library(minfi))

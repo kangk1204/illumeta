@@ -612,8 +612,11 @@ def find_basename_for_id(sample_id: str, basenames):
     for bn in basenames:
         if os.path.basename(bn) == sample_id:
             return bn
+    # Fallback: match basenames that start with sample_id followed by '_' or end of string.
+    # This avoids GSM1234 matching GSM12345 (substring collision).
     for bn in basenames:
-        if sample_id in os.path.basename(bn):
+        bname = os.path.basename(bn)
+        if bname.startswith(sample_id) and (len(bname) == len(sample_id) or bname[len(sample_id)] == '_'):
             return bn
     return None
 
@@ -811,7 +814,7 @@ def detect_r_major_minor(env=None):
         return None
     if res.returncode != 0:
         return None
-    match = re.search(r"R version (\\d+)\\.(\\d+)", res.stdout)
+    match = re.search(r"R version (\d+)\.(\d+)", res.stdout)
     if not match:
         return None
     return f"{match.group(1)}.{match.group(2)}"
@@ -1162,7 +1165,7 @@ def run_download(args):
 SEARCH_EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 SEARCH_PLATFORM_ACCESSIONS = ["GPL13534", "GPL21145", "GPL34372"]  # 450k, EPIC(850k), EPIC v2 (950k)
 SEARCH_PLATFORM_LABELS = {"GPL13534": "450k", "GPL21145": "850k", "GPL34372": "950k"}
-SEARCH_IDAT_REGEX = re.compile(r"(\\.idat(\\.gz)?|RAW\\.tar)", re.IGNORECASE)
+SEARCH_IDAT_REGEX = re.compile(r"(\.idat(\.gz)?|RAW\.tar)", re.IGNORECASE)
 SEARCH_TOOL_NAME = "illumeta-search"
 SEARCH_ESUMMARY_BATCH_SIZE = 150
 SEARCH_SUPPL_RETRY = 3
@@ -1252,7 +1255,7 @@ def fetch_search_summaries(ids, email: str, sleep_s: float):
                 platform = ";".join(gpls)
                 platform_types = sorted({SEARCH_PLATFORM_LABELS[g] for g in gpls if g in SEARCH_PLATFORM_LABELS})
                 platform_label = ";".join(platform_types)
-                pubmed_ids = re.sub(r"\\s+", " ", rec.get("pubmedids", "")).strip()
+                pubmed_ids = re.sub(r"\s+", " ", rec.get("pubmedids", "")).strip()
                 out.append(
                     {
                         "gse_id": accession,
@@ -1641,11 +1644,12 @@ def run_analysis(args):
             group_test=args.group_test,
             min_total_size=args.min_total_size,
             id_column=args.id_column,
-            drop_missing_idat=not args.keep_missing_idat,
+            drop_missing_idat=not (args.fail_on_missing_idat or args.keep_missing_idat),
         )
         if preflight.get("config_path") and preflight["config_path"] != config_path:
             config_path = preflight["config_path"]
-            cmd[3] = config_path
+            config_idx = cmd.index("--config") + 1
+            cmd[config_idx] = config_path
             log(f"[*] Using filtered config: {config_path}")
         log(f"[*] Preflight OK: samples={preflight['sample_count']}, "
             f"{args.group_con}={preflight['group_con']}, {args.group_test}={preflight['group_test']}")
@@ -2101,6 +2105,9 @@ def resolve_cross_reactive_dir(config_path, config_yaml_path=None):
 
 def generate_dashboard(output_dir, group_test, group_con):
     """Generates a beautiful HTML dashboard to navigate results."""
+    # Escape user-supplied group names to prevent XSS in generated HTML
+    group_test = html.escape(str(group_test))
+    group_con = html.escape(str(group_con))
     results_folder_name = os.path.basename(os.path.normpath(output_dir))
     parent_dir = os.path.dirname(os.path.normpath(output_dir))
     dashboard_filename = f"{results_folder_name}_index.html"
@@ -2999,24 +3006,36 @@ def generate_dashboard(output_dir, group_test, group_con):
     </div>
 """)
 
+    # -- "What should I look at first?" callout --
+    html_parts.append("""
+    <div class="callout" style="background:#eaf6ed; border-color:#b6d7c0; margin-bottom:1.2rem;">
+        <strong>New to IlluMeta? Start here:</strong>
+        (1) Check the <b>verdict badge</b> below for an overall confidence rating (hover for details).
+        (2) Scroll to <a href="#start" style="color:#1a6b3c;font-weight:600;">Beginner Path</a> for a 3-step guide.
+        (3) Open the <b>Intersection (Native)</b> tab for your primary, high-confidence results.
+        <br><small style="color:#555;">DMPs = differentially methylated positions (individual CpG sites). DMRs = differentially methylated regions (clusters of CpGs). FDR = false discovery rate (adjusted p-value controlling for multiple testing).</small>
+    </div>
+""")
+
     key_findings_html = "".join([f"<li>{html.escape(item)}</li>" for item in key_findings])
     html_parts.append(f"""
     <div id="summary" class="section-title">Executive Summary</div>
     <div class="summary-card">
         <div class="summary-grid">
             <div>
-                <div class="verdict-badge {verdict_class}">{verdict} Confidence</div>
-                <div class="summary-meta">Samples: {total_samples} (Control {n_con} / Test {n_test}) · Tier: {tier_label.upper() if tier_label else "N/A"}</div>
+                <div class="verdict-badge {verdict_class}" title="HIGH = Results are robust and suitable for publication. MODERATE = Usable results; review warnings carefully. LOW = Interpret with caution; significant limitations detected. EXPLORATORY = Hypothesis-generating only; not suitable for definitive conclusions.">{verdict} Confidence</div>
+                <div style="font-size:0.78rem;color:#555;margin:0.25rem 0 0.4rem;">{"Results are robust and suitable for publication." if verdict == "HIGH" else "Usable results; review warnings and consider validation." if verdict == "MODERATE" else "Interpret with caution; significant limitations detected." if verdict == "LOW" else "Hypothesis-generating only; not for definitive conclusions."}</div>
+                <div class="summary-meta">Samples: {total_samples} (Control {n_con} / Test {n_test}) · <span title="CRF tier reflects your study's statistical power based on sample size: Minimal (&lt;12), Small (12-23), Moderate (24-49), Large (&ge;50). Higher tiers enable more robust statistical checks.">Tier: {tier_label.upper() if tier_label else "N/A"}</span></div>
                 <div class="summary-kpis">
-                    <div class="kpi-card">
+                    <div class="kpi-card" title="The normalization pipeline used as the primary analysis branch. Results from this pipeline drive the executive summary metrics.">
                         <div class="kpi-label">Primary Branch</div>
                         <div class="kpi-value">{primary_branch or "N/A"}</div>
                     </div>
-                    <div class="kpi-card">
+                    <div class="kpi-card" title="Number of consensus DMPs (differentially methylated positions) found significant in BOTH pipelines with concordant direction. These are your most reliable results.">
                         <div class="kpi-label">Intersection (Native)</div>
                         <div class="kpi-value">{intersect_native_total}</div>
                     </div>
-                    <div class="kpi-card">
+                    <div class="kpi-card" title="DMP counts for each pipeline: Minfi (Noob normalization) / Sesame (strict, Minfi-aligned) / Sesame Native (pOOBAH-preserved). Higher counts in individual pipelines with low intersection may indicate pipeline-specific artifacts.">
                         <div class="kpi-label">Pipelines</div>
                         <div class="kpi-value">{minfi_total} / {sesame_total} / {sesame_native_total}</div>
                     </div>
@@ -3028,21 +3047,21 @@ def generate_dashboard(output_dir, group_test, group_con):
             </div>
         </div>
         <div class="summary-stats">
-            <div class="stat-row">
+            <div class="stat-row" title="Method concordance measures how well Minfi and SeSAMe agree. Core % = percentage of DMPs found by both methods. Spearman rho = rank correlation of effect sizes. Higher values indicate more robust results.">
                 <div class="stat-label">Method concordance</div>
                 <div>
                     <div class="stat-value">{mmc_pct_display} core · ρ={mmc_spearman_display}</div>
                     <div class="progress-bar {mmc_progress_class}"><span style="width:{mmc_bar:.0f}%"></span></div>
                 </div>
             </div>
-            <div class="stat-row">
+            <div class="stat-row" title="Signal Stability Score (SSS) assesses reproducibility via leave-one-out analysis. Overlap = how stable the top hits are when removing one sample. Sign = how consistent the effect direction is. Values near 1.0 are ideal.">
                 <div class="stat-label">Stability (SSS)</div>
                 <div>
                     <div class="stat-value">Overlap {sss_overlap_display} · Sign {sss_sign_display}</div>
                     <div class="progress-bar {sss_progress_class}"><span style="width:{sss_bar:.0f}%"></span></div>
                 </div>
             </div>
-            <div class="stat-row">
+            <div class="stat-row" title="Negative Control Score (NCS) uses permutation testing to check if your results contain more signal than expected by chance. 'Passed' means real signal exceeds the null distribution.">
                 <div class="stat-label">Negative control</div>
                 <div class="stat-value">{ncs_label}</div>
             </div>
@@ -3063,12 +3082,21 @@ def generate_dashboard(output_dir, group_test, group_con):
 """)
 
     guide_steps = [
-        ("Step 1", "Check sample quality", "Verify QC pass/fail and signal quality before interpreting results.",
+        ("Step 1", "Check sample quality",
+         "Before interpreting any results, confirm that samples passed QC. Look for: >90% samples passing, "
+         "detection P failure fraction < 0.20, and consistent signal intensity across samples. If many samples "
+         "fail, your downstream results may be unreliable.",
          [("QC_Summary.csv", "QC Summary"), ("Sample_QC_DetectionP_FailFraction.html", "Detection P"), ("Sample_QC_Intensity_Medians.html", "Intensity")]),
-        ("Step 2", "Review the High-confidence Intersection", "Intersection (Native) is a conservative, high-confidence subset; review Minfi/Sesame pipelines for sensitivity.",
+        ("Step 2", "Review the High-confidence Intersection",
+         "The Intersection (Native) tab shows CpGs significant in BOTH pipelines (Minfi and SeSAMe) with the "
+         "same direction of change. These are your most reliable hits. Check the concordance plot to confirm "
+         "pipelines agree, and use the consensus DMP table for your primary results.",
          [("Intersection_Native_Consensus_DMPs.html", "Intersection DMPs (Native)"), ("Intersection_Consensus_DMPs.html", "Intersection DMPs (Strict)"),
           ("Intersection_Native_LogFC_Concordance.html", "Concordance (Native)"), ("Intersection_LogFC_Concordance.html", "Concordance (Strict)")]),
-        ("Step 3", "Dive into pipelines", "Explore Minfi and Sesame for method-specific depth.",
+        ("Step 3", "Explore individual pipelines",
+         "For deeper analysis, check the volcano plots (effect size vs. significance), Manhattan plots (genomic "
+         "distribution), and DMR tables (region-level changes). Compare Minfi and Sesame results to understand "
+         "where methods agree and diverge.",
          [("Minfi_Volcano.html", "Minfi Volcano"), ("Sesame_Volcano.html", "Sesame Volcano (Strict)"),
           ("Sesame_Native_Volcano.html", "Sesame Volcano (Native)"), ("Minfi_DMRs_Table.html", "Minfi DMRs")]),
     ]
@@ -3083,7 +3111,9 @@ def generate_dashboard(output_dir, group_test, group_con):
             <div class="pill-row">{link_html}</div>
         </div>''')
     html_parts.append('</div>')
-    html_parts.append('<div class="callout"><strong>Beginner tip:</strong> If results look inconsistent, check QC and batch diagnostics before focusing on DMPs/DMRs.</div>')
+    html_parts.append('<div class="callout"><strong>Beginner tip:</strong> If results look inconsistent, check QC and batch diagnostics before focusing on DMPs/DMRs. '
+                      'Lambda (&lambda;) near 1.0 is ideal; values &gt;1.5 suggest bias. '
+                      'Zero consensus DMPs with many pipeline-specific DMPs means the two methods disagree&mdash;investigate QC and batch correction.</div>')
 
     if analysis_params or qc_summary:
         html_parts.append('<div id="controls" class="section-title">Run Controls & QC</div>')
@@ -3091,10 +3121,10 @@ def generate_dashboard(output_dir, group_test, group_con):
         if analysis_params:
             html_parts.append('        <div class="metrics-card">\n')
             html_parts.append('            <div class="metrics-title">Analysis Parameters</div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>FDR / |logFC| / |DeltaBeta|</span><span>{analysis_params.get("pval_threshold", "N/A")} / {analysis_params.get("lfc_threshold", "N/A")} / {analysis_params.get("delta_beta_threshold", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row" title="FDR (False Discovery Rate): adjusted p-value threshold controlling for multiple testing. |logFC|: minimum log2 fold-change in methylation M-values. |DeltaBeta|: minimum absolute difference in beta-values (0-1 scale). Stricter thresholds yield fewer but more confident results."><span>FDR / |logFC| / |DeltaBeta|</span><span>{analysis_params.get("pval_threshold", "N/A")} / {analysis_params.get("lfc_threshold", "N/A")} / {analysis_params.get("delta_beta_threshold", "N/A")}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Tissue</span><span>{analysis_params.get("tissue", "N/A")} ({analysis_params.get("tissue_source", "N/A")})</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Array type</span><span>{analysis_params.get("array_type", "N/A")}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>CRF sample tier</span><span>{analysis_params.get("crf_sample_tier", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row" title="Correction Robustness Framework tier. Minimal (<12): exploratory only, SVA disabled. Small (12-23): limited power. Moderate (24-49): full pipeline. Large (>=50): all checks powered."><span>CRF sample tier</span><span>{analysis_params.get("crf_sample_tier", "N/A")}</span></div>\n')
             cell_ref = analysis_params.get("cell_reference", "")
             cell_ref_platform = analysis_params.get("cell_reference_platform", "")
             cell_ref_label = "default" if not cell_ref else f"{cell_ref} ({cell_ref_platform or 'auto'})"
@@ -3131,7 +3161,7 @@ def generate_dashboard(output_dir, group_test, group_con):
         ("decision_ledger.tsv", "Decision Ledger", "Automated decision log with reasons (TSV).", "DOC"),
         ("Correction_Adequacy_Report.txt", "Correction Adequacy Report", "CAF summary for the primary branch.", "DOC"),
         ("Correction_Adequacy_Summary.csv", "Correction Adequacy Summary", "CAF metrics for the primary branch.", "CSV"),
-        ("Correction_Robustness_Report.txt", "Correction Robustness Report", "CRF v2.1 sample-size adaptive report.", "DOC"),
+        ("Correction_Robustness_Report.txt", "Correction Robustness Report", "CRF sample-size adaptive report.", "DOC"),
         ("CRF_MMC_Summary.csv", "CRF MMC Summary (CSV)", "Multi-method concordance summary for the primary branch.", "CSV"),
         ("CRF_NCS_Summary.csv", "CRF NCS Summary (CSV)", "Negative control stability summary for the primary branch.", "CSV"),
         ("CRF_SSS_Summary.csv", "CRF SSS Summary (CSV)", "Split-sample stability summary for the primary branch.", "CSV"),
@@ -3208,7 +3238,7 @@ def generate_dashboard(output_dir, group_test, group_con):
         if metrics:
             html_parts.append('        <div class="metrics-card">\n')
             html_parts.append('            <div class="metrics-title">Model & Batch Summary</div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>λ (inflation)</span><span>{metrics.get("lambda", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row" title="Genomic inflation factor. Ideal: 0.9-1.1. Values >1.2 suggest p-value inflation (possible batch effects or widespread signal). Values <0.9 suggest over-correction."><span>λ (inflation)</span><span>{metrics.get("lambda", "N/A")}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Batch method</span><span>{metrics.get("batch_method_applied", "N/A")}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Samples / CpGs</span><span>{metrics.get("n_samples", "N/A")} / {metrics.get("n_cpgs", "N/A")}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Covariates used (n)</span><span>{metrics.get("n_covariates_used", "N/A")}</span></div>\n')
@@ -3343,8 +3373,10 @@ def main():
                                  help="Overwrite existing primary_group values when auto-grouping")
     parser_analysis.add_argument("--auto-group-allow-technical", action="store_true",
                                  help="Allow technical/batch columns if no biological candidate exists (not recommended)")
+    parser_analysis.add_argument("--fail-on-missing-idat", action="store_true",
+                                 help="Fail if any samples have missing IDAT pairs instead of auto-filtering them (default: auto-filter)")
     parser_analysis.add_argument("--keep-missing-idat", action="store_true",
-                                 help="Do not auto-filter samples with missing IDAT pairs (default: auto-filter)")
+                                 help="[Deprecated: use --fail-on-missing-idat] Alias for --fail-on-missing-idat")
     parser_analysis.add_argument("--max_plots", type=int, default=10000, help="Max points for interactive plots (default: 10000)")
     parser_analysis.add_argument("--pval", type=float, default=0.05, help="Adjusted P-value threshold (default: 0.05)")
     parser_analysis.add_argument("--lfc", type=float, default=0.5, help="Log2 Fold Change threshold (default: 0.5)")

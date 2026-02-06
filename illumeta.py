@@ -1019,6 +1019,16 @@ def ensure_r_lib_env(env):
         return env
 
     recorded_lib = read_recorded_r_lib(BASE_DIR)
+    # Validate recorded lib matches current R version to prevent ABI mismatches
+    # (e.g. R upgraded from 4.4 to 4.5 but .illumeta_r_lib_path still says R-4.4)
+    if recorded_lib:
+        r_ver = detect_r_major_minor(env)
+        if r_ver:
+            expected_dir = f"R-{r_ver}"
+            actual_dir = os.path.basename(recorded_lib.rstrip(os.sep))
+            if actual_dir != expected_dir:
+                log(f"[*] Recorded R library ({recorded_lib}) does not match current R {r_ver}; auto-correcting to {expected_dir}")
+                recorded_lib = None
     default_lib_root = default_r_lib_base(BASE_DIR, env)
     default_lib = recorded_lib or default_r_lib(BASE_DIR, env)
     if recorded_lib:
@@ -1043,16 +1053,23 @@ def ensure_r_dependencies():
     require_epicv2 = os.environ.get("ILLUMETA_REQUIRE_EPICV2") == "1"
     marker_ok = False
     marker_epicv2_required = None
+    current_r_ver = detect_r_major_minor(env)
     if os.path.exists(SETUP_MARKER):
         try:
             with open(SETUP_MARKER) as f:
                 content = f.read()
+            marker_r_version = None
             for line in content.splitlines():
                 if line.startswith("epicv2_required="):
                     marker_epicv2_required = line.split("=", 1)[1].strip() == "1"
+                if line.startswith("r_version="):
+                    marker_r_version = line.split("=", 1)[1].strip()
             if marker_epicv2_required is None:
                 marker_epicv2_required = False
-            marker_ok = marker_epicv2_required == require_epicv2
+            r_version_matches = (not current_r_ver) or (marker_r_version == current_r_ver)
+            marker_ok = marker_epicv2_required == require_epicv2 and r_version_matches
+            if not r_version_matches:
+                log(f"[*] R version changed ({marker_r_version} -> {current_r_ver}); re-running setup...")
         except Exception:
             marker_ok = False
     core_pkgs = CORE_R_PACKAGES + (EPICV2_R_PACKAGES if require_epicv2 else [])
@@ -1075,6 +1092,8 @@ def ensure_r_dependencies():
         with open(SETUP_MARKER, "w") as f:
             f.write(f"setup completed at {datetime.now().isoformat()}\n")
             f.write(f"epicv2_required={1 if require_epicv2 else 0}\n")
+            if current_r_ver:
+                f.write(f"r_version={current_r_ver}\n")
         missing_optional_after = missing_r_packages(optional_pkgs, env=env)
         if missing_optional_after:
             log(f"[*] Optional R packages missing (features will be skipped): {', '.join(missing_optional_after)}")

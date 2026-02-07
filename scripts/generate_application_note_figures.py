@@ -27,6 +27,9 @@ plt.rcParams.update({
     'xtick.labelsize': 9,
     'ytick.labelsize': 9,
     'legend.fontsize': 9,
+    # Embed TrueType fonts (Type 42) in PDFs; avoids Type 3 fonts that some journals reject.
+    'pdf.fonttype': 42,
+    'ps.fonttype': 42,
     'figure.dpi': 300,
     'savefig.dpi': 300,
     'savefig.bbox': 'tight',
@@ -78,12 +81,61 @@ def safe_int(val, default=0):
         return default
 
 
+def count_fdr_significant_csv_rows(csv_path, threshold=0.05):
+    """
+    Count rows with FDR/q-value < threshold for common column names.
+    Used for DMR tables where the output CSV includes both significant and non-significant rows.
+    """
+    fdr_cols = ['p.adjust', 'FDR', 'adj.P.Val', 'qvalue', 'q.value']
+    try:
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            if reader.fieldnames is None:
+                return 0
+            cols = set(reader.fieldnames)
+            chosen = next((c for c in fdr_cols if c in cols), None)
+            if chosen is None:
+                return 0
+            sig = 0
+            for r in reader:
+                try:
+                    v = r.get(chosen, '')
+                    if v is None or v == '' or v == 'NA':
+                        continue
+                    if float(v) < threshold:
+                        sig += 1
+                except (ValueError, TypeError):
+                    continue
+            return sig
+    except OSError:
+        return 0
+
+
+def write_tsv(path, headers, rows):
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write('\t'.join(headers) + '\n')
+        for row in rows:
+            f.write('\t'.join(str(x) for x in row) + '\n')
+
+
+def write_md_table(path, title, headers, rows):
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(f"# {title}\n\n")
+        f.write("| " + " | ".join(headers) + " |\n")
+        f.write("| " + " | ".join(["---"] * len(headers)) + " |\n")
+        for row in rows:
+            f.write("| " + " | ".join(str(x) for x in row) + " |\n")
+        f.write("\n")
+
+
 def create_figure1_workflow(out_dir):
     """
     Figure 1: IlluMeta Workflow Diagram
     """
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))
-    ax.set_xlim(0, 10)
+    # Leave a small right margin so longer labels (e.g., "SVA/ComBat/limma")
+    # don't get clipped by the axes boundary.
+    ax.set_xlim(0, 10.5)
     ax.set_ylim(0, 6)
     ax.axis('off')
 
@@ -111,7 +163,8 @@ def create_figure1_workflow(out_dir):
     # Batch Correction
     ax.annotate('', xy=(6.8, 5.5), xytext=(6.2, 5.5), arrowprops=arrow_style)
     ax.annotate('', xy=(6.8, 4.5), xytext=(6.2, 4.5), arrowprops=arrow_style)
-    ax.text(7.5, 5, 'Batch\nCorrection\n(SVA/ComBat)', ha='center', va='center', fontsize=9, bbox=box_style)
+    # Wrap the method list to avoid overlapping the adjacent "DMP/DMR Analysis" box.
+    ax.text(7.5, 5, 'Batch\nCorrection\n(SVA/ComBat/\nlimma)', ha='center', va='center', fontsize=9, bbox=box_style)
 
     # DMP/DMR
     ax.annotate('', xy=(8.5, 5), xytext=(8.2, 5), arrowprops=arrow_style)
@@ -143,7 +196,7 @@ def create_figure1_workflow(out_dir):
 def create_figure2_benchmark(summary_data, ablation_data, out_dir):
     """
     Figure 2: Compact 2x2 multi-panel benchmark summary.
-    A) DMP counts by pipeline  B) Lambda (genomic inflation)
+    A) DMP counts by pipeline  B) CAF score (overall correction adequacy)
     C) Consensus overlap        D) CRF tier heatmap
     """
     if not summary_data:
@@ -166,9 +219,7 @@ def create_figure2_benchmark(summary_data, ablation_data, out_dir):
     minfi_dmps = [safe_int(row.get('minfi_dmps_fdr', 0)) for row in summary_data]
     sesame_dmps = [safe_int(row.get('sesame_dmps_fdr', 0)) for row in summary_data]
     consensus_dmps = [safe_int(row.get('illumeta_intersect_dmps', 0)) for row in summary_data]
-
-    lambda_minfi = [safe_float(row.get('lambda_minfi', 1.0), 1.0) for row in summary_data]
-    lambda_sesame = [safe_float(row.get('lambda_sesame', 1.0), 1.0) for row in summary_data]
+    caf_scores = [safe_float(row.get('caf_score', 0.0), 0.0) for row in summary_data]
 
     x = np.arange(len(datasets))
     width = 0.22
@@ -186,44 +237,63 @@ def create_figure2_benchmark(summary_data, ablation_data, out_dir):
     # ── Panel A: DMP counts by pipeline ──
     ax = axes[0, 0]
     add_platform_bg(ax)
-    ax.bar(x - width, minfi_dmps, width, label='Minfi', color='#4ECDC4', edgecolor='black', linewidth=0.5, zorder=3)
-    ax.bar(x, sesame_dmps, width, label='SeSAMe', color='#FF6B6B', edgecolor='black', linewidth=0.5, zorder=3)
-    ax.bar(x + width, consensus_dmps, width, label='Consensus', color='#45B7D1', edgecolor='black', linewidth=0.5, zorder=3)
+
+    # Cap extreme counts to preserve visibility across datasets; annotate true values for capped bars.
+    DMP_CAP = 5000
+    m_plot = [min(v, DMP_CAP) for v in minfi_dmps]
+    s_plot = [min(v, DMP_CAP) for v in sesame_dmps]
+    c_plot = [min(v, DMP_CAP) for v in consensus_dmps]
+
+    ax.bar(x - width, m_plot, width, label='Minfi', color='#4ECDC4', edgecolor='black', linewidth=0.5, zorder=3)
+    ax.bar(x, s_plot, width, label='SeSAMe', color='#FF6B6B', edgecolor='black', linewidth=0.5, zorder=3)
+    ax.bar(x + width, c_plot, width, label='Consensus', color='#45B7D1', edgecolor='black', linewidth=0.5, zorder=3)
+
+    def fmt_k(v):
+        if v >= 100000:
+            return f"{v/1000:.0f}k"
+        if v >= 10000:
+            return f"{v/1000:.1f}k"
+        return f"{v:,}"
+
+    for i, (vm, vs, vc) in enumerate(zip(minfi_dmps, sesame_dmps, consensus_dmps)):
+        if vm > DMP_CAP:
+            ax.annotate(fmt_k(vm), xy=(i - width, DMP_CAP), xytext=(0, 5),
+                        textcoords='offset points', ha='center', fontsize=6.0,
+                        fontweight='bold', color='#2AA69A')
+        if vs > DMP_CAP:
+            ax.annotate(fmt_k(vs), xy=(i, DMP_CAP), xytext=(0, 5),
+                        textcoords='offset points', ha='center', fontsize=6.0,
+                        fontweight='bold', color='#E05555')
+        if vc > DMP_CAP:
+            ax.annotate(fmt_k(vc), xy=(i + width, DMP_CAP), xytext=(0, 5),
+                        textcoords='offset points', ha='center', fontsize=6.0,
+                        fontweight='bold', color='#2F8FB3')
+
     ax.set_ylabel('DMPs (FDR < 0.05)')
     ax.set_title('A. DMP Detection by Pipeline', fontweight='bold', fontsize=10)
     ax.set_xticks(x)
     ax.set_xticklabels([f"{d}\n{p}, n={n}" for d, p, n in zip(short_labels, platforms, n_samples)],
                         fontsize=5.5, rotation=0)
     ax.legend(loc='upper left', fontsize=7, framealpha=0.9)
-    ax.ticklabel_format(style='scientific', axis='y', scilimits=(0, 0))
+    ax.set_ylim(0, DMP_CAP + 800)
     ax.grid(axis='y', alpha=0.3, zorder=0)
 
-    # ── Panel B: Lambda (genomic inflation) — capped at 2.5 with annotations ──
+    # ── Panel B: CAF score (overall correction adequacy) ──
     ax = axes[0, 1]
     add_platform_bg(ax)
-    LAMBDA_CAP = 2.5
-    lm_plot = [min(v, LAMBDA_CAP) for v in lambda_minfi]
-    ls_plot = [min(v, LAMBDA_CAP) for v in lambda_sesame]
-    bars_m = ax.bar(x - width/2, lm_plot, width, label='Minfi', color='#4ECDC4', edgecolor='black', linewidth=0.5, zorder=3)
-    bars_s = ax.bar(x + width/2, ls_plot, width, label='SeSAMe', color='#FF6B6B', edgecolor='black', linewidth=0.5, zorder=3)
-    ax.axhline(y=1.0, color='green', linestyle='--', linewidth=1.5, label='Ideal ($\\lambda$=1.0)', zorder=2)
-    ax.axhspan(0.9, 1.1, alpha=0.12, color='green', zorder=1)
-    # Annotate values that exceed cap
-    for i, (lm, ls) in enumerate(zip(lambda_minfi, lambda_sesame)):
-        if lm > LAMBDA_CAP:
-            ax.annotate(f'{lm:.1f}', xy=(i - width/2, LAMBDA_CAP), xytext=(-8, 5),
-                        textcoords='offset points', ha='center', fontsize=5.5, fontweight='bold',
-                        color='#2AA69A')
-        if ls > LAMBDA_CAP:
-            ax.annotate(f'{ls:.1f}', xy=(i + width/2, LAMBDA_CAP), xytext=(8, 5),
-                        textcoords='offset points', ha='center', fontsize=5.5, fontweight='bold',
-                        color='#E05555')
-    ax.set_ylabel('Genomic Inflation ($\\lambda$)')
-    ax.set_title('B. Lambda After Batch Correction', fontweight='bold', fontsize=10)
+    bars = ax.bar(x, caf_scores, width * 2.2, color='#6C5CE7',
+                  edgecolor='black', linewidth=0.5, zorder=3)
+    ax.axhline(y=0.5, color='black', linestyle='--', linewidth=1.0, alpha=0.6, zorder=2)
+    for bar, s in zip(bars, caf_scores):
+        ax.annotate(f'{s:.3f}',
+                    xy=(bar.get_x() + bar.get_width() / 2, bar.get_height()),
+                    xytext=(0, 3), textcoords="offset points",
+                    ha='center', va='bottom', fontsize=6.5, fontweight='bold', color='#3D3D3D')
+    ax.set_ylabel('CAF Score (higher = better)')
+    ax.set_title('B. Correction Adequacy (CAF)', fontweight='bold', fontsize=10)
     ax.set_xticks(x)
     ax.set_xticklabels([f"{d}\n({t})" for d, t in zip(short_labels, crf_tiers)], fontsize=6)
-    ax.legend(loc='upper right', fontsize=6.5, framealpha=0.9)
-    ax.set_ylim(0, LAMBDA_CAP + 0.3)
+    ax.set_ylim(0, 1.0)
     ax.grid(axis='y', alpha=0.3, zorder=0)
 
     # ── Panel C: Consensus overlap with pipeline concordance ──
@@ -232,7 +302,10 @@ def create_figure2_benchmark(summary_data, ablation_data, out_dir):
     specificity = [c / min(m, s) * 100 if min(m, s) > 0 else 0
                    for m, s, c in zip(minfi_dmps, sesame_dmps, consensus_dmps)]
     colors_c = ['#45B7D1' if c > 0 else '#cccccc' for c in consensus_dmps]
-    bars = ax.bar(x, [c / 1000 for c in consensus_dmps], width * 2.5,
+    CONS_CAP_K = 10  # cap in thousands
+    cons_k = [c / 1000 for c in consensus_dmps]
+    cons_k_plot = [min(v, CONS_CAP_K) for v in cons_k]
+    bars = ax.bar(x, cons_k_plot, width * 2.5,
                   color=colors_c, edgecolor='black', linewidth=0.5, zorder=3)
     for i, (bar, spec) in enumerate(zip(bars, specificity)):
         height = bar.get_height()
@@ -251,6 +324,7 @@ def create_figure2_benchmark(summary_data, ablation_data, out_dir):
     ax.set_xticks(x)
     ax.set_xticklabels([f"{d}\n{p}, n={n}" for d, p, n in zip(short_labels, platforms, n_samples)],
                         fontsize=5.5, rotation=0)
+    ax.set_ylim(0, CONS_CAP_K + 2)
     ax.grid(axis='y', alpha=0.3, zorder=0)
 
     # ── Panel D: CRF tier heatmap ──
@@ -297,23 +371,22 @@ def create_table1_features(out_dir):
     """Table 1: Feature comparison between tools."""
     headers = ['Feature', 'minfi', 'ChAMP', 'IlluMeta']
     rows = [
-        ['Normalization', 'Noob/Funnorm', 'BMIQ', 'Noob + pOOBAH'],
+        ['Normalization', 'Noob (optional funnorm)', 'BMIQ', 'Dual: Noob (minfi) + Noob/pOOBAH (SeSAMe)'],
         ['Dual Pipeline', 'No', 'No', 'Yes'],
-        ['Consensus Calling', 'No', 'No', 'Yes'],
-        ['Automated Batch Correction', 'No', 'ComBat only', 'SVA/ComBat/limma (auto)'],
+        ['Consensus DMP Calling', 'No', 'No', 'Yes'],
+        ['Auto Batch Correction', 'Manual', 'Manual', 'Auto (SVA/ComBat/limma)'],
         ['Sample Size Adaptation', 'No', 'No', 'CRF'],
         ['Interactive Dashboard', 'No', 'No', 'Yes'],
         ['GEO Integration', 'Manual', 'Manual', 'Built-in download'],
-        ['Auto-generated Methods', 'No', 'No', 'Yes'],
-        ['Cell Composition', 'FlowSorted', 'RefbaseEWAS', 'EpiDISH + RefFreeEWAS'],
+        ['Auto Methods Text', 'No', 'No', 'Yes'],
+        ['Cell Deconvolution', 'FlowSorted', 'RefBaseEWAS', 'EpiDISH + RefFreeEWAS'],
         ['Epigenetic Clocks', 'No', 'No', 'methylclock/planet'],
         ['EPIC v2 Support', 'Manual setup', 'No', 'Auto-detected'],
     ]
 
-    with open(os.path.join(out_dir, 'Table1_Feature_Comparison.tsv'), 'w') as f:
-        f.write('\t'.join(headers) + '\n')
-        for row in rows:
-            f.write('\t'.join(row) + '\n')
+    write_tsv(os.path.join(out_dir, 'Table1_Feature_Comparison.tsv'), headers, rows)
+    write_md_table(os.path.join(out_dir, 'Table1_Feature_Comparison.md'),
+                   'Table 1: Feature Comparison', headers, rows)
 
     print("  Created Table 1: Feature comparison")
 
@@ -332,13 +405,36 @@ def create_table2_benchmark_summary(summary_data, out_dir):
 
     headers = ['Dataset', 'Platform', 'n', 'CRF Tier',
                'Minfi DMPs (FDR)', 'Sesame DMPs (FDR)', 'Consensus DMPs',
-               'Minfi DMPs (Nominal)', 'Sesame DMPs (Nominal)',
-               'Minfi DMRs', 'Sesame DMRs',
-               'Lambda (Minfi)', 'Lambda (Sesame)', 'CAF Score']
+               'CAF Score']
 
     rows = []
     for row in summary_data:
         rows.append([
+            row.get('gse_id', ''),
+            row.get('platform', ''),
+            row.get('n_samples', ''),
+            row.get('crf_tier', '').capitalize(),
+            f"{safe_int(row.get('minfi_dmps_fdr', 0)):,}",
+            f"{safe_int(row.get('sesame_dmps_fdr', 0)):,}",
+            f"{safe_int(row.get('illumeta_intersect_dmps', 0)):,}",
+            f"{safe_float(row.get('caf_score', 0)):.4f}",
+        ])
+
+    write_tsv(os.path.join(out_dir, 'Table2_Benchmark_Summary.tsv'), headers, rows)
+    write_md_table(os.path.join(out_dir, 'Table2_Benchmark_Summary.md'),
+                   'Table 2: Benchmark Summary', headers, rows)
+
+    print("  Created Table 2: Benchmark summary")
+
+    # Supplementary: full benchmark summary (includes nominal DMPs and lambda diagnostics).
+    headers_full = ['Dataset', 'Platform', 'n', 'CRF Tier',
+                    'Minfi DMPs (FDR)', 'Sesame DMPs (FDR)', 'Consensus DMPs',
+                    'Minfi DMPs (Nominal)', 'Sesame DMPs (Nominal)',
+                    'Minfi DMRs', 'Sesame DMRs',
+                    'Lambda (Minfi)', 'Lambda (Sesame)', 'CAF Score']
+    rows_full = []
+    for row in summary_data:
+        rows_full.append([
             row.get('gse_id', ''),
             row.get('platform', ''),
             row.get('n_samples', ''),
@@ -354,13 +450,88 @@ def create_table2_benchmark_summary(summary_data, out_dir):
             f"{safe_float(row.get('lambda_sesame', 1.0)):.3f}",
             f"{safe_float(row.get('caf_score', 0)):.4f}",
         ])
+    write_tsv(os.path.join(out_dir, 'TableS2_Benchmark_Full.tsv'), headers_full, rows_full)
+    write_md_table(os.path.join(out_dir, 'TableS2_Benchmark_Full.md'),
+                   'Table S2: Full Benchmark Summary', headers_full, rows_full)
+    print("  Created Table S2: Full benchmark summary")
 
-    with open(os.path.join(out_dir, 'Table2_Benchmark_Summary.tsv'), 'w', encoding='utf-8') as f:
-        f.write('\t'.join(headers) + '\n')
-        for row in rows:
-            f.write('\t'.join(str(x) for x in row) + '\n')
 
-    print("  Created Table 2: Benchmark summary")
+def create_tableS1_ablation_full(ablation_data, out_dir):
+    """Table S1: Ablation metrics in long format (raw vs corrected)."""
+    if not ablation_data:
+        print("  Skipping Table S1: No ablation data")
+        return
+    headers = ['gse_id', 'pipeline', 'variant', 'metric', 'value']
+    rows = []
+    for r in ablation_data:
+        rows.append([
+            r.get('gse_id', ''),
+            r.get('pipeline', ''),
+            r.get('variant', ''),
+            r.get('metric', ''),
+            r.get('value', ''),
+        ])
+    write_tsv(os.path.join(out_dir, 'TableS1_Ablation_Full.tsv'), headers, rows)
+    write_md_table(os.path.join(out_dir, 'TableS1_Ablation_Full.md'),
+                   'Table S1: Ablation Metrics (Long Format)', headers, rows)
+    print("  Created Table S1: Ablation full (long)")
+
+
+def create_figureS2_ablation_lambda(summary_data, ablation_data, out_dir):
+    """Supplementary Figure S2: raw vs corrected lambda per dataset/pipeline."""
+    if not summary_data or not ablation_data:
+        print("  Skipping Figure S2: Missing summary/ablation data")
+        return
+
+    # Use the same dataset ordering as main figures.
+    platform_order = {'450k': 0, 'EPIC': 1, 'EPICv2': 2}
+    summary_data = sorted(summary_data,
+                          key=lambda r: (platform_order.get(r.get('platform', ''), 9),
+                                         safe_int(r.get('n_samples', 0))))
+    datasets = [row.get('gse_id', row.get('label', 'Unknown')) for row in summary_data]
+    short_labels = [d.replace('GSE', '') for d in datasets]
+    x = np.arange(len(datasets))
+
+    # Build lookup: (gse_id, pipeline, variant, metric) -> value
+    lookup = {}
+    for r in ablation_data:
+        if r.get('metric') != 'lambda':
+            continue
+        key = (r.get('gse_id', ''), r.get('pipeline', ''), r.get('variant', ''), 'lambda')
+        try:
+            lookup[key] = float(r.get('value', 'nan'))
+        except Exception:
+            continue
+
+    def get_vals(pipeline, variant):
+        out = []
+        for gse in datasets:
+            out.append(lookup.get((gse, pipeline, variant, 'lambda'), float('nan')))
+        return out
+
+    minfi_raw = get_vals('Minfi', 'baseline')
+    minfi_corr = get_vals('Minfi', 'corrected')
+    sesame_raw = get_vals('Sesame', 'baseline')
+    sesame_corr = get_vals('Sesame', 'corrected')
+
+    fig, ax = plt.subplots(figsize=(9.0, 3.6))
+    w = 0.18
+    ax.bar(x - 1.5*w, minfi_raw, w, label='Minfi (raw)', color='#B8EAE6', edgecolor='black', linewidth=0.4)
+    ax.bar(x - 0.5*w, minfi_corr, w, label='Minfi (corrected)', color='#4ECDC4', edgecolor='black', linewidth=0.4)
+    ax.bar(x + 0.5*w, sesame_raw, w, label='SeSAMe (raw)', color='#FFC1C1', edgecolor='black', linewidth=0.4)
+    ax.bar(x + 1.5*w, sesame_corr, w, label='SeSAMe (corrected)', color='#FF6B6B', edgecolor='black', linewidth=0.4)
+    ax.axhline(y=1.0, color='green', linestyle='--', linewidth=1.2, label='Ideal ($\\lambda$=1.0)')
+    ax.set_ylabel('Genomic Inflation ($\\lambda$)')
+    ax.set_title('Effect of Batch Correction on Genomic Inflation', fontweight='bold', fontsize=10)
+    ax.set_xticks(x)
+    ax.set_xticklabels(short_labels, fontsize=7)
+    ax.legend(loc='upper right', fontsize=7, ncol=2, framealpha=0.9)
+    ax.grid(axis='y', alpha=0.25)
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, 'FigureS2_Ablation_Lambda.png'), dpi=300, facecolor='white')
+    plt.savefig(os.path.join(out_dir, 'FigureS2_Ablation_Lambda.pdf'), facecolor='white')
+    plt.close()
+    print("  Created Figure S2: Ablation lambda")
 
 
 def collect_illumeta_results(results_dir):
@@ -473,8 +644,8 @@ def collect_illumeta_results(results_dir):
         for pipeline in ['Minfi', 'Sesame']:
             dmr_file = res_dir / f'{pipeline}_DMRs.csv'
             if dmr_file.exists():
-                with open(dmr_file, 'r') as f:
-                    row[f'{pipeline.lower()}_dmrs'] = sum(1 for _ in f) - 1  # subtract header
+                # DMR files include both significant and non-significant rows; count only FDR<0.05.
+                row[f'{pipeline.lower()}_dmrs'] = count_fdr_significant_csv_rows(dmr_file, threshold=0.05)
 
         if row.get('n_samples'):
             summary.append(row)
@@ -535,7 +706,7 @@ def main():
     parser = argparse.ArgumentParser(description='Generate Application Note figures and tables')
     parser.add_argument('--summary-tsv', default=None,
                         help='Path to benchmark summary TSV (optional)')
-    parser.add_argument('--results-dir', default='benchmarks/application_note_rerun',
+    parser.add_argument('--results-dir', default='benchmarks/application_note_submission_results',
                         help='Directory containing IlluMeta results (GSE* subdirectories)')
     parser.add_argument('--out-dir', default='benchmarks/paper_figures',
                         help='Output directory for figures and tables')
@@ -571,6 +742,8 @@ def main():
     print("\nGenerating tables...")
     create_table1_features(args.out_dir)
     create_table2_benchmark_summary(summary_data, args.out_dir)
+    create_tableS1_ablation_full(ablation_data, args.out_dir)
+    create_figureS2_ablation_lambda(summary_data, ablation_data, args.out_dir)
 
     print(f"\nDone! Files saved to: {args.out_dir}/")
     print("\nGenerated files:")

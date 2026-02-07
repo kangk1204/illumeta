@@ -2178,7 +2178,7 @@ def generate_dashboard(output_dir, group_test, group_con):
         ("Region-Level Results", [
             ("_DMR_Volcano.html", "DMR Volcano Plot", "Visualizes significant DMRs (Est. Diff vs P-value).", "PLOT"),
             ("_DMR_Manhattan.html", "DMR Manhattan Plot", "Genomic distribution of DMRs.", "PLOT"),
-            ("_Top_DMRs_Heatmap.html", "DMR Heatmap (Top 50)", "Average methylation levels of top 50 DMRs.", "PLOT"),
+            ("_DMR_Heatmap.html", "DMR Heatmap (Top 50)", "Average methylation levels of top 50 DMRs.", "PLOT"),
             ("_DMRs_Table.html", "DMRs Table", "Searchable table of differentially methylated regions.", "TABLE"),
         ]),
         ("Quality & Diagnostics", [
@@ -2721,6 +2721,51 @@ def generate_dashboard(output_dir, group_test, group_con):
             letter-spacing: 0.2em;
             color: rgba(247, 245, 240, 0.65);
         }
+        .hero-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+        .hero-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .icon-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 38px;
+            height: 38px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            color: #f7f5f0;
+            text-decoration: none;
+            cursor: pointer;
+            transition: transform 0.2s ease, background 0.2s ease;
+        }
+        .icon-btn:hover { background: rgba(255, 255, 255, 0.18); transform: translateY(-1px); }
+        .icon-btn svg { width: 18px; height: 18px; fill: currentColor; opacity: 0.95; }
+        button.icon-btn { appearance: none; -webkit-appearance: none; }
+        .toast {
+            position: fixed;
+            bottom: 18px;
+            left: 50%;
+            transform: translateX(-50%) translateY(0);
+            background: rgba(31, 63, 60, 0.92);
+            color: #fff;
+            padding: 10px 14px;
+            border-radius: 999px;
+            font-size: 0.9rem;
+            box-shadow: 0 12px 26px rgba(0, 0, 0, 0.18);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            z-index: 9999;
+        }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
         .hero-title { font-size: clamp(2rem, 2.8vw, 2.8rem); margin-top: 0.5rem; }
         .hero-sub { margin-top: 0.6rem; font-size: 1rem; opacity: 0.85; }
         .hero-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1.2rem; }
@@ -2972,6 +3017,8 @@ def generate_dashboard(output_dir, group_test, group_con):
 
     # Construct HTML using lists and joins to be cleaner
     html_parts = []
+    results_path_abs = os.path.abspath(output_dir)
+    results_path_js = json.dumps(results_path_abs)
     
     # Header
     html_parts.append(f"""<!DOCTYPE html>
@@ -2987,7 +3034,21 @@ def generate_dashboard(output_dir, group_test, group_con):
 <header>
     <div class="hero">
         <div>
-            <div class="hero-eyebrow">IlluMeta Analysis</div>
+            <div class="hero-top">
+                <div class="hero-eyebrow">IlluMeta Analysis</div>
+                <div class="hero-actions">
+                    <a class="icon-btn" href="{results_folder_name}/" title="Open results directory ({results_folder_name}/)">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M10 4l2 2h8a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2h6z"></path>
+                        </svg>
+                    </a>
+                    <button class="icon-btn" type="button" onclick="copyResultsPath()" title="Copy results path to clipboard">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M16 1H6a2 2 0 00-2 2v12h2V3h10V1zm3 4H10a2 2 0 00-2 2v14a2 2 0 002 2h9a2 2 0 002-2V7a2 2 0 00-2-2zm0 16h-9V7h9v14z"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
             <h1 class="hero-title">Analysis Dashboard</h1>
             <p class="hero-sub">Comparison: <strong>{group_test}</strong> (Test) vs <strong>{group_con}</strong> (Control)</p>
             <div class="hero-tags">
@@ -3016,15 +3077,15 @@ def generate_dashboard(output_dir, group_test, group_con):
     </div>
 </header>
 
-<div class="container">
-    <div class="jump-bar">
-        <a href="#summary">Executive Summary</a>
-        <a href="#start">Start Here</a>
-        <a href="#controls">Run Controls & QC</a>
-        <a href="#docs">Run Documentation</a>
-        <a href="#pipelines">Results</a>
-    </div>
-""")
+	<div class="container">
+	    <div class="jump-bar">
+	        <a href="#summary">Executive Summary</a>
+	        <a href="#start">Beginner Path</a>
+	        <a href="#controls">Run Controls & QC</a>
+	        <a href="#pipelines">Results by Pipeline</a>
+	        <a href="#docs">Run Documentation</a>
+	    </div>
+	""")
 
     # -- "What should I look at first?" callout --
     html_parts.append("""
@@ -3093,7 +3154,7 @@ def generate_dashboard(output_dir, group_test, group_con):
                 <span class="warn-chip warn-important">Important {len(warn_important)}</span>
                 <span class="warn-chip warn-info">Info {len(warn_info)}</span>
             </div>
-            <details class="warn-details">
+            <details class="warn-details" open>
                 <summary>View details</summary>
                 {warn_details_html}
             </details>
@@ -3209,17 +3270,23 @@ def generate_dashboard(output_dir, group_test, group_con):
                 extra_cell_files.append(fname)
     except Exception:
         extra_cell_files = []
+
     for fname in sorted(extra_cell_files):
         run_docs.append((fname, f"{fname}", "Cell composition reference output (CSV).", "CSV"))
+
     doc_cards = []
     for fname, title, desc, badge in run_docs:
         fpath = os.path.join(output_dir, fname)
         if os.path.exists(fpath):
             rel_path = f"{results_folder_name}/{fname}"
             doc_cards.append((title, desc, rel_path, badge))
+
+    # Build the documentation section HTML, but append it after the pipeline results
+    # to keep the main user journey focused on results first.
+    docs_section_parts = []
     if doc_cards:
-        html_parts.append('<div id="docs" class="section-title">Run Documentation</div>')
-        html_parts.append('<div class="grid">')
+        docs_section_parts.append('<div id="docs" class="section-title">Run Documentation</div>')
+        docs_section_parts.append('<div class="grid">')
         card_index = 0
         for title, desc, rel_path, badge in doc_cards:
             card_index += 1
@@ -3235,8 +3302,8 @@ def generate_dashboard(output_dir, group_test, group_con):
                 </div>
             </div>
 """
-            html_parts.append(card_html)
-        html_parts.append('</div>')
+            docs_section_parts.append(card_html)
+        docs_section_parts.append('</div>')
 
     html_parts.append('<div id="pipelines" class="section-title">Results by Pipeline</div>')
     html_parts.append('<div class="nav-tabs" id="navTabs">')
@@ -3309,6 +3376,17 @@ def generate_dashboard(output_dir, group_test, group_con):
 
             if section_cards:
                 files_found += len(section_cards)
+                if section_title == "Primary Results":
+                    html_parts.append(
+                        '<div class="callout" style="margin:0.6rem 0 1rem;">'
+                        '<strong>How to read "Model &amp; Batch Summary":</strong> '
+                        'This panel summarizes the statistical model used for DMP/DMR testing in this pipeline '
+                        '(selected batch correction, covariates, and SVs). '
+                        'Lambda (&lambda;) near 1.0 is ideal; values &gt;1.2 suggest possible inflation (residual confounding), '
+                        'while values &lt;0.9 can indicate over-correction. '
+                        'If batch-associated probes remain after correction, review the diagnostic plots before interpreting hits.'
+                        '</div>\n'
+                    )
                 html_parts.append(f'        <div class="section-title">{section_title}</div>\n')
                 html_parts.append('        <div class="grid">\n')
                 html_parts.extend(section_cards)
@@ -3321,11 +3399,59 @@ def generate_dashboard(output_dir, group_test, group_con):
 
     html_parts.append('</div>\n')
 
+    if docs_section_parts:
+        html_parts.extend(docs_section_parts)
+
     # Footer and Script
     html_parts.append("""
 </div>
 
 <script>
+    const RESULTS_PATH = """ + results_path_js + """;
+
+    function showToast(msg) {
+        let el = document.getElementById('illumetaToast');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'illumetaToast';
+            el.className = 'toast';
+            document.body.appendChild(el);
+        }
+        el.textContent = msg;
+        el.classList.add('show');
+        window.clearTimeout(window.__illumetaToastTimer);
+        window.__illumetaToastTimer = window.setTimeout(() => el.classList.remove('show'), 1400);
+    }
+
+    function copyResultsPath() {
+        const text = RESULTS_PATH || "";
+        const fail = () => window.prompt("Copy results path:", text);
+        const ok = () => showToast("Copied results path");
+
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(ok).catch(fail);
+                return;
+            }
+        } catch (e) {}
+
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.setAttribute('readonly', '');
+            ta.style.position = 'fixed';
+            ta.style.top = '-1000px';
+            ta.style.left = '-1000px';
+            document.body.appendChild(ta);
+            ta.select();
+            const successful = document.execCommand('copy');
+            document.body.removeChild(ta);
+            if (successful) ok(); else fail();
+        } catch (e) {
+            fail();
+        }
+    }
+
     function switchTab(tabName) {
         document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
         document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));

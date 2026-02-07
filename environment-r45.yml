@@ -12,6 +12,7 @@ dependencies:
   - c-compiler
   - cxx-compiler
   - fortran-compiler
+  - llvm-openmp
   - libcurl
   - openssl
   - libxml2

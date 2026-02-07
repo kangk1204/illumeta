@@ -825,7 +825,25 @@ if (!cache_preexisting) {
 # --- Helper Functions ---
 
 save_interactive_plot <- function(p, filename, dir) {
-  pp <- ggplotly(p)
+  # Prefer explicit `text` tooltips when available (prevents hover picking a
+  # layer without tooltip and makes overlapping points usable).
+  has_text <- FALSE
+  tryCatch({
+    if (!is.null(p$mapping) && !is.null(p$mapping$text)) {
+      has_text <- TRUE
+    } else if (!is.null(p$layers) && length(p$layers) > 0) {
+      for (ly in p$layers) {
+        if (!is.null(ly$mapping) && !is.null(ly$mapping$text)) {
+          has_text <- TRUE
+          break
+        }
+      }
+    }
+  }, error = function(e) {
+    has_text <<- FALSE
+  })
+  pp <- if (isTRUE(has_text)) ggplotly(p, tooltip = "text") else ggplotly(p)
+  pp <- plotly::layout(pp, hovermode = "closest")
   saveWidget(pp, file = file.path(dir, filename), selfcontained = TRUE)
 }
 
@@ -5752,22 +5770,31 @@ run_dmrff_with_inputs <- function(dmr_df, betas, targets, curr_anno, prefix, out
     return(list(res = dmr_res, status = "skipped_too_few_cpgs", reason = "fewer_than_100_cpgs"))
   }
 
-  annotate_dmr <- function(df, anno_tbl) {
-    if (nrow(df) == 0) return(df)
-    anno_tbl$Gene <- ifelse(is.na(anno_tbl$Gene), "", anno_tbl$Gene)
-    anno_tbl$Region <- ifelse(is.na(anno_tbl$Region), "", anno_tbl$Region)
-    gene_region <- function(chr, start, end, field) {
-      idx <- which(anno_tbl$chr == chr & anno_tbl$pos >= start & anno_tbl$pos <= end)
-      if (length(idx) == 0) return("")
-      vals <- unique(anno_tbl[idx, field])
-      vals <- vals[vals != ""]
-      if (length(vals) == 0) return("")
-      paste(head(vals, 5), collapse = ";")
-    }
-    df$Genes <- mapply(gene_region, df$chr, df$start, df$end, MoreArgs = list(field = "Gene"))
-    df$Regions <- mapply(gene_region, df$chr, df$start, df$end, MoreArgs = list(field = "Region"))
-    df
-  }
+	  annotate_dmr <- function(df, anno_tbl) {
+	    if (nrow(df) == 0) return(df)
+	    anno_tbl$Gene <- ifelse(is.na(anno_tbl$Gene), "", anno_tbl$Gene)
+	    anno_tbl$Region <- ifelse(is.na(anno_tbl$Region), "", anno_tbl$Region)
+	    collapse_unique_tokens <- function(vals, max_n = 5) {
+	      vals <- as.character(vals)
+	      vals[is.na(vals)] <- ""
+	      vals <- vals[nzchar(vals)]
+	      if (length(vals) == 0) return("")
+	      toks <- unlist(strsplit(vals, "[;,]"))
+	      toks <- trimws(toks)
+	      toks <- toks[nzchar(toks)]
+	      if (length(toks) == 0) return("")
+	      toks <- unique(toks)
+	      paste(head(toks, max_n), collapse = ";")
+	    }
+	    gene_region <- function(chr, start, end, field) {
+	      idx <- which(anno_tbl$chr == chr & anno_tbl$pos >= start & anno_tbl$pos <= end)
+	      if (length(idx) == 0) return("")
+	      collapse_unique_tokens(anno_tbl[idx, field], max_n = 5)
+	    }
+	    df$Genes <- mapply(gene_region, df$chr, df$start, df$end, MoreArgs = list(field = "Gene"))
+	    df$Regions <- mapply(gene_region, df$chr, df$start, df$end, MoreArgs = list(field = "Region"))
+	    df
+	  }
 
   compute_dmr_delta_beta <- function(df, anno_tbl, mean_con, mean_test) {
     if (nrow(df) == 0) return(df)
@@ -5824,15 +5851,30 @@ run_dmrff_with_inputs <- function(dmr_df, betas, targets, curr_anno, prefix, out
         save_datatable(head(dmr_res, 3000), dmr_filename, out_dir, sort_col = "p.value")
         write.csv(dmr_res, file.path(out_dir, paste0(prefix, "_DMRs.csv")), row.names = FALSE)
 
-        dmr_res$signif_status <- "NO"
-        dmr_res$signif_status[dmr_res$p.value < dmr_p_cutoff & dmr_res$estimate > 0] <- "UP"
-        dmr_res$signif_status[dmr_res$p.value < dmr_p_cutoff & dmr_res$estimate < 0] <- "DOWN"
-        p_dmr_volcano <- ggplot(dmr_res, aes(x = estimate, y = -log10(p.value), color = signif_status)) +
-          geom_point(alpha = 0.7, size = 2) +
-          scale_color_manual(values = c("DOWN" = "blue", "NO" = "grey", "UP" = "red")) +
-          theme_minimal() +
-          labs(title = paste(prefix, "DMR Volcano Plot"),
-               x = "Effect size (logFC)", y = "-log10(p)", color = "Status")
+	        # Prefer Delta_Beta for volcano x-axis (interpretable, bounded). Fall back to dmrff estimate.
+	        x_col <- if ("Delta_Beta" %in% colnames(dmr_res) && any(is.finite(dmr_res$Delta_Beta))) "Delta_Beta" else "estimate"
+	        x_label <- if (identical(x_col, "Delta_Beta")) "Delta beta (mean test - control)" else "dmrff estimate"
+	        dmr_res$x_effect <- dmr_res[[x_col]]
+	        
+	        dmr_res$signif_status <- "NO"
+	        dmr_res$signif_status[dmr_res$p.value < dmr_p_cutoff & is.finite(dmr_res$x_effect) & dmr_res$x_effect > 0] <- "UP"
+	        dmr_res$signif_status[dmr_res$p.value < dmr_p_cutoff & is.finite(dmr_res$x_effect) & dmr_res$x_effect < 0] <- "DOWN"
+	        p_dmr_volcano <- ggplot(dmr_res, aes(x = x_effect, y = -log10(p.value), color = signif_status,
+	                                             text = paste(
+	                                               "Region:", paste0(chr, ":", start, "-", end),
+	                                               "<br>Genes:", ifelse(nzchar(Genes), Genes, "NA"),
+	                                               "<br>Regions:", ifelse(nzchar(Regions), Regions, "NA"),
+	                                               "<br>nCpG:", n,
+	                                               "<br>Estimate (dmrff):", signif(estimate, 4),
+	                                               "<br>DeltaBeta:", ifelse(is.finite(Delta_Beta), signif(Delta_Beta, 4), "NA"),
+	                                               "<br>P:", signif(p.value, 3),
+	                                               "<br>FDR:", signif(p.adjust, 3)
+	                                             ))) +
+	          geom_point(alpha = 0.75, size = 2) +
+	          scale_color_manual(values = c("DOWN" = "#3B82F6", "NO" = "#9CA3AF", "UP" = "#EF4444")) +
+	          theme_minimal() +
+	          labs(title = paste(prefix, "DMR Volcano Plot"),
+	               x = x_label, y = "-log10(p)", color = "Status")
 
         save_interactive_plot(p_dmr_volcano, paste0(prefix, "_DMR_Volcano.html"), out_dir)
         save_static_plot(p_dmr_volcano, paste0(prefix, "_DMR_Volcano.png"), out_dir, width = 6, height = 4)
@@ -5845,39 +5887,55 @@ run_dmrff_with_inputs <- function(dmr_df, betas, targets, curr_anno, prefix, out
             ggrepel::geom_text_repel(size = 3, max.overlaps = 10) +
             theme_minimal() +
             labs(title = paste(prefix, "Top DMRs"),
-                 x = "Effect size (logFC)", y = "-log10(p)")
+                 x = "dmrff estimate", y = "-log10(p)")
           save_interactive_plot(p_dmr_scatter, paste0(prefix, "_DMR_Top_Labelled.html"), out_dir)
           save_static_plot(p_dmr_scatter, paste0(prefix, "_DMR_Top_Labelled.png"), out_dir, width = 6, height = 4)
         }
 
-        if (nrow(dmr_res) > 0 && all(c("chr", "start", "end") %in% colnames(dmr_res))) {
-          dmr_res$chr_num <- gsub("chr", "", dmr_res$chr)
-          dmr_res$chr_num <- as.numeric(factor(dmr_res$chr_num, levels = c(as.character(1:22), "X", "Y", "M")))
-          dmr_res <- dmr_res[order(dmr_res$chr_num, dmr_res$start), ]
-          axis_set_dmr <- dmr_res %>%
-            group_by(chr) %>%
-            summarize(center = mean(c(start, end)))
-          chr_labels_dmr <- axis_set_dmr$chr
-          names(chr_labels_dmr) <- axis_set_dmr$center
-          p_dmr_manhattan <- ggplot(dmr_res, aes(x = start, y = -log10(p.value))) +
-            geom_point(aes(color = factor(chr_num %% 2),
-                           text = paste("Region:", paste0(chr, ":", start, "-", end),
-                                        "<br>Gene:", ifelse(nzchar(Genes), Genes, "NA"),
-                                        "<br>nCpG:", n,
-                                        "<br>P:", signif(p.value, 3),
-                                        "<br>FDR:", signif(p.adjust, 3)))) +
-            geom_point(alpha = 0.7, size = 2) +
-            scale_color_manual(values = c("0" = "#2c3e50", "1" = "#3498db")) +
-            scale_x_continuous(label = chr_labels_dmr, breaks = axis_set_dmr$center) +
-            theme_minimal() +
-            theme(legend.position = "none",
-                  panel.grid.major.x = element_blank(),
-                  panel.grid.minor.x = element_blank()) +
-            labs(title = paste(prefix, "DMR Manhattan Plot"),
-                 x = "Chromosome", y = "-log10(p)")
-          save_interactive_plot(p_dmr_manhattan, paste0(prefix, "_DMR_Manhattan.html"), out_dir)
-          save_static_plot(p_dmr_manhattan, paste0(prefix, "_DMR_Manhattan.png"), out_dir, width = 8, height = 4)
-        }
+	        if (nrow(dmr_res) > 0 && all(c("chr", "start", "end") %in% colnames(dmr_res))) {
+	          chr_map <- c(as.character(1:22), "X", "Y", "M")
+	          chr_vals <- 1:25
+	          names(chr_vals) <- chr_map
+	          clean_chr <- gsub("chr", "", dmr_res$chr)
+	          dmr_res$chr_num <- chr_vals[clean_chr]
+	          plot_dmr_man <- dmr_res[!is.na(dmr_res$chr_num) & !is.na(dmr_res$start) & !is.na(dmr_res$end), ]
+	          plot_dmr_man <- plot_dmr_man[order(plot_dmr_man$chr_num, plot_dmr_man$start), ]
+	          chr_len <- tapply(plot_dmr_man$end, plot_dmr_man$chr_num, max)
+	          chr_len <- chr_len[!is.na(chr_len)]
+	          if (length(chr_len) > 0) {
+	            cum_lengths <- cumsum(as.numeric(chr_len))
+	            offsets <- c(0, cum_lengths[-length(cum_lengths)])
+	            names(offsets) <- names(chr_len)
+	            plot_dmr_man$pos_cum <- plot_dmr_man$start + offsets[as.character(plot_dmr_man$chr_num)]
+	            axis_set_dmr <- plot_dmr_man %>%
+	              group_by(chr_num) %>%
+	              summarize(center = (min(pos_cum) + max(pos_cum)) / 2)
+	            chr_labels_dmr <- names(chr_vals)[match(axis_set_dmr$chr_num, chr_vals)]
+	            plot_dmr_man$chr_parity <- as.factor(plot_dmr_man$chr_num %% 2)
+	            p_dmr_manhattan <- ggplot(plot_dmr_man, aes(x = pos_cum, y = -log10(p.value),
+	                                                       color = chr_parity,
+	                                                       text = paste("Region:", paste0(chr, ":", start, "-", end),
+	                                                                    "<br>Genes:", ifelse(nzchar(Genes), Genes, "NA"),
+	                                                                    "<br>Regions:", ifelse(nzchar(Regions), Regions, "NA"),
+	                                                                    "<br>nCpG:", n,
+	                                                                    "<br>Estimate (dmrff):", signif(estimate, 4),
+	                                                                    "<br>DeltaBeta:", ifelse(is.finite(Delta_Beta), signif(Delta_Beta, 4), "NA"),
+	                                                                    "<br>P:", signif(p.value, 3),
+	                                                                    "<br>FDR:", signif(p.adjust, 3)))) +
+	              geom_point(alpha = 0.75, size = 1.2) +
+	              scale_color_manual(values = c("0" = "#64748B", "1" = "#0EA5E9")) +
+	              scale_x_continuous(label = chr_labels_dmr, breaks = axis_set_dmr$center) +
+	            theme_minimal() +
+	            theme(legend.position = "none",
+	                  panel.grid.major.x = element_blank(),
+	                  panel.grid.minor.x = element_blank(),
+	                  axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5)) +
+	            labs(title = paste(prefix, "DMR Manhattan Plot"),
+	                 x = "Chromosome", y = "-log10(p)")
+	            save_interactive_plot(p_dmr_manhattan, paste0(prefix, "_DMR_Manhattan.html"), out_dir)
+	            save_static_plot(p_dmr_manhattan, paste0(prefix, "_DMR_Manhattan.png"), out_dir, width = 8, height = 4)
+	          }
+	        }
 
         top_dmrs <- head(dmr_res, 50)
         if (nrow(top_dmrs) > 0) {
@@ -5901,25 +5959,88 @@ run_dmrff_with_inputs <- function(dmr_df, betas, targets, curr_anno, prefix, out
             heatmap_df <- as.data.frame(dmr_means)
             heatmap_df$Region <- rownames(dmr_means)
             heatmap_dt <- data.table::as.data.table(heatmap_df)
-            heatmap_df_melt <- data.table::melt(heatmap_dt, id.vars = "Region",
-                                                variable.name = "Sample",
-                                                value.name = "Methylation")
-            if ("primary_group" %in% colnames(targets)) {
-              heatmap_df_melt$Group <- targets$primary_group[match(heatmap_df_melt$Sample, rownames(targets))]
-            }
-            p_heat_dmr <- ggplot(heatmap_df_melt, aes(x = Sample, y = Region, fill = Methylation)) +
-              geom_tile() +
-              scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0.5) +
-              theme_minimal() +
-              theme(axis.text.x = element_blank(),
-                    axis.ticks.x = element_blank(),
-                    axis.text.y = element_text(size = 6),
-                    panel.grid = element_blank()) +
-              labs(title = paste(prefix, "Top 50 DMRs Heatmap"), x = "Samples", y = "DMR Region")
-            save_interactive_plot(p_heat_dmr, paste0(prefix, "_DMR_Heatmap.html"), out_dir)
-            save_static_plot(p_heat_dmr, paste0(prefix, "_DMR_Heatmap.png"), out_dir, width = 8, height = 6)
-          }
-        }
+	            heatmap_df_melt <- data.table::melt(heatmap_dt, id.vars = "Region",
+	                                                variable.name = "Sample",
+	                                                value.name = "Methylation")
+	            heatmap_df_melt$Group <- NA_character_
+	            if ("primary_group" %in% colnames(targets)) {
+	              heatmap_df_melt$Group <- as.character(targets$primary_group[match(heatmap_df_melt$Sample, targets[[gsm_col]])])
+	              if (any(is.na(heatmap_df_melt$Group))) {
+	                  alt <- as.character(targets$primary_group[match(heatmap_df_melt$Sample, rownames(targets))])
+	                  heatmap_df_melt$Group[is.na(heatmap_df_melt$Group)] <- alt[is.na(heatmap_df_melt$Group)]
+	              }
+	            }
+	            
+	            # Order samples by group (Control -> Test) when possible.
+	            sample_ids <- colnames(betas_dmr)
+	            grp_vec <- as.character(targets$primary_group[match(sample_ids, targets[[gsm_col]])])
+	            if (any(is.na(grp_vec))) {
+	              alt <- as.character(targets$primary_group[match(sample_ids, rownames(targets))])
+	              grp_vec[is.na(grp_vec)] <- alt[is.na(grp_vec)]
+	            }
+	            grp_levels <- unique(as.character(targets$primary_group))
+	            if (!is.null(con_label) && !is.null(test_label) &&
+	                con_label %in% grp_levels && test_label %in% grp_levels) {
+	              grp_levels <- c(con_label, test_label, setdiff(grp_levels, c(con_label, test_label)))
+	            }
+	            if (length(grp_levels) >= 2 && !all(is.na(grp_vec))) {
+	              sample_ids <- c(sample_ids[grp_vec == grp_levels[1]],
+	                              sample_ids[grp_vec == grp_levels[2]],
+	                              sample_ids[!(grp_vec %in% grp_levels[1:2])])
+	            }
+	            heatmap_df_melt$Sample <- factor(heatmap_df_melt$Sample, levels = sample_ids)
+	            
+	            # Tooltip: show region and genes for easier interpretation.
+	            region_key <- paste0(top_dmrs$chr, ":", top_dmrs$start, "-", top_dmrs$end)
+	            genes_map <- top_dmrs$Genes; names(genes_map) <- region_key
+	            heatmap_df_melt$Genes <- genes_map[as.character(heatmap_df_melt$Region)]
+	            heatmap_df_melt$text <- paste0(
+	              "Sample: ", as.character(heatmap_df_melt$Sample),
+	              "<br>Group: ", ifelse(is.na(heatmap_df_melt$Group), "NA", heatmap_df_melt$Group),
+	              "<br>Region: ", heatmap_df_melt$Region,
+	              "<br>Genes: ", ifelse(is.na(heatmap_df_melt$Genes) | !nzchar(heatmap_df_melt$Genes), "NA", heatmap_df_melt$Genes),
+	              "<br>Mean beta: ", ifelse(is.finite(heatmap_df_melt$Methylation), signif(heatmap_df_melt$Methylation, 4), "NA")
+	            )
+	            
+	            p_heat_dmr <- ggplot(heatmap_df_melt, aes(x = Sample, y = Region, fill = Methylation, text = text)) +
+	              geom_tile() +
+	              scale_fill_gradient2(low = "#3B82F6", mid = "white", high = "#EF4444", midpoint = 0.5) +
+	              theme_minimal() +
+	              theme(axis.text.x = element_blank(),
+	                    axis.ticks.x = element_blank(),
+	                    axis.text.y = element_text(size = 6),
+	                    panel.grid = element_blank()) +
+	              labs(title = paste(prefix, "Top 50 DMRs Heatmap"), x = "Samples", y = "DMR Region")
+	            
+	            anno_df <- unique(heatmap_df_melt[, c("Sample", "Group")])
+	            okabe_ito <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#000000")
+	            anno_levels <- grp_levels
+	            if (length(anno_levels) == 0) anno_levels <- sort(unique(as.character(anno_df$Group)))
+	            anno_df$Group <- factor(anno_df$Group, levels = anno_levels)
+	            group_palette <- setNames(okabe_ito[seq_len(min(length(okabe_ito), length(anno_levels)))], anno_levels)
+	            if (length(anno_levels) > length(okabe_ito)) {
+	              extra <- grDevices::hcl.colors(length(anno_levels) - length(okabe_ito), palette = "Dark 3")
+	              group_palette <- c(group_palette, setNames(extra, anno_levels[(length(okabe_ito) + 1):length(anno_levels)]))
+	            }
+	            p_anno <- ggplot(anno_df, aes(x = Sample, y = 1, fill = Group, text = paste("Group:", Group))) +
+	              geom_tile() +
+	              scale_fill_manual(values = group_palette, drop = FALSE) +
+	              theme_void() +
+	              theme(legend.position = "bottom",
+	                    axis.text = element_blank(),
+	                    axis.title = element_blank(),
+	                    plot.margin = margin(0, 0, 0, 0))
+	            
+	            p_heat_dmr_ly <- ggplotly(p_heat_dmr, tooltip = "text")
+	            p_anno_ly <- ggplotly(p_anno, tooltip = "text")
+	            final_heatmap <- subplot(p_anno_ly, p_heat_dmr_ly, nrows = 2, heights = c(0.06, 0.94),
+	                                     shareX = TRUE, titleX = FALSE) %>%
+	              layout(title = paste(prefix, "Top 50 DMRs Heatmap"), hovermode = "closest")
+	            
+	            saveWidget(final_heatmap, file = file.path(out_dir, paste0(prefix, "_DMR_Heatmap.html")), selfcontained = TRUE)
+	            save_static_plot(p_heat_dmr, paste0(prefix, "_DMR_Heatmap.png"), out_dir, width = 8, height = 6)
+	          }
+	        }
       } else {
         status <<- "ok_empty"
         reason <<- "no_dmrs_after_filter"
@@ -6866,13 +6987,14 @@ sesame_strict_before <- 0
 sesame_native_before <- 0
 sesame_typeinorm_enabled <- isTRUE(opt$sesame_typeinorm)
 sesame_typeinorm_disabled <- !sesame_typeinorm_enabled && !isTRUE(opt$skip_sesame)
-sesame_dyebias_mode <- if (opt$skip_sesame) "skipped" else if (sesame_typeinorm_enabled) "dyeBiasCorrTypeINorm" else "dyeBiasCorr"
+sesame_dyebias_mode <- if (opt$skip_sesame) "skipped" else if (sesame_typeinorm_enabled) "dyeBiasCorrTypeINorm" else "dyeBiasL"
 sesame_dyebias_thread_error <- FALSE
 sesame_dyebias_missing_controls <- FALSE
 sesame_dyebias_typeinorm_failed <- FALSE
 sesame_dyebias_note <- ""
 update_sesame_dyebias_mode <- function(new_mode) {
-  rank <- c(skipped = 0, dyeBiasCorrTypeINorm = 1, dyeBiasCorr = 2, noob_only = 3)
+  # Higher = more degraded preprocessing mode (used for transparent reporting).
+  rank <- c(skipped = 0, dyeBiasCorrTypeINorm = 1, dyeBiasL = 2, dyeBiasCorr = 2, noob_only = 3)
   if (!(new_mode %in% names(rank))) return(NULL)
   if (!(sesame_dyebias_mode %in% names(rank))) {
     sesame_dyebias_mode <<- new_mode
@@ -6900,68 +7022,61 @@ if (opt$skip_sesame) {
   message("  Sesame: forcing single-thread BLAS/OMP to avoid pthread errors.")
   tryCatch({
     ssets <- lapply(targets$Basename, function(x) readIDATpair(x))
-    sesame_skip_typeinorm <- !sesame_typeinorm_enabled
-    sesame_warned_no_norm <- FALSE
-    sesame_cache_refresh_attempted <- FALSE
-    sesame_cache_refresh_supported <- nzchar(array_label) && array_label == "EPIC"
-    sesame_try_dyebias <- function(sdf) {
-      res <- tryCatch(
-        dyeBiasCorr(sdf),
-        error = function(e2) {
-          msg <- conditionMessage(e2)
-          if (grepl("No normalization control probes found", msg, ignore.case = TRUE)) {
-            if (isTRUE(sesame_cache_refresh_supported) && !isTRUE(sesame_cache_refresh_attempted)) {
-              sesame_cache_refresh_attempted <<- TRUE
-              message("  Sesame normalization controls missing; refreshing EPIC.1.SigDF cache and retrying.")
-              cache_ok <- tryCatch({
-                suppressMessages(suppressWarnings(sesameDataCache("EPIC.1.SigDF")))
-                TRUE
-              }, error = function(e_cache) {
-                message("  Sesame cache refresh failed: ", e_cache$message)
-                FALSE
-              })
-              if (isTRUE(cache_ok)) {
-                retry <- tryCatch(dyeBiasCorr(sdf), error = function(e_retry) e_retry)
-                if (!inherits(retry, "error")) return(retry)
-              }
-            }
-            if (!isTRUE(sesame_warned_no_norm)) {
-              message("  Sesame dyeBiasCorr skipped (normalization controls unavailable); proceeding without dye bias correction.")
-              sesame_warned_no_norm <<- TRUE
-            }
-            sesame_dyebias_missing_controls <<- TRUE
-            update_sesame_dyebias_mode("noob_only")
-            return(sdf)
-          }
-          stop(e2)
-        }
-      )
-      update_sesame_dyebias_mode("dyeBiasCorr")
-      res
-    }
     sesame_preprocess <- function(x) {
-      sdf <- noob(x)
-      if (isTRUE(sesame_skip_typeinorm)) {
-        return(sesame_try_dyebias(sdf))
-      }
-      tryCatch(
-        {
-          update_sesame_dyebias_mode("dyeBiasCorrTypeINorm")
-          dyeBiasCorrTypeINorm(sdf)
-        },
-        error = function(e) {
-          msg <- conditionMessage(e)
-          if (grepl("pthread_create", msg, ignore.case = TRUE)) {
-            sesame_skip_typeinorm <<- TRUE
-            sesame_dyebias_thread_error <<- TRUE
-            message("  Sesame dyeBiasCorrTypeINorm disabled after thread error; using dyeBiasCorr/noob only.")
-          } else {
-            message("  Sesame dyeBiasCorrTypeINorm failed; falling back to dyeBiasCorr.")
-            sesame_dyebias_typeinorm_failed <<- TRUE
+      sdf <- x
+      # Align with SeSAMe openSesame "QCEPB" (stable under thread constraints):
+      # qualityMask -> channel inference -> linear dye bias -> pOOBAH masking -> noob.
+      sdf <- tryCatch(qualityMask(sdf, verbose = FALSE), error = function(e) {
+        message("  Sesame qualityMask failed; continuing without design mask: ", e$message)
+        sdf
+      })
+      sdf <- tryCatch(inferInfiniumIChannel(sdf), error = function(e) sdf)
+
+      if (isTRUE(sesame_typeinorm_enabled)) {
+        sdf <- tryCatch(
+          {
+            update_sesame_dyebias_mode("dyeBiasCorrTypeINorm")
+            dyeBiasCorrTypeINorm(sdf)
+          },
+          error = function(e) {
+            msg <- conditionMessage(e)
+            if (grepl("pthread_create", msg, ignore.case = TRUE)) {
+              sesame_dyebias_thread_error <<- TRUE
+              message("  Sesame dyeBiasCorrTypeINorm disabled after thread error; using dyeBiasL.")
+            } else {
+              message("  Sesame dyeBiasCorrTypeINorm failed; using dyeBiasL: ", msg)
+              sesame_dyebias_typeinorm_failed <<- TRUE
+            }
+            tryCatch({
+              update_sesame_dyebias_mode("dyeBiasL")
+              dyeBiasL(sdf)
+            }, error = function(e2) {
+              message("  Sesame dyeBiasL failed; proceeding without dye bias correction: ", e2$message)
+              update_sesame_dyebias_mode("noob_only")
+              sdf
+            })
           }
-          sesame_try_dyebias(sdf)
-        }
-      )
+        )
+      } else {
+        sdf <- tryCatch({
+          update_sesame_dyebias_mode("dyeBiasL")
+          dyeBiasL(sdf)
+        }, error = function(e) {
+          message("  Sesame dyeBiasL failed; proceeding without dye bias correction: ", e$message)
+          update_sesame_dyebias_mode("noob_only")
+          sdf
+        })
+      }
+
+      sdf <- tryCatch(pOOBAH(sdf), error = function(e) {
+        message("  Sesame pOOBAH masking failed; continuing without pOOBAH: ", e$message)
+        sdf
+      })
+      sdf <- tryCatch(noob(sdf), error = function(e) {
+        message("  Sesame noob failed; continuing with current signals: ", e$message)
+        sdf
+      })
+      sdf
     }
     sdf_list <- lapply(ssets, sesame_preprocess)
     betas_sesame_list <- lapply(sdf_list, getBetas)
@@ -7214,19 +7329,42 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   top_vars <- head(order(vars, decreasing=TRUE), 1000)
   beta_clust <- betas[top_vars, ]
   
-  sample_dists <- as.matrix(dist(t(beta_clust)))
-  dist_df <- as.data.frame(as.table(sample_dists))
-  colnames(dist_df) <- c("Sample1", "Sample2", "Distance")
-  
-  p_dist <- ggplot(dist_df, aes(x=Sample1, y=Sample2, fill=Distance, text=Distance)) +
-      geom_tile() +
-      scale_fill_gradient(low="red", high="white") + 
-      theme_minimal() +
-      theme(axis.text.x = element_text(angle=90, hjust=1, size=6), axis.text.y = element_text(size=6)) +
-      ggtitle(paste(prefix, "Sample Distance Matrix (Top 1000 Var Probes)"))
-      
-  save_interactive_plot(p_dist, paste0(prefix, "_Sample_Clustering_Distance.html"), out_dir)
-  save_static_plot(p_dist, paste0(prefix, "_Sample_Clustering_Distance.png"), out_dir, width = 7, height = 6)
+	  sample_dists <- as.matrix(dist(t(beta_clust)))
+	  dist_df <- as.data.frame(as.table(sample_dists))
+	  colnames(dist_df) <- c("Sample1", "Sample2", "Distance")
+	  
+	  # Add group context to tooltips and order samples by group for readability.
+	  grp_map <- setNames(as.character(targets$primary_group), targets[[gsm_col]])
+	  dist_df$Group1 <- grp_map[as.character(dist_df$Sample1)]
+	  dist_df$Group2 <- grp_map[as.character(dist_df$Sample2)]
+	  sample_ids <- colnames(beta_clust)
+	  grp_vec <- grp_map[sample_ids]
+	  grp_levels <- unique(as.character(targets$primary_group))
+	  if (length(grp_levels) == 2) {
+	      sample_ids <- c(sample_ids[grp_vec == grp_levels[1]], sample_ids[grp_vec == grp_levels[2]])
+	  }
+	  dist_df$Sample1 <- factor(as.character(dist_df$Sample1), levels = sample_ids)
+	  dist_df$Sample2 <- factor(as.character(dist_df$Sample2), levels = sample_ids)
+	  
+	  subtitle_dist <- ""
+	  if (length(grp_levels) >= 2) {
+	      subtitle_dist <- paste0("Samples ordered by group: ", paste(grp_levels, collapse = " -> "))
+	  }
+	  p_dist <- ggplot(dist_df, aes(x=Sample1, y=Sample2, fill=Distance,
+	                                text=paste0("Sample1: ", Sample1,
+	                                            "<br>Group1: ", ifelse(is.na(Group1), "NA", Group1),
+	                                            "<br>Sample2: ", Sample2,
+	                                            "<br>Group2: ", ifelse(is.na(Group2), "NA", Group2),
+	                                            "<br>Distance: ", signif(Distance, 4)))) +
+	      geom_tile() +
+	      scale_fill_gradient(low="red", high="white") + 
+	      theme_minimal() +
+	      theme(axis.text.x = element_text(angle=90, hjust=1, size=6), axis.text.y = element_text(size=6)) +
+	      labs(title = paste(prefix, "Sample Distance Matrix (Top 1000 Var Probes)"),
+	           subtitle = subtitle_dist)
+	      
+	  save_interactive_plot(p_dist, paste0(prefix, "_Sample_Clustering_Distance.html"), out_dir)
+	  save_static_plot(p_dist, paste0(prefix, "_Sample_Clustering_Distance.png"), out_dir, width = 7, height = 6)
 
   pca_res <- prcomp(t(betas), scale. = TRUE)
   pca_df <- data.frame(PC1 = pca_res$x[,1], PC2 = pca_res$x[,2], Group = targets$primary_group)
@@ -8154,14 +8292,26 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
                     axis.title.x = element_blank(),
                     legend.position = "none")
           
-          anno_df <- unique(hm_df[, c("Sample", "Group")])
-          p_anno <- ggplot(anno_df, aes(x=Sample, y=1, fill=Group, text=paste("Group:", Group))) +
-              geom_tile() +
-              theme_void() +
-              theme(legend.position = "none",
-                    axis.text = element_blank(),
-                    axis.title = element_blank(),
-                    plot.margin = margin(0, 0, 0, 0))
+	          anno_df <- unique(hm_df[, c("Sample", "Group")])
+	          grp_levels <- unique(as.character(targets$primary_group))
+	          if (length(grp_levels) == 0) {
+	              grp_levels <- sort(unique(as.character(anno_df$Group)))
+	          }
+	          anno_df$Group <- factor(anno_df$Group, levels = grp_levels)
+	          okabe_ito <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#000000")
+	          group_palette <- setNames(okabe_ito[seq_len(min(length(okabe_ito), length(grp_levels)))], grp_levels)
+	          if (length(grp_levels) > length(okabe_ito)) {
+	              extra <- grDevices::hcl.colors(length(grp_levels) - length(okabe_ito), palette = "Dark 3")
+	              group_palette <- c(group_palette, setNames(extra, grp_levels[(length(okabe_ito) + 1):length(grp_levels)]))
+	          }
+	          p_anno <- ggplot(anno_df, aes(x=Sample, y=1, fill=Group, text=paste("Group:", Group))) +
+	              geom_tile() +
+	              scale_fill_manual(values = group_palette, drop = FALSE) +
+	              theme_void() +
+	              theme(legend.position = "bottom",
+	                    axis.text = element_blank(),
+	                    axis.title = element_blank(),
+	                    plot.margin = margin(0, 0, 0, 0))
           
           p_heat_top_ly <- ggplotly(p_heat_top, tooltip = c("x", "y", "text"))
           p_anno_ly <- ggplotly(p_anno, tooltip = c("text"))
@@ -8383,13 +8533,14 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
               }
           }
           sig <- sum(resp$adj.P.Val < pval_thresh & abs(resp$logFC) > lfc_thresh & delta_pass_perm, na.rm=TRUE)
-          minp <- suppressWarnings(min(resp$P.Value, na.rm=TRUE))
-          pvals <- resp$P.Value
-          ks_p <- tryCatch(ks.test(pvals, "punif")$p.value, error = function(e) NA_real_)
-          chisq_vals <- qchisq(1 - pvals, 1)
-          lambda_val <- median(chisq_vals) / qchisq(0.5, 1)
-          perm_results <- rbind(perm_results, data.frame(run = i, sig_count = sig, min_p = minp,
-                                                         ks_p = ks_p, lambda = lambda_val))
+	          minp <- suppressWarnings(min(resp$P.Value, na.rm=TRUE))
+	          pvals <- resp$P.Value
+	          ks_p <- tryCatch(ks.test(pvals, "punif")$p.value, error = function(e) NA_real_)
+	          chisq_vals <- qchisq(1 - pvals, 1)
+	          # NOTE: keep the main-model lambda_val intact; use a dedicated variable for permutation lambdas.
+	          perm_lambda <- median(chisq_vals) / qchisq(0.5, 1)
+	          perm_results <- rbind(perm_results, data.frame(run = i, sig_count = sig, min_p = minp,
+	                                                         ks_p = ks_p, lambda = perm_lambda))
           
           # Progress every 10 permutations (and at the end)
           if (i %% 10 == 0 || i == perm_n) {
@@ -9471,7 +9622,7 @@ tryCatch({
     "",
     "## Normalization (two pipelines)",
     "- **minfi**: `preprocessNoob()` followed by `mapToGenome()`; beta values are extracted with `getBeta()`.",
-    "- **sesame**: `noob()` + `dyeBiasCorr()` by default; optional `dyeBiasCorrTypeINorm()` when `--sesame_typeinorm` is enabled (fallback to `dyeBiasCorr()`, then `noob()` only if normalization controls are missing); beta values are extracted with `getBetas()`.",
+    "- **sesame**: `qualityMask()` + `inferInfiniumIChannel()` + dye bias correction (default: `dyeBiasL()`; optional `dyeBiasCorrTypeINorm()` when `--sesame_typeinorm` is enabled with fallback to `dyeBiasL()`), followed by `pOOBAH()` masking and `noob()` background correction; beta values are extracted with `getBetas()`.",
     "- **sesame strict view**: probes with any masked values are removed and then intersected with the minfi QC probe set for conservative cross-validation.",
     sprintf("- **sesame native view**: probes with <= %.2f missingness are retained; remaining NAs are imputed via KNN (impute::impute.knn, k=%d) when available, with row-mean fallback if KNN is unavailable.", SESAME_NATIVE_NA_MAX_FRAC, SESAME_NATIVE_KNN_K),
     "",

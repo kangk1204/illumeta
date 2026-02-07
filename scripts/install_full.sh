@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${ROOT_DIR}/environment.yml"
 ENV_NAME=""
 RUN_DOCTOR=1
+INSTALL_PAPER=0
 
 usage() {
   cat <<'USAGE'
@@ -12,6 +13,7 @@ Usage: scripts/install_full.sh [options]
 
 Options:
   --r45              Use environment-r45.yml (R 4.5)
+  --paper            Also install Python deps for paper/figure generation (requirements-paper.txt)
   --env-file PATH    Use a custom conda env file
   --env NAME         Override env name (default: name: from env file)
   --skip-doctor      Skip `illumeta.py doctor` after install
@@ -32,6 +34,10 @@ while [[ $# -gt 0 ]]; do
     --env)
       ENV_NAME="$2"
       shift 2
+      ;;
+    --paper)
+      INSTALL_PAPER=1
+      shift
       ;;
     --skip-doctor)
       RUN_DOCTOR=0
@@ -69,6 +75,16 @@ else
   exit 1
 fi
 
+# macOS needs Xcode Command Line Tools even when using conda, because compilers
+# rely on the system SDK headers. Fail early with a clear instruction.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  if ! xcode-select -p >/dev/null 2>&1; then
+    echo "[!] Xcode Command Line Tools not found."
+    echo "    Install them first: xcode-select --install"
+    exit 1
+  fi
+fi
+
 LOG_DIR="${ROOT_DIR}/projects"
 mkdir -p "${LOG_DIR}"
 RUN_ID="$(date +%Y%m%d_%H%M%S)"
@@ -103,6 +119,10 @@ fi
 echo "[*] Ensuring Python deps..."
 "${CONDA_BIN}" run -n "${ENV_NAME}" python -m pip install --upgrade pip
 "${CONDA_BIN}" run -n "${ENV_NAME}" python -m pip install -r "${ROOT_DIR}/requirements.txt"
+if [[ "${INSTALL_PAPER}" -eq 1 ]]; then
+  echo "[*] Installing paper/figure Python deps (requirements-paper.txt)..."
+  "${CONDA_BIN}" run -n "${ENV_NAME}" python -m pip install -r "${ROOT_DIR}/requirements-paper.txt"
+fi
 
 export ILLUMETA_USE_CONDA_LIBS="${ILLUMETA_USE_CONDA_LIBS:-1}"
 export ILLUMETA_CLEAN_MISMATCHED_RLIB="${ILLUMETA_CLEAN_MISMATCHED_RLIB:-1}"

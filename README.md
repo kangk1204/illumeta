@@ -77,7 +77,48 @@ New to DNA methylation analysis? Here are the key terms you'll encounter:
 
 ## 🚀 Quick Start (Copy & Paste)
 
-> **Prerequisites:** You need `conda` (or `mamba`) installed. If not installed, see [Installation](#installation) first.
+> **Prerequisites:** You need `conda` (recommended) or `mamba`. If you don't have it yet, install **Miniforge (conda)** first (macOS/Ubuntu) using the snippet below.
+
+<details>
+<summary><strong>Install conda (Miniforge) - macOS / Ubuntu (fresh machine)</strong></summary>
+
+Ubuntu / WSL:
+```bash
+sudo apt-get update && sudo apt-get install -y curl git
+curl -L -o Miniforge3.sh \
+  https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
+bash Miniforge3.sh -b -p "$HOME/miniforge3"
+"$HOME/miniforge3/bin/conda" init bash
+source ~/.bashrc
+conda --version
+```
+If your Ubuntu is ARM64, use `Miniforge3-Linux-aarch64.sh` instead.
+
+macOS:
+```bash
+xcode-select --install
+```
+Apple Silicon (arm64):
+```bash
+curl -L -o Miniforge3.sh \
+  https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-arm64.sh
+bash Miniforge3.sh -b -p "$HOME/miniforge3"
+"$HOME/miniforge3/bin/conda" init zsh
+source ~/.zshrc
+conda --version
+```
+Intel (x86_64):
+```bash
+curl -L -o Miniforge3.sh \
+  https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-x86_64.sh
+bash Miniforge3.sh -b -p "$HOME/miniforge3"
+"$HOME/miniforge3/bin/conda" init zsh
+source ~/.zshrc
+conda --version
+```
+Tip: run `uname -m` to confirm your Mac architecture (`arm64` vs `x86_64`).
+If you use bash on macOS, replace `zsh` with `bash` and source `~/.bashrc` instead.
+</details>
 
 ### Option A: One-line installer (Recommended for beginners)
 ```bash
@@ -115,25 +156,6 @@ python3 illumeta.py analysis -i projects/GSE66313 \
 
 Open the dashboard:
 `projects/GSE66313/Case_vs_Control_results_index.html`
-
-<details>
-<summary><strong>❓ "conda: command not found"?</strong></summary>
-
-Install Miniforge first:
-```bash
-# Linux
-curl -L -o Miniforge3.sh https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
-bash Miniforge3.sh -b && ~/miniforge3/bin/conda init && source ~/.bashrc
-
-# macOS (Apple Silicon M1-M4)
-curl -L -o Miniforge3.sh https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-arm64.sh
-bash Miniforge3.sh -b && ~/miniforge3/bin/conda init zsh && source ~/.zshrc
-
-# macOS (Intel)
-curl -L -o Miniforge3.sh https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-x86_64.sh
-bash Miniforge3.sh -b && ~/miniforge3/bin/conda init zsh && source ~/.zshrc
-```
-</details>
 
 ---
 

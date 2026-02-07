@@ -322,6 +322,7 @@ bash Miniforge3.sh -b -p "$HOME/miniforge3"
 source ~/.bashrc
 conda --version
 ```
+If your Linux is ARM64, use `Miniforge3-Linux-aarch64.sh` instead.
 
 macOS:
 Apple Silicon (arm64):
@@ -343,6 +344,8 @@ bash Miniforge3.sh -b -p "$HOME/miniforge3"
 source ~/.zshrc
 conda --version
 ```
+Tip: run `uname -m` to confirm your Mac architecture (`arm64` vs `x86_64`).
+If you use bash on macOS, replace `zsh` with `bash` and source `~/.bashrc` instead.
 </details>
 
 ```bash

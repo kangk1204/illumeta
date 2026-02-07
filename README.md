@@ -307,8 +307,43 @@ IlluMeta is easiest to install with **conda**. Windows users should use **WSL2 (
 
 Prerequisites (fresh machine):
 - `conda` or `mamba` in `PATH` (Miniforge recommended).
-- macOS: `xcode-select --install`
-- Ubuntu/WSL: `sudo apt-get install -y git curl`
+- macOS: `xcode-select --install` (includes git + macOS SDK headers)
+- Ubuntu/WSL: `sudo apt-get update && sudo apt-get install -y git curl`
+
+<details>
+<summary><strong>❓ No conda yet? Install Miniforge (recommended)</strong></summary>
+
+Linux (x86_64):
+```bash
+curl -L -o Miniforge3.sh \
+  https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
+bash Miniforge3.sh -b -p "$HOME/miniforge3"
+"$HOME/miniforge3/bin/conda" init bash
+source ~/.bashrc
+conda --version
+```
+
+macOS:
+Apple Silicon (arm64):
+```bash
+curl -L -o Miniforge3.sh \
+  https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-arm64.sh
+bash Miniforge3.sh -b -p "$HOME/miniforge3"
+"$HOME/miniforge3/bin/conda" init zsh
+source ~/.zshrc
+conda --version
+```
+
+Intel (x86_64):
+```bash
+curl -L -o Miniforge3.sh \
+  https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-x86_64.sh
+bash Miniforge3.sh -b -p "$HOME/miniforge3"
+"$HOME/miniforge3/bin/conda" init zsh
+source ~/.zshrc
+conda --version
+```
+</details>
 
 ```bash
 git clone https://github.com/kangk1204/illumeta.git && cd illumeta && ./scripts/install_full.sh

@@ -12,6 +12,8 @@
 
 **IlluMeta** is a user-friendly tool for analyzing DNA methylation data from Illumina arrays (450K, EPIC, EPIC v2).
 
+> **Note:** IlluMeta currently supports **human (Homo sapiens)** Infinium methylation arrays only. Non-human arrays are not supported yet.
+
 **In simple terms:** DNA methylation is a chemical modification that can turn genes "on" or "off". Scientists study methylation differences between groups (e.g., healthy vs. disease) to understand biological processes and discover disease biomarkers.
 
 ### Who is this for?
@@ -100,7 +102,7 @@ python3 illumeta.py doctor
 
 ### Run an example
 ```bash
-# Download a GEO dataset (DCIS vs Normal breast tissue, 450K, n=55)
+# Download a GEO dataset (DCIS vs Adjacent Normal breast tissue, 450K)
 python3 illumeta.py download GSE66313 -o projects/GSE66313
 
 # Run analysis with auto-grouping
@@ -227,7 +229,7 @@ Input: IDAT files + sample sheet
         ▼       ▼                      ▼                        ▼
     ┌────────────────┐   ┌──────────────────┐   ┌───────────────────────┐
     │     Minfi      │   │  SeSAMe (Strict) │   │   SeSAMe (Native)     │
-    │  Noob + Funnorm│   │  Same probe set  │   │  pOOBAH-preserved     │
+    │  Noob (minfi)  │   │  Same probe set  │   │  pOOBAH-preserved     │
     │                │   │  as Minfi        │   │  probe set (wider)    │
     └───────┬────────┘   └────────┬─────────┘   └──────────┬────────────┘
             │                     │                        │
@@ -270,10 +272,11 @@ IlluMeta generates an interactive HTML dashboard as the primary interface for ex
 | **Beginner Path** | 3-step guide: (1) Check QC, (2) Review consensus intersection, (3) Explore pipelines |
 | **Run Controls & QC** | Analysis parameters, sample/probe QC summary |
 | **Pipeline Tabs** | 5 tabs: Intersection Native, Intersection Strict, Minfi, Sesame Strict, Sesame Native |
+| **Run Documentation** | Methods text, decision ledger, logs, and parameter files for reproducibility |
 
 Each pipeline tab contains expandable sections for Primary Results (volcano, Manhattan, heatmap, DMP table), Region-Level Results (DMRs), Quality & Diagnostics (PCA, Q-Q, PVCA), Batch & Covariates, and Clocks & Age.
 
-For a complete dashboard guide with interpretation instructions, see the **Supplementary Data** document (generate via `python3 scripts/build_supplementary_data_docx.py`).
+For a complete dashboard guide with interpretation instructions, see the **Supplementary Data** document (generate via `python3 scripts/build_supplementary_data_docx.py`; requires `./scripts/install_full.sh --paper`).
 
 ## Supplementary materials (recommended for manuscripts)
 For transparency and reproducibility, we recommend including the following files in your Supplementary Materials:
@@ -301,8 +304,39 @@ Auto-group is a convenience feature and **not** a substitute for manual group cu
 IlluMeta is easiest to install with **conda**. Windows users should use **WSL2 (Ubuntu)**.
 
 ### Quick full install (all OS)
+
+Prerequisites (fresh machine):
+- `conda` or `mamba` in `PATH` (Miniforge recommended).
+- macOS: `xcode-select --install`
+- Ubuntu/WSL: `sudo apt-get install -y git curl`
+
 ```bash
 git clone https://github.com/kangk1204/illumeta.git && cd illumeta && ./scripts/install_full.sh
+```
+
+If you also want to build the Application Note DOCX / paper figures on the same machine:
+```bash
+./scripts/install_full.sh --paper
+```
+
+Optional (manuscript assets; requires local benchmark outputs):
+```bash
+# Figures/tables for the Application Note
+python3 scripts/generate_application_note_figures.py \
+  --results-dir benchmarks/application_note \
+  --out-dir benchmarks/paper_figures
+
+# Build DOCX drafts (NOT required to run IlluMeta itself)
+python3 scripts/build_application_note_docx.py \
+  --results-dir benchmarks/application_note \
+  --figures-dir benchmarks/paper_figures \
+  --out benchmarks/application_note/IlluMeta_Application_Note.docx \
+  --contact-email you@example.com
+
+python3 scripts/build_supplementary_data_docx.py \
+  --results-dir benchmarks/application_note \
+  --figures-dir benchmarks/paper_figures \
+  --out benchmarks/application_note/IlluMeta_Supplementary_Data.docx
 ```
 
 <details>
@@ -494,24 +528,13 @@ python3 illumeta.py doctor
 
 #### 0) Install prerequisites (Git + Conda)
 
-**Step 1: Install Xcode Command Line Tools** (includes git and compilers):
+**Step 1: Install Xcode Command Line Tools** (includes git and a macOS SDK):
 ```bash
 xcode-select --install
 ```
 > A popup will appear. Click **"Install"** and wait for completion (may take 5-10 minutes).
 
-**Step 2: Install Homebrew** (if not already installed):
-```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-```
-
-**Step 3 (Optional but recommended):** Install system libraries for devtools/tidyverse:
-```bash
-brew install cmake git pandoc pkg-config openssl@3 libxml2 freetype libpng libtiff jpeg webp harfbuzz fribidi fontconfig libgit2 libomp gcc
-```
-Skipping this often causes `xml2`/`roxygen2` install errors.
-
-**Step 4: Install Miniforge (conda)**:
+**Step 2: Install Miniforge (conda)**:
 
 <details>
 <summary><strong>Apple Silicon (M1/M2/M3/M4)</strong></summary>
@@ -542,6 +565,12 @@ conda --version
 > **Tip:** Not sure which Mac you have? Run `uname -m`. If it says `arm64`, you have Apple Silicon. If it says `x86_64`, you have Intel.
 
 If you use bash instead of zsh, replace `zsh` with `bash` and source `~/.bashrc` instead.
+
+**Optional (only if you use system R or install `devtools`/`roxygen2` outside conda): Homebrew + system libraries**
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+brew install cmake git pandoc pkg-config openssl@3 libxml2 freetype libpng libtiff jpeg webp harfbuzz fribidi fontconfig libgit2 libomp gcc
+```
 
 #### 1) Clone the repository
 ```bash

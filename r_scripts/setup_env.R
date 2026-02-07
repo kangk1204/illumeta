@@ -136,13 +136,43 @@ ensure_fortran_available()
 
 ensure_openmp_flags <- function() {
     if (Sys.info()[["sysname"]] != "Darwin") return(invisible(FALSE))
-    libomp_inc <- "/opt/homebrew/opt/libomp/include"
-    libomp_lib <- "/opt/homebrew/opt/libomp/lib"
-    if (!dir.exists(libomp_inc) || !dir.exists(libomp_lib)) {
-        message("Warning: libomp not found. Some Bioconductor packages (e.g., SparseArray) may fail to compile.")
+    conda_prefix <- Sys.getenv("CONDA_PREFIX", unset = "")
+    candidates <- list()
+    if (nzchar(conda_prefix) && dir.exists(conda_prefix)) {
+        candidates[[length(candidates) + 1]] <- list(
+            inc = file.path(conda_prefix, "include"),
+            lib = file.path(conda_prefix, "lib"),
+            label = "conda"
+        )
+    }
+    # Apple Silicon and Intel Homebrew prefixes
+    candidates[[length(candidates) + 1]] <- list(inc = "/opt/homebrew/opt/libomp/include", lib = "/opt/homebrew/opt/libomp/lib", label = "homebrew")
+    candidates[[length(candidates) + 1]] <- list(inc = "/usr/local/opt/libomp/include", lib = "/usr/local/opt/libomp/lib", label = "homebrew")
+
+    libomp_inc <- ""
+    libomp_lib <- ""
+    libomp_source <- ""
+    for (cand in candidates) {
+        inc_ok <- dir.exists(cand$inc) && file.exists(file.path(cand$inc, "omp.h"))
+        lib_ok <- dir.exists(cand$lib) && (
+            file.exists(file.path(cand$lib, "libomp.dylib")) ||
+            file.exists(file.path(cand$lib, "libomp.a"))
+        )
+        if (inc_ok && lib_ok) {
+            libomp_inc <- cand$inc
+            libomp_lib <- cand$lib
+            libomp_source <- cand$label
+            break
+        }
+    }
+
+    if (!nzchar(libomp_inc) || !nzchar(libomp_lib)) {
+        message("Warning: OpenMP runtime (libomp) not found. Some packages (e.g., SparseArray/data.table) may fail to compile.")
+        message("  - Recommended (conda): conda install -c conda-forge llvm-openmp")
         message("  - macOS (Homebrew): brew install libomp")
         return(invisible(FALSE))
     }
+    message(sprintf("OpenMP runtime detected (%s): %s", libomp_source, libomp_lib))
     user_cc <- Sys.getenv("CC", unset = "")
     cc <- user_cc
     if (!nzchar(cc)) cc <- Sys.which("clang")
@@ -151,7 +181,12 @@ ensure_openmp_flags <- function() {
         cc_version <- tryCatch(system2(cc, "--version", stdout = TRUE, stderr = TRUE), error = function(e) character(0))
     }
     apple_clang <- length(cc_version) > 0 && grepl("Apple clang", cc_version[1], fixed = TRUE)
-    llvm_candidates <- c("/opt/homebrew/opt/llvm/bin/clang", "/usr/local/opt/llvm/bin/clang")
+    llvm_candidates <- c(
+        if (nzchar(conda_prefix)) file.path(conda_prefix, "bin", "clang") else "",
+        "/opt/homebrew/opt/llvm/bin/clang",
+        "/usr/local/opt/llvm/bin/clang"
+    )
+    llvm_candidates <- llvm_candidates[nzchar(llvm_candidates)]
     llvm_hits <- llvm_candidates[file.exists(llvm_candidates)]
     llvm_clang <- if (length(llvm_hits) > 0) llvm_hits[1] else ""
     if (apple_clang) {
@@ -176,7 +211,8 @@ ensure_openmp_flags <- function() {
     cflags_global <- Sys.getenv("CFLAGS", unset = "")
     libs <- Sys.getenv("PKG_LIBS", unset = "")
     ldflags <- Sys.getenv("LDFLAGS", unset = "")
-    openmp_cflags <- paste("-Xclang -fopenmp", paste0("-I", libomp_inc))
+    openmp_flag <- if (apple_clang) "-Xclang -fopenmp" else "-fopenmp"
+    openmp_cflags <- paste(openmp_flag, paste0("-I", libomp_inc))
     openmp_libs <- paste(paste0("-L", libomp_lib), "-lomp")
     shlib_openmp <- paste(openmp_cflags, openmp_libs)
     if (!grepl("-fopenmp", cflags, fixed = TRUE)) {

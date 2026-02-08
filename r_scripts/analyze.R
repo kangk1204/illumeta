@@ -1955,7 +1955,9 @@ caf_weights <- resolve_caf_weights(caf_cfg, preset_name)
 compute_caf_scores <- function(perm_summary, perm_n_probes,
                                effect_metrics, marker_metrics,
                                batch_before, batch_after,
-                               weights, target_fpr = 0.05) {
+                               weights, target_fpr = 0.05,
+                               observed_lambda_all = NA_real_,
+                               observed_lambda_vp_top = NA_real_) {
   perm_mean_sig <- NA_real_
   perm_lambda <- NA_real_
   perm_ks <- NA_real_
@@ -2002,6 +2004,18 @@ compute_caf_scores <- function(perm_summary, perm_n_probes,
   keep <- is.finite(scores)
   cai <- if (any(keep)) sum(scores[keep] * w[keep]) / sum(w[keep]) else NA_real_
 
+  observed_lambda_all <- suppressWarnings(as.numeric(observed_lambda_all))
+  observed_lambda_vp_top <- suppressWarnings(as.numeric(observed_lambda_vp_top))
+  # Heuristic context metric: only compute ratio when the *overall* observed lambda is inflated.
+  # Note: this does not separate biology from group-linked confounding; it is only a rough enrichment check.
+  lambda_ratio <- if (is.finite(observed_lambda_all) && observed_lambda_all > 1.2 &&
+                      is.finite(observed_lambda_vp_top) &&
+                      is.finite(perm_lambda) && perm_lambda > 0) {
+    observed_lambda_vp_top / perm_lambda
+  } else {
+    NA_real_
+  }
+
   list(
     null_fpr = null_fpr,
     null_lambda = perm_lambda,
@@ -2012,7 +2026,10 @@ compute_caf_scores <- function(perm_summary, perm_n_probes,
     preservation_score = pres_score,
     batch_reduction = batch_reduction,
     cai = cai,
-    weights = w
+    weights = w,
+    observed_lambda_all = observed_lambda_all,
+    observed_lambda_vp_top = observed_lambda_vp_top,
+    lambda_ratio = lambda_ratio
   )
 }
 
@@ -2021,7 +2038,9 @@ flag_ok <- function(cond) {
 }
 
 build_caf_report_lines <- function(prefix, applied_batch_method, n_con, n_test,
-                                   perm_n, perm_n_probes, caf_res, marker_metrics, target_fpr) {
+                                   perm_n, perm_n_probes, caf_res, marker_metrics, target_fpr,
+                                   observed_lambda_all = NA_real_,
+                                   observed_lambda_vp_top = NA_real_) {
   if (is.null(caf_res)) return(NULL)
   total_n <- n_con + n_test
   null_fpr <- caf_res$null_fpr
@@ -2031,6 +2050,8 @@ build_caf_report_lines <- function(prefix, applied_batch_method, n_con, n_test,
   marker_count <- if (!is.null(marker_metrics)) marker_metrics$markers_in_data else NA
   marker_ret <- caf_res$marker_retention
   effect_corr <- caf_res$effect_concordance
+  observed_lambda_all <- suppressWarnings(as.numeric(observed_lambda_all))
+  observed_lambda_vp_top <- suppressWarnings(as.numeric(observed_lambda_vp_top))
   lines <- c(
     "CORRECTION ADEQUACY REPORT",
     "===============================================",
@@ -2042,6 +2063,18 @@ build_caf_report_lines <- function(prefix, applied_batch_method, n_con, n_test,
     sprintf("  Permutations run: %s", ifelse(is.finite(perm_n), perm_n, "NA")),
     sprintf("  Null FP rate: %s (target %.2f) [%s]", fmt_val(null_fpr), target_fpr, flag_ok(cal_ok)),
     sprintf("  Null Lambda: %s [%s]", fmt_val(caf_res$null_lambda), flag_ok(lambda_ok)),
+    sprintf("  Observed Lambda (all CpGs): %s", fmt_val(observed_lambda_all)),
+    sprintf("  Observed Lambda (vp_top CpGs): %s (n=%s)", fmt_val(observed_lambda_vp_top),
+            ifelse(is.finite(perm_n_probes), as.integer(perm_n_probes), "NA")),
+    sprintf("  Lambda Ratio (vp_top obs/null): %s [%s]", fmt_val(caf_res$lambda_ratio),
+            if (is.finite(caf_res$lambda_ratio)) {
+              if (caf_res$lambda_ratio > 2) "strong enrichment (heuristic)"
+              else if (caf_res$lambda_ratio > 1.2) "moderate enrichment (heuristic)"
+              else "similar to null; check confounding"
+            } else {
+              if (is.finite(observed_lambda_all) && observed_lambda_all <= 1.2) "N/A (observed lambda not inflated)"
+              else "N/A"
+            }),
     sprintf("  KS test p-value: %s [%s]", fmt_val(caf_res$null_ks_p), flag_ok(ks_ok)),
     sprintf("  CALIBRATION SCORE: %s [%s]", fmt_val(caf_res$calibration_score), score_grade(caf_res$calibration_score)),
     "",
@@ -2212,10 +2245,12 @@ compute_mmc_summary <- function(res_list, top_k = 100, levels = c("core", "conse
     all_cpgs <- unique(unlist(top_sets))
     freq <- table(unlist(top_sets))
     core_n <- sum(freq >= m_count)
+    core_pct <- if (length(all_cpgs) > 0) core_n / length(all_cpgs) else NA_real_
     consensus_n <- if (m_count >= 3) sum(freq >= (m_count - 1)) else NA_real_
     weak_n <- if (m_count >= 3) sum(freq >= 2) else NA_real_
     discordant_n <- if (m_count == 2) length(all_cpgs) - core_n else NA_real_
     spearman_vals <- numeric(0)
+    direction_vals <- numeric(0)
     if (length(effect_maps) >= 2) {
       for (i in seq_len(length(effect_maps) - 1)) {
         for (j in (i + 1):length(effect_maps)) {
@@ -2226,24 +2261,55 @@ compute_mmc_summary <- function(res_list, top_k = 100, levels = c("core", "conse
           if (length(common_ids) < 3) next
           common_ids <- intersect(common_ids, all_cpgs)
           if (length(common_ids) < 3) next
-          rho <- suppressWarnings(cor(eff_i[common_ids], eff_j[common_ids],
-                                      method = "spearman", use = "pairwise.complete.obs"))
+          v_i <- eff_i[common_ids]
+          v_j <- eff_j[common_ids]
+          ok <- is.finite(v_i) & is.finite(v_j)
+          if (sum(ok) < 3) next
+          rho <- suppressWarnings(cor(v_i[ok], v_j[ok], method = "spearman"))
           if (is.finite(rho)) spearman_vals <- c(spearman_vals, rho)
+          dir_cons <- mean(sign(v_i[ok]) == sign(v_j[ok]))
+          if (is.finite(dir_cons)) direction_vals <- c(direction_vals, dir_cons)
         }
       }
+    }
+    spearman_mean <- if (length(spearman_vals) > 0) mean(spearman_vals) else NA_real_
+    spearman_min <- if (length(spearman_vals) > 0) min(spearman_vals) else NA_real_
+    spearman_max <- if (length(spearman_vals) > 0) max(spearman_vals) else NA_real_
+    dir_mean <- if (length(direction_vals) > 0) mean(direction_vals) else NA_real_
+    dir_min <- if (length(direction_vals) > 0) min(direction_vals) else NA_real_
+    dir_max <- if (length(direction_vals) > 0) max(direction_vals) else NA_real_
+
+    # Composite (heuristic) MMC score combining identity + effect size + direction concordance.
+    # Keep this conservative and interpretable; all components are in [0, 1] after scaling.
+    identity_score <- core_pct
+    effect_score <- if (is.finite(spearman_mean)) (spearman_mean + 1) / 2 else NA_real_
+    direction_score <- dir_mean
+    mmc_weights <- c(identity = 0.5, effect = 0.3, direction = 0.2)
+    mmc_vals <- c(identity = identity_score, effect = effect_score, direction = direction_score)
+    mmc_ok <- is.finite(mmc_vals)
+    mmc_composite <- if (any(mmc_ok)) {
+      sum(mmc_weights[mmc_ok] * mmc_vals[mmc_ok]) / sum(mmc_weights[mmc_ok])
+    } else {
+      NA_real_
     }
     out <- rbind(out, data.frame(
       top_k = k,
       methods = m_count,
       core = core_n,
+      core_pct = core_pct,
       consensus = consensus_n,
       weak = weak_n,
       discordant = discordant_n,
       total_unique = length(all_cpgs),
-      spearman_mean = if (length(spearman_vals) > 0) mean(spearman_vals) else NA_real_,
-      spearman_min = if (length(spearman_vals) > 0) min(spearman_vals) else NA_real_,
-      spearman_max = if (length(spearman_vals) > 0) max(spearman_vals) else NA_real_,
+      spearman_mean = spearman_mean,
+      spearman_min = spearman_min,
+      spearman_max = spearman_max,
       spearman_pairs = length(spearman_vals),
+      direction_mean = dir_mean,
+      direction_min = dir_min,
+      direction_max = dir_max,
+      direction_pairs = length(direction_vals),
+      mmc_composite = mmc_composite,
       stringsAsFactors = FALSE
     ))
   }
@@ -2309,8 +2375,33 @@ compute_sss_overlap <- function(betas, targets, group_col, covariates, mode, n_i
   ref_sets <- lapply(top_k, function(k) head(ref_res$CpG, min(k, nrow(ref_res))))
   names(ref_sets) <- as.character(top_k)
 
+  # Rank-Biased Overlap (RBO) for ranked lists (Webber et al., 2010).
+  # p controls top-weighting; p=0.9 gives substantial weight to the top ranks.
+  rbo_p <- 0.9
+  rbo_score <- function(a, b, p = rbo_p) {
+    if (length(a) == 0 || length(b) == 0) return(NA_real_)
+    if (!is.finite(p) || p <= 0 || p >= 1) p <- 0.9
+    k <- min(length(a), length(b))
+    if (k < 1) return(NA_real_)
+    sa <- character(0)
+    sb <- character(0)
+    A <- numeric(k)
+    for (d in seq_len(k)) {
+      sa <- c(sa, a[d])
+      sb <- c(sb, b[d])
+      A[d] <- length(intersect(sa, sb)) / d
+    }
+    (1 - p) * sum(p^(0:(k - 1)) * A) + (p^k) * A[k]
+  }
+
   iter_overlaps <- lapply(top_k, function(k) numeric(0))
   names(iter_overlaps) <- as.character(top_k)
+  iter_jaccards <- lapply(top_k, function(k) numeric(0))
+  names(iter_jaccards) <- as.character(top_k)
+  iter_rbos <- lapply(top_k, function(k) numeric(0))
+  names(iter_rbos) <- as.character(top_k)
+  iter_sss <- lapply(top_k, function(k) numeric(0))
+  names(iter_sss) <- as.character(top_k)
   iter_signs <- lapply(top_k, function(k) numeric(0))
   names(iter_signs) <- as.character(top_k)
 
@@ -2368,8 +2459,23 @@ compute_sss_overlap <- function(betas, targets, group_col, covariates, mode, n_i
     for (k in top_k) {
       ref_set <- ref_sets[[as.character(k)]]
       iter_set <- head(res_iter$CpG, min(k, nrow(res_iter)))
-      overlap <- length(intersect(ref_set, iter_set)) / max(1, k)
+      inter_n <- length(intersect(ref_set, iter_set))
+      union_n <- length(unique(c(ref_set, iter_set)))
+      overlap <- inter_n / max(1, k)
+      jaccard <- if (union_n > 0) inter_n / union_n else NA_real_
+      rbo <- rbo_score(ref_set, iter_set, p = rbo_p)
+      sss_val <- NA_real_
+      if (is.finite(jaccard) && is.finite(rbo)) {
+        sss_val <- 0.5 * jaccard + 0.5 * rbo
+      } else if (is.finite(jaccard)) {
+        sss_val <- jaccard
+      } else if (is.finite(rbo)) {
+        sss_val <- rbo
+      }
       iter_overlaps[[as.character(k)]] <- c(iter_overlaps[[as.character(k)]], overlap)
+      iter_jaccards[[as.character(k)]] <- c(iter_jaccards[[as.character(k)]], jaccard)
+      iter_rbos[[as.character(k)]] <- c(iter_rbos[[as.character(k)]], rbo)
+      iter_sss[[as.character(k)]] <- c(iter_sss[[as.character(k)]], sss_val)
       if (!is.null(ref_effect) && !is.null(iter_effect)) {
         common_ids <- intersect(ref_set, iter_set)
         if (length(common_ids) >= 3) {
@@ -2387,10 +2493,20 @@ compute_sss_overlap <- function(betas, targets, group_col, covariates, mode, n_i
   out <- data.frame()
   for (k in top_k) {
     vals <- iter_overlaps[[as.character(k)]]
+    j_vals <- iter_jaccards[[as.character(k)]]
+    rbo_vals <- iter_rbos[[as.character(k)]]
+    sss_vals <- iter_sss[[as.character(k)]]
     sign_vals <- iter_signs[[as.character(k)]]
     out <- rbind(out, data.frame(top_k = k,
                                  overlap_mean = if (length(vals) > 0) mean(vals, na.rm = TRUE) else NA_real_,
                                  overlap_sd = if (length(vals) > 1) sd(vals, na.rm = TRUE) else NA_real_,
+                                 jaccard_mean = if (length(j_vals) > 0) mean(j_vals, na.rm = TRUE) else NA_real_,
+                                 jaccard_sd = if (length(j_vals) > 1) sd(j_vals, na.rm = TRUE) else NA_real_,
+                                 rbo_mean = if (length(rbo_vals) > 0) mean(rbo_vals, na.rm = TRUE) else NA_real_,
+                                 rbo_sd = if (length(rbo_vals) > 1) sd(rbo_vals, na.rm = TRUE) else NA_real_,
+                                 sss_mean = if (length(sss_vals) > 0) mean(sss_vals, na.rm = TRUE) else NA_real_,
+                                 sss_sd = if (length(sss_vals) > 1) sd(sss_vals, na.rm = TRUE) else NA_real_,
+                                 rbo_p = rbo_p,
                                  sign_mean = if (length(sign_vals) > 0) mean(sign_vals, na.rm = TRUE) else NA_real_,
                                  sign_sd = if (length(sign_vals) > 1) sd(sign_vals, na.rm = TRUE) else NA_real_,
                                  n_iterations = length(vals)))
@@ -2417,11 +2533,16 @@ build_crf_report_lines <- function(tier_info, mmc_summary, ncs_summary, sss_summ
     lines <- c(lines, sprintf("  Methods compared: %s", paste(tier_info$mmc_methods, collapse = ", ")))
     for (i in seq_len(nrow(mmc_summary))) {
       row <- mmc_summary[i, ]
+      core_pct_disp <- if (!is.null(row$core_pct) && is.finite(row$core_pct)) sprintf(" (%.0f%%)", 100 * row$core_pct) else ""
       rho_disp <- if (is.finite(row$spearman_mean)) sprintf(", rho=%.3f", row$spearman_mean) else ""
-      lines <- c(lines, sprintf("  Top K=%d: core=%s, consensus=%s, weak=%s, discordant=%s (unique=%s)%s",
+      dir_disp <- if (!is.null(row$direction_mean) && is.finite(row$direction_mean)) sprintf(", dir=%.3f", row$direction_mean) else ""
+      mmc_disp <- if (!is.null(row$mmc_composite) && is.finite(row$mmc_composite)) sprintf(", MMC=%.3f", row$mmc_composite) else ""
+      lines <- c(lines, sprintf("  Top K=%d: core=%s%s, consensus=%s, weak=%s, discordant=%s (unique=%s)%s%s%s",
                                 row$top_k,
-                                fmt_val(row$core), fmt_val(row$consensus), fmt_val(row$weak),
-                                fmt_val(row$discordant), fmt_val(row$total_unique), rho_disp))
+                                fmt_val(row$core), core_pct_disp,
+                                fmt_val(row$consensus), fmt_val(row$weak),
+                                fmt_val(row$discordant), fmt_val(row$total_unique),
+                                rho_disp, dir_disp, mmc_disp))
     }
   }
   lines <- c(lines, "", "SECTION 2: NEGATIVE CONTROL STABILITY")
@@ -2435,9 +2556,13 @@ build_crf_report_lines <- function(tier_info, mmc_summary, ncs_summary, sss_summ
           !is.null(row$lambda_ci_high) && is.finite(row$lambda_ci_high)) {
         lambda_ci_disp <- sprintf(", CI=[%.3f, %.3f]", row$lambda_ci_low, row$lambda_ci_high)
       }
-      lines <- c(lines, sprintf("  %s (%s): lambda=%.3f%s, sig_rate=%.3f (n=%d)",
+      ncs_score_disp <- ""
+      if (!is.null(row$ncs_score) && is.finite(row$ncs_score)) {
+        ncs_score_disp <- sprintf(", score=%.2f", row$ncs_score)
+      }
+      lines <- c(lines, sprintf("  %s (%s): lambda=%.3f%s%s, sig_rate=%.3f (n=%d)",
                                 row$type, row$stage, row$lambda, lambda_ci_disp,
-                                row$sig_rate, row$n))
+                                ncs_score_disp, row$sig_rate, row$n))
     }
   }
   lines <- c(lines, "", "SECTION 3: SPLIT-SAMPLE STABILITY")
@@ -2451,9 +2576,16 @@ build_crf_report_lines <- function(tier_info, mmc_summary, ncs_summary, sss_summ
           !is.null(row$sign_mean_corr) && is.finite(row$sign_mean_corr)) {
         sign_disp <- sprintf(", sign(before)=%.3f, sign(after)=%.3f", row$sign_mean_raw, row$sign_mean_corr)
       }
-      lines <- c(lines, sprintf("  Top K=%d: overlap before=%.3f (sd=%.3f), after=%.3f (sd=%.3f)%s",
+      sss_disp <- ""
+      if (!is.null(row$sss_mean_corr) && is.finite(row$sss_mean_corr)) {
+        j <- if (!is.null(row$jaccard_mean_corr) && is.finite(row$jaccard_mean_corr)) sprintf("%.3f", row$jaccard_mean_corr) else "NA"
+        r <- if (!is.null(row$rbo_mean_corr) && is.finite(row$rbo_mean_corr)) sprintf("%.3f", row$rbo_mean_corr) else "NA"
+        p <- if (!is.null(row$rbo_p) && is.finite(row$rbo_p)) sprintf("%.2f", row$rbo_p) else "NA"
+        sss_disp <- sprintf(", SSS(after)=%.3f (J=%s, RBO=%s, p=%s)", row$sss_mean_corr, j, r, p)
+      }
+      lines <- c(lines, sprintf("  Top K=%d: overlap before=%.3f (sd=%.3f), after=%.3f (sd=%.3f)%s%s",
                                 row$top_k, row$overlap_mean_raw, row$overlap_sd_raw,
-                                row$overlap_mean_corr, row$overlap_sd_corr, sign_disp))
+                                row$overlap_mean_corr, row$overlap_sd_corr, sign_disp, sss_disp))
     }
   }
   lines
@@ -2614,6 +2746,19 @@ run_crf_assessment <- function(betas_raw, betas_corr, targets, covariates, tier_
     }
   }
   if (nrow(ncs_summary) > 0) {
+    # Convert NCS lambda to a continuous score in [0, 1] to make it usable for CAF/Verdict.
+    # Score is tier-adaptive: larger tolerance for minimal tiers, stricter for larger cohorts.
+    ncs_tol <- 0.2
+    if (!is.null(tier_info$tier)) {
+      if (tier_info$tier == "minimal") ncs_tol <- 0.3
+      if (tier_info$tier == "small") ncs_tol <- 0.2
+      if (tier_info$tier == "moderate") ncs_tol <- 0.15
+      if (tier_info$tier == "large") ncs_tol <- 0.1
+    }
+    ncs_summary$ncs_score_tol <- ncs_tol
+    ncs_summary$ncs_score <- ifelse(is.finite(ncs_summary$lambda),
+                                    pmax(0, pmin(1, 1 - abs(ncs_summary$lambda - 1.0) / ncs_tol)),
+                                    NA_real_)
     write.csv(ncs_summary, file.path(out_dir, paste0(prefix, "_CRF_NCS_Summary.csv")), row.names = FALSE)
   }
 
@@ -2633,8 +2778,21 @@ run_crf_assessment <- function(betas_raw, betas_corr, targets, covariates, tier_
       sss_summary <- data.frame(top_k = top_k,
                                 overlap_mean_raw = if (!is.null(sss_raw)) sss_raw$overlap_mean else NA_real_,
                                 overlap_sd_raw = if (!is.null(sss_raw)) sss_raw$overlap_sd else NA_real_,
+                                jaccard_mean_raw = if (!is.null(sss_raw)) sss_raw$jaccard_mean else NA_real_,
+                                jaccard_sd_raw = if (!is.null(sss_raw)) sss_raw$jaccard_sd else NA_real_,
+                                rbo_mean_raw = if (!is.null(sss_raw)) sss_raw$rbo_mean else NA_real_,
+                                rbo_sd_raw = if (!is.null(sss_raw)) sss_raw$rbo_sd else NA_real_,
+                                sss_mean_raw = if (!is.null(sss_raw)) sss_raw$sss_mean else NA_real_,
+                                sss_sd_raw = if (!is.null(sss_raw)) sss_raw$sss_sd else NA_real_,
                                 overlap_mean_corr = if (!is.null(sss_corr)) sss_corr$overlap_mean else NA_real_,
                                 overlap_sd_corr = if (!is.null(sss_corr)) sss_corr$overlap_sd else NA_real_,
+                                jaccard_mean_corr = if (!is.null(sss_corr)) sss_corr$jaccard_mean else NA_real_,
+                                jaccard_sd_corr = if (!is.null(sss_corr)) sss_corr$jaccard_sd else NA_real_,
+                                rbo_mean_corr = if (!is.null(sss_corr)) sss_corr$rbo_mean else NA_real_,
+                                rbo_sd_corr = if (!is.null(sss_corr)) sss_corr$rbo_sd else NA_real_,
+                                sss_mean_corr = if (!is.null(sss_corr)) sss_corr$sss_mean else NA_real_,
+                                sss_sd_corr = if (!is.null(sss_corr)) sss_corr$sss_sd else NA_real_,
+                                rbo_p = if (!is.null(sss_corr)) sss_corr$rbo_p else if (!is.null(sss_raw)) sss_raw$rbo_p else NA_real_,
                                 sign_mean_raw = if (!is.null(sss_raw)) sss_raw$sign_mean else NA_real_,
                                 sign_sd_raw = if (!is.null(sss_raw)) sss_raw$sign_sd else NA_real_,
                                 sign_mean_corr = if (!is.null(sss_corr)) sss_corr$sign_mean else NA_real_,
@@ -4313,6 +4471,20 @@ run_pvca_assessment <- function(betas, meta, factors, prefix, out_dir, threshold
   }, error = function(e) {
     message("  PVCA plot failed: ", e$message)
   })
+  pvca_df
+}
+
+compute_pvca_confounding_index <- function(pvca_df, batch_term, group_term = "primary_group") {
+  if (is.null(pvca_df) || nrow(pvca_df) == 0) return(NA_real_)
+  batch_term <- as.character(batch_term)
+  group_term <- as.character(group_term)
+  b <- suppressWarnings(as.numeric(pvca_df$proportion[pvca_df$term == batch_term]))
+  g <- suppressWarnings(as.numeric(pvca_df$proportion[pvca_df$term == group_term]))
+  if (length(b) == 0 || length(g) == 0) return(NA_real_)
+  b <- b[1]
+  g <- g[1]
+  if (!is.finite(b) || !is.finite(g) || g <= 0) return(NA_real_)
+  b / g
 }
 
 planet_predict_age_safe <- function(betas, type = "RPC") {
@@ -7286,6 +7458,8 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   batch_evaluated <- FALSE
   batch_candidates_df <- NULL
   best_candidate_score <- NA_real_
+  pvca_ci_before <- NA_real_
+  pvca_ci_after <- NA_real_
   raw_res <- NULL
   raw_delta_beta <- NULL
   lambda_guard_status <- "disabled"
@@ -7646,6 +7820,26 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   } else {
     message("  No eligible batch candidate found after confounding checks.")
   }
+
+  # PVCA-based confounding index (batch/group) on the pre-correction matrix.
+  # CI ~ 0: little batch; CI ~ 1: batch comparable to group; CI > 1: batch dominates (risk).
+  if (!is.null(batch_col) && batch_col %in% colnames(targets)) {
+    pvca_batch_df <- run_pvca_assessment(
+      betas,
+      targets,
+      unique(c("primary_group", batch_col)),
+      paste0(prefix, "_WithBatch"),
+      out_dir,
+      threshold = 0.6,
+      max_probes = 5000,
+      sample_ids = colnames(betas)
+    )
+    pvca_ci_before <- compute_pvca_confounding_index(pvca_batch_df, batch_col)
+    if (is.finite(pvca_ci_before)) {
+      message(sprintf("  PVCA confounding index (batch/group) before correction: %.3f", pvca_ci_before))
+    }
+  }
+
   if (!is.null(batch_col) && nrow(targets) >= 4) {
     message(paste("  Evaluating batch correction methods using batch factor:", batch_col))
     covariates_full <- covariates
@@ -7960,6 +8154,31 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   }
   betas <- betas_for_model
 
+  # PVCA-based confounding index (batch/group) after the applied batch correction (modeling matrix).
+  if (!is.null(batch_col) && batch_col %in% colnames(targets) && length(unique(targets[[batch_col]])) > 1) {
+    pvca_batch_after_df <- run_pvca_assessment(
+      betas,
+      targets,
+      unique(c("primary_group", batch_col)),
+      paste0(prefix, "_AfterCorrection_WithBatch"),
+      out_dir,
+      threshold = 0.6,
+      max_probes = 5000,
+      sample_ids = colnames(betas)
+    )
+    pvca_ci_after <- compute_pvca_confounding_index(pvca_batch_after_df, batch_col)
+    if (is.finite(pvca_ci_after)) {
+      message(sprintf("  PVCA confounding index (batch/group) after correction: %.3f", pvca_ci_after))
+    }
+  }
+
+  # Precompute the probe subset used for permutation calibration (top-variable CpGs).
+  # This is reused to compute an "observed lambda" on the same probe set so obs/null comparisons are meaningful.
+  top_calib_idx <- integer(0)
+  if (is.finite(vp_top) && vp_top > 0 && !is.null(betas) && nrow(betas) > 0) {
+    top_calib_idx <- head(order(apply(betas, 1, var), decreasing = TRUE), min(vp_top, nrow(betas)))
+  }
+
   # Persist processed matrices used for modeling (GEO processed files)
   beta_out_path <- file.path(out_dir, paste0(prefix, "_BetaMatrix.tsv.gz"))
   write_matrix_tsv_gz(betas, beta_out_path)
@@ -8089,6 +8308,18 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   chisq_vals <- qchisq(1 - p_vals, 1)
   lambda_val <- median(chisq_vals) / qchisq(0.5, 1)
   message(paste("  Genomic Inflation Factor (Lambda):", round(lambda_val, 3)))
+
+  # Observed lambda computed on the same probe set used for permutation calibration (vp_top).
+  lambda_vp_top <- NA_real_
+  if (length(top_calib_idx) > 0) {
+    top_cpgs <- rownames(betas)[top_calib_idx]
+    p_top <- tryCatch(res[top_cpgs, "P.Value"], error = function(e) NA_real_)
+    p_top <- p_top[!is.na(p_top)]
+    if (length(p_top) > 0) {
+      chisq_top <- qchisq(1 - p_top, 1)
+      lambda_vp_top <- median(chisq_top) / qchisq(0.5, 1)
+    }
+  }
 
   lambda_guard_cfg <- config_settings$lambda_guard
   if (!is.null(lambda_guard_cfg) && isTRUE(lambda_guard_cfg$enabled)) {
@@ -8473,9 +8704,12 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   perm_n_probes <- NA_real_
   if (perm_n > 0) {
       message(paste("  Running", perm_n, "permutations for null DMP counts (top", vp_top, "CpGs)..."))
-      top_perm <- head(order(apply(betas, 1, var), decreasing = TRUE), min(vp_top, nrow(betas)))
-      perm_n_probes <- length(top_perm)
-      m_perm <- logit_offset(betas[top_perm, , drop=FALSE])
+      top_perm <- top_calib_idx
+      if (length(top_perm) == 0) {
+        message("  Permutation test skipped: vp_top <= 0 or no probes available for calibration.")
+      } else {
+        perm_n_probes <- length(top_perm)
+        m_perm <- logit_offset(betas[top_perm, , drop=FALSE])
       perm_results <- data.frame(run = integer(0), sig_count = integer(0), min_p = numeric(0),
                                  ks_p = numeric(0), lambda = numeric(0))
       perm_group_cols <- make.names(levels(targets$primary_group))
@@ -8546,10 +8780,10 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
           if (i %% 10 == 0 || i == perm_n) {
               elapsed <- as.numeric(difftime(Sys.time(), perm_start, units = "mins"))
               eta <- (elapsed / i) * (perm_n - i)
-              message(sprintf("    [perm %d/%d] elapsed: %.1f min, ETA: %.1f min", i, perm_n, elapsed, eta))
-          }
-      }
-      perm_mean_sig <- mean(perm_results$sig_count)
+	              message(sprintf("    [perm %d/%d] elapsed: %.1f min, ETA: %.1f min", i, perm_n, elapsed, eta))
+	          }
+	      }
+	      perm_mean_sig <- mean(perm_results$sig_count)
       perm_summary <- data.frame(
         stat = c("mean_sig", "median_sig", "max_sig", "min_p_median", "ks_p_median", "lambda_median",
                  "n_probes", "mean_sig_rate"),
@@ -8559,8 +8793,9 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
                   perm_n_probes,
                   ifelse(is.finite(perm_mean_sig) && perm_n_probes > 0, perm_mean_sig / perm_n_probes, NA))
       )
-      write.csv(perm_results, file.path(out_dir, paste0(prefix, "_Permutation_Results.csv")), row.names = FALSE)
-      write.csv(perm_summary, file.path(out_dir, paste0(prefix, "_Permutation_Summary.csv")), row.names = FALSE)
+	      write.csv(perm_results, file.path(out_dir, paste0(prefix, "_Permutation_Results.csv")), row.names = FALSE)
+	      write.csv(perm_summary, file.path(out_dir, paste0(prefix, "_Permutation_Summary.csv")), row.names = FALSE)
+      }
   }
   
   # variancePartition on top-variable CpGs (optional)
@@ -8765,32 +9000,38 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
 
   caf_res <- NULL
   caf_report_lines <- NULL
-  if (isTRUE(caf_enabled)) {
-    caf_res <- compute_caf_scores(
-      perm_summary = perm_summary,
-      perm_n_probes = perm_n_probes,
-      effect_metrics = effect_metrics,
-      marker_metrics = marker_metrics,
-      batch_before = batch_before,
-      batch_after = batch_after,
-      weights = caf_weights,
-      target_fpr = caf_target_fpr
-    )
-    caf_report_lines <- build_caf_report_lines(prefix, applied_batch_method, n_con_local, n_test_local,
-                                               perm_n, perm_n_probes, caf_res, marker_metrics, caf_target_fpr)
-    if (!is.null(caf_res)) {
-      caf_df <- data.frame(
-        metric = c("calibration_score", "preservation_score", "batch_removal_score", "cai",
-                   "null_fpr", "null_lambda", "null_ks_p",
-                   "marker_retention", "effect_concordance",
-                   "batch_reduction_ratio",
-                   "weight_calibration", "weight_preservation", "weight_batch"),
-        value = c(caf_res$calibration_score, caf_res$preservation_score, caf_res$batch_reduction,
-                  caf_res$cai, caf_res$null_fpr, caf_res$null_lambda, caf_res$null_ks_p,
-                  caf_res$marker_retention, caf_res$effect_concordance, caf_res$batch_reduction,
-                  caf_res$weights[["calibration"]], caf_res$weights[["preservation"]], caf_res$weights[["batch"]]),
-        stringsAsFactors = FALSE
-      )
+	  if (isTRUE(caf_enabled)) {
+	    caf_res <- compute_caf_scores(
+	      perm_summary = perm_summary,
+	      perm_n_probes = perm_n_probes,
+	      effect_metrics = effect_metrics,
+	      marker_metrics = marker_metrics,
+	      batch_before = batch_before,
+	      batch_after = batch_after,
+	      weights = caf_weights,
+	      target_fpr = caf_target_fpr,
+	      observed_lambda_all = lambda_val,
+	      observed_lambda_vp_top = lambda_vp_top
+	    )
+	    caf_report_lines <- build_caf_report_lines(prefix, applied_batch_method, n_con_local, n_test_local,
+	                                               perm_n, perm_n_probes, caf_res, marker_metrics, caf_target_fpr,
+	                                               observed_lambda_all = lambda_val,
+	                                               observed_lambda_vp_top = lambda_vp_top)
+	    if (!is.null(caf_res)) {
+	      caf_df <- data.frame(
+	        metric = c("calibration_score", "preservation_score", "batch_removal_score", "cai",
+	                   "null_fpr", "null_lambda", "null_ks_p",
+	                   "lambda_observed_all", "lambda_observed_vp_top", "lambda_ratio",
+	                   "marker_retention", "effect_concordance",
+	                   "batch_reduction_ratio",
+	                   "weight_calibration", "weight_preservation", "weight_batch"),
+	        value = c(caf_res$calibration_score, caf_res$preservation_score, caf_res$batch_reduction,
+	                  caf_res$cai, caf_res$null_fpr, caf_res$null_lambda, caf_res$null_ks_p,
+	                  caf_res$observed_lambda_all, caf_res$observed_lambda_vp_top, caf_res$lambda_ratio,
+	                  caf_res$marker_retention, caf_res$effect_concordance, caf_res$batch_reduction,
+	                  caf_res$weights[["calibration"]], caf_res$weights[["preservation"]], caf_res$weights[["batch"]]),
+	        stringsAsFactors = FALSE
+	      )
       write.csv(caf_df, file.path(out_dir, paste0(prefix, "_CAF_Summary.csv")), row.names = FALSE)
     }
     if (!is.null(caf_report_lines)) {
@@ -8798,23 +9039,26 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     }
   }
   
-  metrics <- data.frame(
-    metric = c("pipeline", "lambda", "lambda_guard_status", "lambda_guard_action",
-               "lambda_guard_threshold", "lambda_guard_lambda",
-               "primary_result_mode", "no_signal", "no_signal_reason",
-               "tier3_batch", "tier3_primary_lambda", "tier3_low_power",
-               "tier3_ineligible", "tier3_meta_method", "tier3_meta_i2_median",
-               "batch_method_applied", "batch_candidate", "batch_tier", "n_samples", "n_cpgs",
-               "n_covariates_used", "covariates_used", "n_sv_used", "sv_used",
-               "batch_sig_p_lt_0.05_before", "batch_min_p_before",
-               "batch_sig_p_lt_0.05_after", "batch_min_p_after",
-               "group_min_p_before", "group_min_p_after",
-               "dropped_covariates",
-               "perm_mean_sig", "perm_max_sig", "perm_ks_p_median", "perm_lambda_median", "vp_primary_group_mean",
-               "caf_score", "caf_calibration_score", "caf_preservation_score", "caf_batch_score"),
-    value = c(prefix, lambda_val, lambda_guard_status, lambda_guard_action,
-              lambda_guard_threshold, lambda_guard_lambda,
-              primary_result_mode, no_signal, no_signal_reason,
+	  metrics <- data.frame(
+	    metric = c("pipeline", "lambda", "lambda_guard_status", "lambda_guard_action",
+	               "lambda_guard_threshold", "lambda_guard_lambda",
+	               "primary_result_mode", "no_signal", "no_signal_reason",
+	               "tier3_batch", "tier3_primary_lambda", "tier3_low_power",
+	               "tier3_ineligible", "tier3_meta_method", "tier3_meta_i2_median",
+	               "batch_method_applied", "batch_candidate", "batch_tier", "n_samples", "n_cpgs",
+	               "n_covariates_used", "covariates_used", "n_sv_used", "sv_used",
+	               "batch_sig_p_lt_0.05_before", "batch_min_p_before",
+		               "batch_sig_p_lt_0.05_after", "batch_min_p_after",
+		               "group_min_p_before", "group_min_p_after",
+		               "pvca_ci_before", "pvca_ci_after",
+		               "dropped_covariates",
+		               "perm_mean_sig", "perm_max_sig", "perm_ks_p_median", "perm_lambda_median", "vp_primary_group_mean",
+		               "lambda_vp_top",
+		               "caf_score", "caf_calibration_score", "caf_preservation_score", "caf_batch_score",
+	               "lambda_ratio"),
+	    value = c(prefix, lambda_val, lambda_guard_status, lambda_guard_action,
+	              lambda_guard_threshold, lambda_guard_lambda,
+	              primary_result_mode, no_signal, no_signal_reason,
               tier3_batch_val, tier3_primary_lambda, tier3_low_power,
               tier3_ineligible, tier3_meta_method, tier3_meta_i2_median,
               applied_batch_method,
@@ -8823,20 +9067,23 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
               nrow(targets), nrow(betas), length(used_covariates),
               paste(used_covariates, collapse=";"),
               length(sv_cols), paste(sv_cols, collapse=";"),
-              batch_before$sig_count, batch_before$min_p,
-              batch_after$sig_count, batch_after$min_p,
-              grp_min_before, grp_min_after,
-              paste(unique(drop_log$Variable), collapse=";"),
-              if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat=="mean_sig"] else NA,
-              if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat=="max_sig"] else NA,
-              if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat=="ks_p_median"] else NA,
-              if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat=="lambda_median"] else NA,
-              vp_primary,
-              if (!is.null(caf_res)) caf_res$cai else NA,
-              if (!is.null(caf_res)) caf_res$calibration_score else NA,
-              if (!is.null(caf_res)) caf_res$preservation_score else NA,
-              if (!is.null(caf_res)) caf_res$batch_reduction else NA)
-  )
+	              batch_before$sig_count, batch_before$min_p,
+	              batch_after$sig_count, batch_after$min_p,
+	              grp_min_before, grp_min_after,
+	              pvca_ci_before, pvca_ci_after,
+	              paste(unique(drop_log$Variable), collapse=";"),
+	              if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat=="mean_sig"] else NA,
+	              if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat=="max_sig"] else NA,
+		              if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat=="ks_p_median"] else NA,
+	              if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat=="lambda_median"] else NA,
+	              vp_primary,
+	              lambda_vp_top,
+	              if (!is.null(caf_res)) caf_res$cai else NA,
+	              if (!is.null(caf_res)) caf_res$calibration_score else NA,
+	              if (!is.null(caf_res)) caf_res$preservation_score else NA,
+	              if (!is.null(caf_res)) caf_res$batch_reduction else NA,
+	              if (!is.null(caf_res)) caf_res$lambda_ratio else NA)
+	  )
   if (!is.null(effect_metrics)) {
     eff_df <- data.frame(metric = names(effect_metrics),
                          value = vapply(effect_metrics, function(x) ifelse(is.null(x), NA, x), numeric(1)),
@@ -8927,7 +9174,8 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     sv_used = sv_cols,
     permutations = perm_n,
     perm_ks_p_median = if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat == "ks_p_median"] else NA,
-    perm_lambda_median = if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat == "lambda_median"] else NA
+    perm_lambda_median = if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat == "lambda_median"] else NA,
+    lambda_ratio = if (!is.null(caf_res)) caf_res$lambda_ratio else NA
   )
   return(list(res = res, n_con = n_con_local, n_test = n_test_local, n_samples = nrow(targets), summary = branch_summary))
 }

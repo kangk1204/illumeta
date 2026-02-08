@@ -2368,11 +2368,22 @@ def generate_dashboard(output_dir, group_test, group_con):
         def _top_k(row):
             return safe_int(row.get("top_k")) if row.get("top_k") is not None else 0
         row = max(rows, key=_top_k)
-        core = safe_int(row.get("core"))
-        total = safe_int(row.get("total_unique"))
-        core_pct = (core / total) if total else None
+        core_pct = safe_float(row.get("core_pct"))
+        if core_pct is None:
+            core = safe_int(row.get("core"))
+            total = safe_int(row.get("total_unique"))
+            core_pct = (core / total) if total else None
         spearman = safe_float(row.get("spearman_mean")) if row.get("spearman_mean") is not None else safe_float(row.get("spearman_min"))
-        return {"core_pct": core_pct, "spearman": spearman, "top_k": safe_int(row.get("top_k")), "methods": safe_int(row.get("methods"))}
+        direction = safe_float(row.get("direction_mean"))
+        composite = safe_float(row.get("mmc_composite"))
+        return {
+            "core_pct": core_pct,
+            "spearman": spearman,
+            "direction": direction,
+            "composite": composite,
+            "top_k": safe_int(row.get("top_k")),
+            "methods": safe_int(row.get("methods")),
+        }
 
     def summarize_sss(rows):
         if not rows:
@@ -2383,10 +2394,28 @@ def generate_dashboard(output_dir, group_test, group_con):
         overlap = safe_float(row.get("overlap_mean_corr"))
         if overlap is None:
             overlap = safe_float(row.get("overlap_mean_raw"))
+        sss_score = safe_float(row.get("sss_mean_corr"))
+        if sss_score is None:
+            sss_score = safe_float(row.get("sss_mean_raw"))
+        jaccard = safe_float(row.get("jaccard_mean_corr"))
+        if jaccard is None:
+            jaccard = safe_float(row.get("jaccard_mean_raw"))
+        rbo = safe_float(row.get("rbo_mean_corr"))
+        if rbo is None:
+            rbo = safe_float(row.get("rbo_mean_raw"))
+        rbo_p = safe_float(row.get("rbo_p"))
         sign = safe_float(row.get("sign_mean_corr"))
         if sign is None:
             sign = safe_float(row.get("sign_mean_raw"))
-        return {"overlap": overlap, "sign": sign, "top_k": safe_int(row.get("top_k"))}
+        return {
+            "overlap": overlap,
+            "sss": sss_score,
+            "jaccard": jaccard,
+            "rbo": rbo,
+            "rbo_p": rbo_p,
+            "sign": sign,
+            "top_k": safe_int(row.get("top_k")),
+        }
 
     def summarize_ncs(rows):
         if not rows:
@@ -2402,6 +2431,8 @@ def generate_dashboard(output_dir, group_test, group_con):
             "sig_rate": safe_float(row.get("sig_rate")),
             "lambda_ci_low": safe_float(row.get("lambda_ci_low")),
             "lambda_ci_high": safe_float(row.get("lambda_ci_high")),
+            "score": safe_float(row.get("ncs_score")),
+            "score_tol": safe_float(row.get("ncs_score_tol")),
             "stage": row.get("stage"),
             "type": row.get("type"),
         }
@@ -2443,14 +2474,16 @@ def generate_dashboard(output_dir, group_test, group_con):
                     if logfc is not None:
                         gene_sign[g] = gene_sign.get(g, 0.0) + (1.0 if logfc >= 0 else -1.0)
 
-                deltas = []
-                for key in ("Delta_Beta", "Delta_Beta.Minfi", "Delta_Beta.Sesame", "delta_beta", "delta_beta_mean"):
+                # Avoid averaging across multiple (sometimes redundant) delta-beta columns.
+                # Prefer the consensus delta when available, otherwise fall back deterministically.
+                delta_val = None
+                for key in ("Delta_Beta", "delta_beta_mean", "Delta_Beta.Minfi", "Delta_Beta.Sesame", "delta_beta"):
                     val = safe_float(row.get(key))
                     if val is not None:
-                        deltas.append(val)
-                if deltas:
-                    mean_delta = sum(deltas) / len(deltas)
-                    abs_val = abs(mean_delta)
+                        delta_val = val
+                        break
+                if delta_val is not None:
+                    abs_val = abs(delta_val)
                     abs_deltas.append(abs_val)
                     if max_abs is None or abs_val > max_abs:
                         max_abs = abs_val
@@ -2479,20 +2512,31 @@ def generate_dashboard(output_dir, group_test, group_con):
                 buckets["info"].append(msg)
         return buckets
 
-    def compute_verdict(tier, min_per_group, mmc_core_pct, sss_overlap, warn_count, critical_count):
+    def compute_verdict(tier, min_per_group, mmc_core_pct, sss_overlap, ncs_score, warn_count, critical_count):
         tier = (tier or "").lower()
         if critical_count > 0:
             return "EXPLORATORY"
         if tier == "minimal" and (min_per_group is not None and min_per_group < 3):
             return "EXPLORATORY"
         can_high = tier in ("moderate", "large", "ample", "high")
+        verdict = "MODERATE"
         if can_high and mmc_core_pct is not None and sss_overlap is not None and mmc_core_pct >= 0.60 and sss_overlap >= 0.40 and warn_count == 0:
-            return "HIGH"
-        if tier == "small" or (mmc_core_pct is not None and 0.40 <= mmc_core_pct < 0.60) or (sss_overlap is not None and 0.25 <= sss_overlap < 0.40) or warn_count in (1, 2):
-            return "MODERATE"
-        if tier == "minimal" or (mmc_core_pct is not None and mmc_core_pct < 0.40) or (sss_overlap is not None and sss_overlap < 0.25) or warn_count >= 3:
-            return "LOW"
-        return "MODERATE"
+            verdict = "HIGH"
+        elif tier == "small" or (mmc_core_pct is not None and 0.40 <= mmc_core_pct < 0.60) or (sss_overlap is not None and 0.25 <= sss_overlap < 0.40) or warn_count in (1, 2):
+            verdict = "MODERATE"
+        elif tier == "minimal" or (mmc_core_pct is not None and mmc_core_pct < 0.40) or (sss_overlap is not None and sss_overlap < 0.25) or warn_count >= 3:
+            verdict = "LOW"
+
+        # NCS score is a continuous proxy for negative-control stability.
+        # If NCS is poor, downgrade the verdict (do not upgrade based on NCS).
+        if ncs_score is not None:
+            if ncs_score < 0.25:
+                if verdict in ("HIGH", "MODERATE"):
+                    verdict = "LOW"
+            elif ncs_score < 0.5:
+                if verdict == "HIGH":
+                    verdict = "MODERATE"
+        return verdict
 
     def pill_link(filename, label):
         fpath = os.path.join(output_dir, filename)
@@ -2534,11 +2578,33 @@ def generate_dashboard(output_dir, group_test, group_con):
     primary_branch = stats.get("primary_branch") or ""
     primary_metrics = load_metrics(primary_branch) if primary_branch else {}
     lam_primary = safe_float(primary_metrics.get("lambda")) if primary_metrics else None
+    lam_ratio_primary = safe_float(primary_metrics.get("lambda_ratio")) if primary_metrics else None
     if lam_primary is not None:
         if lam_primary > 1.2:
-            warnings.append(f"Lambda={lam_primary:.2f} suggests p-value inflation; prioritize stronger effect sizes.")
+            if lam_ratio_primary is not None:
+                if lam_ratio_primary > 2:
+                    warnings.append(f"Lambda={lam_primary:.2f} (obs/null ratio={lam_ratio_primary:.2f}): strong enrichment vs null (heuristic).")
+                elif lam_ratio_primary > 1.2:
+                    warnings.append(f"Lambda={lam_primary:.2f} (obs/null ratio={lam_ratio_primary:.2f}): moderate enrichment vs null (heuristic).")
+                else:
+                    warnings.append(f"Lambda={lam_primary:.2f} (obs/null ratio={lam_ratio_primary:.2f}): inflation similar to null; check confounding/structure.")
+            else:
+                warnings.append(f"Lambda={lam_primary:.2f} suggests p-value inflation; prioritize stronger effect sizes.")
         elif lam_primary < 0.9:
             warnings.append(f"Lambda={lam_primary:.2f} suggests potential over-correction; review batch settings.")
+
+    pvca_ci_before = safe_float(primary_metrics.get("pvca_ci_before")) if primary_metrics else None
+    pvca_ci_after = safe_float(primary_metrics.get("pvca_ci_after")) if primary_metrics else None
+    if pvca_ci_before is not None:
+        if pvca_ci_before > 1:
+            warnings.append(f"PVCA confounding index (batch/group) before correction={pvca_ci_before:.2f} (>1): batch dominates group; confounding risk.")
+        elif pvca_ci_before > 0.5:
+            warnings.append(f"PVCA confounding index (batch/group) before correction={pvca_ci_before:.2f}: batch comparable to group; check confounding.")
+    if pvca_ci_after is not None:
+        if pvca_ci_after > 1:
+            warnings.append(f"PVCA confounding index (batch/group) after correction={pvca_ci_after:.2f} (>1): residual batch structure remains; confounding risk.")
+        elif pvca_ci_after > 0.5:
+            warnings.append(f"PVCA confounding index (batch/group) after correction={pvca_ci_after:.2f}: residual batch structure remains; check confounding.")
 
     lg_status = (stats.get("primary_lambda_guard_status") or "").lower()
     if lg_status in ("failed", "warn"):
@@ -2560,7 +2626,15 @@ def generate_dashboard(output_dir, group_test, group_con):
     warn_important = warnings_by_level["important"]
     warn_info = warnings_by_level["info"]
     warn_count = len(warn_critical) + len(warn_important)
-    verdict = compute_verdict(tier_label, min_per_group, mmc_summary.get("core_pct"), sss_summary.get("overlap"), warn_count, len(warn_critical))
+    verdict = compute_verdict(
+        tier_label,
+        min_per_group,
+        mmc_summary.get("core_pct"),
+        sss_summary.get("overlap"),
+        ncs_summary.get("score") if ncs_summary else None,
+        warn_count,
+        len(warn_critical),
+    )
 
     verdict_class_map = {
         "HIGH": "verdict-high",
@@ -2631,10 +2705,21 @@ def generate_dashboard(output_dir, group_test, group_con):
     mmc_pct_display = f"{mmc_core_pct * 100:.0f}%" if mmc_core_pct is not None else "N/A"
     mmc_spearman = mmc_summary.get("spearman")
     mmc_spearman_display = f"{mmc_spearman:.2f}" if mmc_spearman is not None else "N/A"
+    mmc_direction = mmc_summary.get("direction")
+    mmc_direction_display = f"{mmc_direction:.2f}" if mmc_direction is not None else "N/A"
+    mmc_composite = mmc_summary.get("composite")
+    mmc_composite_display = f"{mmc_composite:.2f}" if mmc_composite is not None else "N/A"
     mmc_bar = min(max(mmc_core_pct * 100, 0), 100) if mmc_core_pct is not None else 0
 
     sss_overlap = sss_summary.get("overlap")
     sss_overlap_display = f"{sss_overlap:.2f}" if sss_overlap is not None else "N/A"
+    sss_score = sss_summary.get("sss")
+    sss_score_display = f"{sss_score:.2f}" if sss_score is not None else "N/A"
+    sss_jaccard = sss_summary.get("jaccard")
+    sss_jaccard_display = f"{sss_jaccard:.2f}" if sss_jaccard is not None else "N/A"
+    sss_rbo = sss_summary.get("rbo")
+    sss_rbo_display = f"{sss_rbo:.2f}" if sss_rbo is not None else "N/A"
+    sss_rbo_p = sss_summary.get("rbo_p")
     sss_sign = sss_summary.get("sign")
     sss_sign_display = f"{sss_sign * 100:.0f}%" if sss_sign is not None else "N/A"
     sss_bar = min(max(sss_overlap * 100, 0), 100) if sss_overlap is not None else 0
@@ -2644,11 +2729,15 @@ def generate_dashboard(output_dir, group_test, group_con):
         ncs_lambda = lam_primary
     ncs_ci_low = ncs_summary.get("lambda_ci_low") if ncs_summary else None
     ncs_ci_high = ncs_summary.get("lambda_ci_high") if ncs_summary else None
+    ncs_score = ncs_summary.get("score") if ncs_summary else None
+    ncs_score_display = f"{ncs_score:.2f}" if ncs_score is not None else "N/A"
     ncs_label = "N/A"
     if ncs_lambda is not None:
         ncs_label = f"λ={ncs_lambda:.2f}"
         if ncs_ci_low is not None and ncs_ci_high is not None:
             ncs_label += f" [{ncs_ci_low:.2f}, {ncs_ci_high:.2f}]"
+        if ncs_score is not None:
+            ncs_label += f" · score={ncs_score_display}"
 
     def _progress_class(value):
         if value is None:
@@ -3128,21 +3217,21 @@ def generate_dashboard(output_dir, group_test, group_con):
             </div>
         </div>
         <div class="summary-stats">
-            <div class="stat-row" title="Method concordance measures how well Minfi and SeSAMe agree. Core % = percentage of DMPs found by both methods. Spearman rho = rank correlation of effect sizes. Higher values indicate more robust results.">
+            <div class="stat-row" title="Method concordance measures how well Minfi and SeSAMe agree. Core % = overlap of top hits (intersection/union). rho = Spearman correlation of effect sizes. dir = direction concordance. MMC = composite heuristic score (identity + effect + direction). Higher is better.">
                 <div class="stat-label">Method concordance</div>
                 <div>
-                    <div class="stat-value">{mmc_pct_display} core · ρ={mmc_spearman_display}</div>
+                    <div class="stat-value">{mmc_pct_display} core · ρ={mmc_spearman_display} · dir={mmc_direction_display} · MMC={mmc_composite_display}</div>
                     <div class="progress-bar {mmc_progress_class}"><span style="width:{mmc_bar:.0f}%"></span></div>
                 </div>
             </div>
-            <div class="stat-row" title="Signal Stability Score (SSS) assesses reproducibility via leave-one-out analysis. Overlap = how stable the top hits are when removing one sample. Sign = how consistent the effect direction is. Values near 1.0 are ideal.">
+            <div class="stat-row" title="Signal Stability Score (SSS) assesses reproducibility under subsampling. Overlap = intersection rate of top hits. SSS = 0.5×Jaccard + 0.5×RBO (rank-biased overlap, p={sss_rbo_p if sss_rbo_p is not None else 'NA'}). Sign = effect direction consistency among shared hits.">
                 <div class="stat-label">Stability (SSS)</div>
                 <div>
-                    <div class="stat-value">Overlap {sss_overlap_display} · Sign {sss_sign_display}</div>
+                    <div class="stat-value">SSS {sss_score_display} · Overlap {sss_overlap_display} · Sign {sss_sign_display}</div>
                     <div class="progress-bar {sss_progress_class}"><span style="width:{sss_bar:.0f}%"></span></div>
                 </div>
             </div>
-            <div class="stat-row" title="Negative Control Score (NCS) uses permutation testing to check if your results contain more signal than expected by chance. 'Passed' means real signal exceeds the null distribution.">
+            <div class="stat-row" title="Negative Control Stability (NCS) measures genomic inflation (lambda) on negative-control probes (e.g., SNP probes). Values near 1.0 and higher NCS score indicate lower confounding. The score is tier-adaptive and heuristic.">
                 <div class="stat-label">Negative control</div>
                 <div class="stat-value">{ncs_label}</div>
             </div>
@@ -3339,6 +3428,20 @@ def generate_dashboard(output_dir, group_test, group_con):
                 html_parts.append(f'            <div class="metrics-row"><span>Correction guide</span><span>{guidance}</span></div>\n')
             if metrics.get("perm_mean_sig") is not None:
                 html_parts.append(f'            <div class="metrics-row"><span>Perm mean/max sig (null)</span><span>{metrics.get("perm_mean_sig", "N/A")} / {metrics.get("perm_max_sig", "N/A")}</span></div>\n')
+            lam_ratio = safe_float(metrics.get("lambda_ratio"))
+            if lam_ratio is not None:
+                if lam_ratio > 2:
+                    ratio_hint = "strong enrichment (heuristic)"
+                elif lam_ratio > 1.2:
+                    ratio_hint = "moderate enrichment (heuristic)"
+                else:
+                    ratio_hint = "similar to null; check confounding"
+                html_parts.append(
+                    '            <div class="metrics-row" '
+                    'title="Heuristic context metric: (observed λ on vp_top CpGs) / (null λ from permuted labels; same vp_top CpGs). '
+                    'Large values indicate enrichment vs null but do NOT rule out group-linked confounding.">'
+                    f'<span>λ ratio (obs/null)</span><span>{lam_ratio:.2f} [{ratio_hint}]</span></div>\n'
+                )
             if metrics.get("vp_primary_group_mean") is not None:
                 html_parts.append(f'            <div class="metrics-row"><span>VarPart primary_group</span><span>{metrics.get("vp_primary_group_mean", "N/A")}</span></div>\n')
             if metrics.get("dropped_covariates"):

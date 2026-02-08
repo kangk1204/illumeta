@@ -6,6 +6,10 @@ ENV_FILE="${ROOT_DIR}/environment.yml"
 ENV_NAME=""
 RUN_DOCTOR=1
 INSTALL_PAPER=0
+INSTALL_MINIMAL=0
+INSTALL_CLOCKS=0
+INSTALL_DEVTOOLS=0
+INSTALL_EPICV2=0
 
 usage() {
   cat <<'USAGE'
@@ -14,6 +18,11 @@ Usage: scripts/install_full.sh [options]
 Options:
   --r45              Use environment-r45.yml (R 4.5)
   --paper            Also install Python deps for paper/figure generation (requirements-paper.txt)
+  --minimal          Core-only R install (skip optional cell refs/RefFreeEWAS/planet; some features disabled)
+  --clocks           Install optional epigenetic clock packages (methylclock/wateRmelon)
+  --devtools         Install optional devtools/tidyverse (for development)
+  --epicv2           Install optional EPIC v2 manifest/annotation packages
+  --full             Install all optional features: --epicv2 --clocks --devtools
   --env-file PATH    Use a custom conda env file
   --env NAME         Override env name (default: name: from env file)
   --skip-doctor      Skip `illumeta.py doctor` after install
@@ -37,6 +46,28 @@ while [[ $# -gt 0 ]]; do
       ;;
     --paper)
       INSTALL_PAPER=1
+      shift
+      ;;
+    --minimal)
+      INSTALL_MINIMAL=1
+      shift
+      ;;
+    --clocks)
+      INSTALL_CLOCKS=1
+      shift
+      ;;
+    --devtools)
+      INSTALL_DEVTOOLS=1
+      shift
+      ;;
+    --epicv2)
+      INSTALL_EPICV2=1
+      shift
+      ;;
+    --full)
+      INSTALL_CLOCKS=1
+      INSTALL_DEVTOOLS=1
+      INSTALL_EPICV2=1
       shift
       ;;
     --skip-doctor)
@@ -94,6 +125,7 @@ exec > >(tee -a "${LOG_FILE}") 2>&1
 echo "[*] IlluMeta full install (conda)"
 echo "[*] Env file: ${ENV_FILE}"
 echo "[*] Env name: ${ENV_NAME}"
+echo "[*] R options: minimal=${INSTALL_MINIMAL} epicv2=${INSTALL_EPICV2} clocks=${INSTALL_CLOCKS} devtools=${INSTALL_DEVTOOLS}"
 echo "[*] Log file: ${LOG_FILE}"
 
 ENV_EXISTS=0
@@ -128,11 +160,12 @@ export ILLUMETA_USE_CONDA_LIBS="${ILLUMETA_USE_CONDA_LIBS:-1}"
 export ILLUMETA_CLEAN_MISMATCHED_RLIB="${ILLUMETA_CLEAN_MISMATCHED_RLIB:-1}"
 export ILLUMETA_DOWNLOAD_RETRIES="${ILLUMETA_DOWNLOAD_RETRIES:-3}"
 export ILLUMETA_FORCE_SETUP="${ILLUMETA_FORCE_SETUP:-1}"
-export ILLUMETA_INSTALL_DEVTOOLS="${ILLUMETA_INSTALL_DEVTOOLS:-1}"
-export ILLUMETA_INSTALL_CLOCKS="${ILLUMETA_INSTALL_CLOCKS:-1}"
-export ILLUMETA_REQUIRE_EPICV2="${ILLUMETA_REQUIRE_EPICV2:-1}"
+export ILLUMETA_INSTALL_MINIMAL="${ILLUMETA_INSTALL_MINIMAL:-${INSTALL_MINIMAL}}"
+export ILLUMETA_INSTALL_DEVTOOLS="${ILLUMETA_INSTALL_DEVTOOLS:-${INSTALL_DEVTOOLS}}"
+export ILLUMETA_INSTALL_CLOCKS="${ILLUMETA_INSTALL_CLOCKS:-${INSTALL_CLOCKS}}"
+export ILLUMETA_REQUIRE_EPICV2="${ILLUMETA_REQUIRE_EPICV2:-${INSTALL_EPICV2}}"
 
-echo "[*] Running R setup_env.R (full install)..."
+echo "[*] Running R setup_env.R..."
 "${CONDA_BIN}" run -n "${ENV_NAME}" Rscript "${ROOT_DIR}/r_scripts/setup_env.R"
 
 if [[ "${RUN_DOCTOR}" -eq 1 ]]; then

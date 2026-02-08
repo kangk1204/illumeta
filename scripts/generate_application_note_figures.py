@@ -234,40 +234,36 @@ def create_figure2_benchmark(summary_data, ablation_data, out_dir):
             ax.axvspan(i - 0.45, i + 0.45, alpha=0.15,
                        color=platform_colors.get(plat, '#f0f0f0'), zorder=0)
 
-    # ── Panel A: DMP counts by pipeline ──
+    # ── Panel A: DMP counts by pipeline (log scale) ──
     ax = axes[0, 0]
     add_platform_bg(ax)
 
-    # Cap extreme counts to preserve visibility across datasets; annotate true values for capped bars.
-    DMP_CAP = 5000
-    m_plot = [min(v, DMP_CAP) for v in minfi_dmps]
-    s_plot = [min(v, DMP_CAP) for v in sesame_dmps]
-    c_plot = [min(v, DMP_CAP) for v in consensus_dmps]
+    # Use actual values with log scale; floor zero-DMP bars for visibility
+    m_plot = [max(v, 0.5) for v in minfi_dmps]
+    s_plot = [max(v, 0.5) for v in sesame_dmps]
+    c_plot = [max(v, 0.5) for v in consensus_dmps]
 
     ax.bar(x - width, m_plot, width, label='Minfi', color='#4ECDC4', edgecolor='black', linewidth=0.5, zorder=3)
     ax.bar(x, s_plot, width, label='SeSAMe', color='#FF6B6B', edgecolor='black', linewidth=0.5, zorder=3)
     ax.bar(x + width, c_plot, width, label='Consensus', color='#45B7D1', edgecolor='black', linewidth=0.5, zorder=3)
+    ax.set_yscale('log')
 
     def fmt_k(v):
         if v >= 100000:
             return f"{v/1000:.0f}k"
         if v >= 10000:
             return f"{v/1000:.1f}k"
+        if v >= 1000:
+            return f"{v/1000:.1f}k"
         return f"{v:,}"
 
+    # Annotate actual values above each group (consensus bar)
     for i, (vm, vs, vc) in enumerate(zip(minfi_dmps, sesame_dmps, consensus_dmps)):
-        if vm > DMP_CAP:
-            ax.annotate(fmt_k(vm), xy=(i - width, DMP_CAP), xytext=(0, 5),
+        top_val = max(vm, vs, vc)
+        if top_val > 0:
+            ax.annotate(fmt_k(top_val), xy=(i, top_val), xytext=(0, 5),
                         textcoords='offset points', ha='center', fontsize=6.0,
-                        fontweight='bold', color='#2AA69A')
-        if vs > DMP_CAP:
-            ax.annotate(fmt_k(vs), xy=(i, DMP_CAP), xytext=(0, 5),
-                        textcoords='offset points', ha='center', fontsize=6.0,
-                        fontweight='bold', color='#E05555')
-        if vc > DMP_CAP:
-            ax.annotate(fmt_k(vc), xy=(i + width, DMP_CAP), xytext=(0, 5),
-                        textcoords='offset points', ha='center', fontsize=6.0,
-                        fontweight='bold', color='#2F8FB3')
+                        fontweight='bold', color='#333333')
 
     ax.set_ylabel('DMPs (FDR < 0.05)')
     ax.set_title('A. DMP Detection by Pipeline', fontweight='bold', fontsize=10)
@@ -275,7 +271,9 @@ def create_figure2_benchmark(summary_data, ablation_data, out_dir):
     ax.set_xticklabels([f"{d}\n{p}, n={n}" for d, p, n in zip(short_labels, platforms, n_samples)],
                         fontsize=5.5, rotation=0)
     ax.legend(loc='upper left', fontsize=7, framealpha=0.9)
-    ax.set_ylim(0, DMP_CAP + 800)
+    all_dmps = minfi_dmps + sesame_dmps + consensus_dmps
+    max_dmp = max(v for v in all_dmps if v > 0) if any(v > 0 for v in all_dmps) else 100
+    ax.set_ylim(1, max_dmp * 5)
     ax.grid(axis='y', alpha=0.3, zorder=0)
 
     # ── Panel B: CAF score (overall correction adequacy) ──
@@ -296,17 +294,17 @@ def create_figure2_benchmark(summary_data, ablation_data, out_dir):
     ax.set_ylim(0, 1.0)
     ax.grid(axis='y', alpha=0.3, zorder=0)
 
-    # ── Panel C: Consensus overlap with pipeline concordance ──
+    # ── Panel C: Consensus overlap with pipeline concordance (log scale) ──
     ax = axes[1, 0]
     add_platform_bg(ax)
     specificity = [c / min(m, s) * 100 if min(m, s) > 0 else 0
                    for m, s, c in zip(minfi_dmps, sesame_dmps, consensus_dmps)]
     colors_c = ['#45B7D1' if c > 0 else '#cccccc' for c in consensus_dmps]
-    CONS_CAP_K = 10  # cap in thousands
-    cons_k = [c / 1000 for c in consensus_dmps]
-    cons_k_plot = [min(v, CONS_CAP_K) for v in cons_k]
-    bars = ax.bar(x, cons_k_plot, width * 2.5,
+    # Use actual values with log scale to show true proportions
+    cons_plot = [max(c, 0.5) for c in consensus_dmps]  # floor for log scale
+    bars = ax.bar(x, cons_plot, width * 2.5,
                   color=colors_c, edgecolor='black', linewidth=0.5, zorder=3)
+    ax.set_yscale('log')
     for i, (bar, spec) in enumerate(zip(bars, specificity)):
         height = bar.get_height()
         if consensus_dmps[i] > 0:
@@ -316,15 +314,15 @@ def create_figure2_benchmark(summary_data, ablation_data, out_dir):
                         ha='center', va='bottom', fontsize=7, fontweight='bold')
         else:
             ax.annotate('0 DMPs',
-                        xy=(bar.get_x() + bar.get_width() / 2, 0.3),
+                        xy=(bar.get_x() + bar.get_width() / 2, 1),
                         xytext=(0, 3), textcoords="offset points",
                         ha='center', va='bottom', fontsize=7, color='gray')
-    ax.set_ylabel('Consensus DMPs (x1,000)')
+    ax.set_ylabel('Consensus DMPs')
     ax.set_title('C. Dual-Pipeline Consensus', fontweight='bold', fontsize=10)
     ax.set_xticks(x)
     ax.set_xticklabels([f"{d}\n{p}, n={n}" for d, p, n in zip(short_labels, platforms, n_samples)],
                         fontsize=5.5, rotation=0)
-    ax.set_ylim(0, CONS_CAP_K + 2)
+    ax.set_ylim(1, max(consensus_dmps) * 5)
     ax.grid(axis='y', alpha=0.3, zorder=0)
 
     # ── Panel D: CRF tier heatmap ──

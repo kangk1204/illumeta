@@ -89,6 +89,59 @@ def count_fdr_significant_csv_rows(csv_path, threshold=0.05):
         return 0
 
 
+def find_showcase_dataset(results_dir, preferred_gse=None):
+    """Find a showcase dataset for embedding example figures.
+
+    If preferred_gse is given and exists, use it. Otherwise fall back to the
+    dataset with the highest CAF score among those with consensus DMPs > 0.
+
+    Returns the results subdirectory (containing PNGs, summary.json, etc.) or None.
+    """
+    results_path = Path(results_dir)
+    if not results_path.exists():
+        return None
+
+    # If a preferred GSE is specified, try it first
+    if preferred_gse:
+        pref_dir = results_path / preferred_gse
+        if pref_dir.is_dir():
+            res_dir = find_results_dir(pref_dir)
+            if res_dir and (res_dir / 'summary.json').exists():
+                print(f"Showcase dataset: {preferred_gse} (user-specified)")
+                return res_dir
+        print(f"WARNING: Preferred showcase {preferred_gse} not found, falling back to auto-selection.")
+
+    # Auto-select: highest CAF score among datasets with consensus DMPs > 0
+    best_dir = None
+    best_caf = -1
+    best_name = ''
+
+    for gse_dir in sorted(results_path.glob('GSE*')):
+        if not gse_dir.is_dir():
+            continue
+        res_dir = find_results_dir(gse_dir)
+        if res_dir is None:
+            continue
+
+        sj_file = res_dir / 'summary.json'
+        if not sj_file.exists():
+            continue
+
+        with open(sj_file, 'r') as f:
+            sj = json.load(f)
+        consensus = sj.get('intersect_up', 0) + sj.get('intersect_down', 0)
+        caf = safe_float(sj.get('primary_caf_score', 0))
+
+        if consensus > 0 and caf > best_caf:
+            best_caf = caf
+            best_dir = res_dir
+            best_name = gse_dir.name
+
+    if best_dir:
+        print(f"Showcase dataset: {best_name} (CAF={best_caf:.3f}, auto-selected)")
+    return best_dir
+
+
 def collect_benchmark_data(results_dir):
     """Collect benchmark metrics from results directories."""
     summary = []
@@ -509,6 +562,15 @@ def build_s3(doc):
         "associated with PCs but (b) not confounded with the primary group variable are included "
         "in the limma model. Covariates that are too strongly associated with the group variable "
         "(potential colliders) are excluded to avoid masking true biological signal.")
+    add_body(doc,
+        "Cell-type proportions estimated by EpiDISH or RefFreeEWAS (Section S3.8) are automatically "
+        "added to the candidate covariate list. Each cell-type proportion undergoes the same governance "
+        "checks as metadata covariates: (a) variance check (single-level or near-constant proportions "
+        "are dropped), (b) confounding check (Eta-squared test against primary_group; high-confounding "
+        "cell types are excluded), and (c) collinearity filtering (|r| >= 0.8 with another covariate "
+        "triggers removal of the less informative variable). Cell types passing all checks are added "
+        "to the limma design matrix alongside other selected covariates. An overcorrection guard caps "
+        "the total number of covariates to preserve degrees of freedom (see Section S3.14).")
 
     # S3.5
     add_heading(doc, 'S3.5 DMP Analysis', level=2, font_size=9)
@@ -553,6 +615,14 @@ def build_s3(doc):
                bold_prefix="RefFreeEWAS")
     add_bullet(doc, "Placenta-specific cell composition estimation using the planet R package.",
                bold_prefix="planet")
+    add_body(doc,
+        "Cell-type estimates are automatically included as candidate covariates in the differential "
+        "methylation model. IlluMeta checks each cell-type proportion for (a) sufficient variance "
+        "(>1 unique value), (b) low confounding with the primary group variable (Eta-squared < "
+        "threshold), and (c) collinearity with other covariates (|r| < 0.8). Cell types passing all "
+        "checks are added to the limma design matrix alongside other selected covariates. This "
+        "automatic mechanism ensures that cellular heterogeneity is accounted for without requiring "
+        "the user to manually specify cell-type adjustments.")
 
     # S3.9
     add_heading(doc, 'S3.9 Epigenetic Clocks', level=2, font_size=9)
@@ -583,14 +653,39 @@ def build_s3(doc):
     # S3.11
     add_heading(doc, 'S3.11 CAF Score', level=2, font_size=9)
     add_body(doc,
-        "The Correction Adequacy Framework (CAF) provides a single summary metric (0-1) of overall "
-        "analysis quality, computed as the weighted mean of three components:")
-    add_bullet(doc, "How well the null distribution is calibrated (lambda near 1.0, low false positive rate).",
-               bold_prefix="Calibration")
-    add_bullet(doc, "How much biological signal is retained after correction (logFC correlation, sign concordance).",
-               bold_prefix="Signal Preservation")
-    add_bullet(doc, "How effectively batch-associated variation is removed.",
-               bold_prefix="Batch Removal")
+        "The Correction Adequacy Framework (CAF) provides a single summary metric (0\u20131) of overall "
+        "analysis quality, computed as a weighted composite of three components:")
+    add_body(doc,
+        "CAI = 0.40 \u00d7 Calibration + 0.35 \u00d7 Preservation + 0.25 \u00d7 Batch Removal")
+    add_bullet(doc,
+        "Measures how well the null distribution is calibrated. Computed as: "
+        "1 \u2212 |null_FPR \u2212 0.05| / 0.05, where null_FPR is the permutation-based false positive "
+        "rate (Section S3.13). A perfectly calibrated analysis yields FPR = 5% and a score of 1.0.",
+        bold_prefix="Calibration (weight 0.40)")
+    add_bullet(doc,
+        "Measures how much biological signal is retained after batch correction. Computed as: "
+        "marker_retention \u00d7 logFC_correlation (if a marker list is provided) or just logFC_correlation "
+        "(otherwise). logFC_correlation is the Pearson correlation of per-CpG log-fold changes before "
+        "and after correction.",
+        bold_prefix="Signal Preservation (weight 0.35)")
+    add_bullet(doc,
+        "Measures how effectively batch-associated variation is removed. Computed as: "
+        "(sig_before \u2212 sig_after) / sig_before, where sig_before and sig_after are the number of "
+        "significant batch\u2013PC associations before and after correction.",
+        bold_prefix="Batch Removal (weight 0.25)")
+    add_body(doc,
+        "All three components are clamped to [0, 1]. If a component cannot be computed (e.g., no "
+        "batch variable detected), it is treated as NA and the remaining weights are renormalized. "
+        "The final CAI score is graded on the following scale:")
+    add_table(doc,
+        ['Grade', 'CAI range', 'Interpretation'],
+        [
+            ['EXCELLENT', '\u2265 0.85', 'Well-calibrated, signal preserved, batch removed'],
+            ['GOOD', '0.70\u20130.84', 'Adequate correction; minor issues possible'],
+            ['FAIR', '0.50\u20130.69', 'Partial correction; review batch diagnostics'],
+            ['POOR', '< 0.50', 'Correction may be inadequate; investigate manually'],
+        ],
+        col_widths=[2.5, 2.0, 10.0])
 
     # S3.12
     add_heading(doc, 'S3.12 Tier3 Meta-Analysis', level=2, font_size=9)
@@ -600,6 +695,56 @@ def build_s3(doc):
         "analysis within each batch stratum, followed by meta-analysis (fixed or random effects) to "
         "combine results across strata. This Tier3 approach avoids the impossible task of removing "
         "batch effects that are perfectly collinear with the biological variable.")
+
+    # S3.13
+    add_heading(doc, 'S3.13 Permutation Testing', level=2, font_size=9)
+    add_body(doc,
+        "IlluMeta runs N label permutations (default N = 20) to estimate the empirical null false "
+        "positive rate (FPR). In each permutation, the primary_group labels are randomly shuffled "
+        "while preserving all other metadata, and the full DMP analysis is re-run on the permuted data.")
+    add_bullet(doc,
+        "The fraction of CpGs reaching significance (FDR < 0.05) under each null permutation is "
+        "recorded. The mean null FPR across permutations estimates how often the pipeline produces "
+        "false positives by chance alone.",
+        bold_prefix="Null FPR")
+    add_bullet(doc,
+        "The median genomic inflation factor (\u03bb) across null permutations provides a reference "
+        "for the expected lambda under the null hypothesis.",
+        bold_prefix="Null lambda")
+    add_bullet(doc,
+        "A Kolmogorov\u2013Smirnov (KS) test compares the observed p-value distribution from each "
+        "null permutation against the expected uniform distribution. Systematic departure from "
+        "uniformity in the null suggests residual confounding or model misspecification.",
+        bold_prefix="KS uniformity test")
+    add_body(doc,
+        "The null FPR feeds directly into the CAF Calibration component (Section S3.11). A well-calibrated "
+        "pipeline produces null FPR close to the nominal 5% threshold. Values substantially above 5% "
+        "indicate inflation; values substantially below indicate over-correction.")
+
+    # S3.14
+    add_heading(doc, 'S3.14 Covariate Governance', level=2, font_size=9)
+    add_body(doc,
+        "The apply_covariate_governance() function enforces a set of rules on the candidate covariate "
+        "list before fitting the limma model. This prevents model instability from too many, redundant, "
+        "or poorly behaved covariates.")
+    add_bullet(doc,
+        "Users may specify --force-covariates (always included regardless of other checks), "
+        "--allow-covariates (eligible for auto-selection), and --block-covariates (always excluded). "
+        "Forced covariates bypass all governance filters.",
+        bold_prefix="Forced / allowed / blocked lists")
+    add_bullet(doc,
+        "Covariates with missingness above a configurable threshold are either dropped or imputed "
+        "(median for numeric, mode for categorical). The decision is logged in the decision ledger.",
+        bold_prefix="Missingness handling")
+    add_bullet(doc,
+        "Pairwise Pearson correlations are computed among all numeric candidate covariates. When "
+        "|r| \u2265 0.8 between two covariates, the one with weaker association to the top PCs is removed.",
+        bold_prefix="Collinearity check")
+    add_bullet(doc,
+        "To preserve degrees of freedom, the total number of covariates (including surrogate variables) "
+        "is capped at floor(n_min / 3), where n_min is the smaller group size. Covariates are ranked "
+        "by PC association strength, and lower-ranked covariates are dropped if the cap is exceeded.",
+        bold_prefix="Overcorrection guard")
 
 
 def build_s4(doc):
@@ -789,19 +934,26 @@ def build_s5(doc):
         col_widths=[5.5, 1.0, 8.0])
 
 
-def build_s6(doc):
+def build_s6(doc, showcase_dir=None):
     """S6. Interpreting Results (Beginner Guide)"""
     add_heading(doc, 'S6. Interpreting Results (Beginner Guide)', level=1, font_size=11)
 
-    add_body(doc,
-        "This section explains how to read and interpret the key plots and metrics in IlluMeta's "
-        "output. If you are new to DNA methylation analysis, start here.")
+    if showcase_dir:
+        gse_name = Path(showcase_dir).parent.name
+        add_body(doc,
+            "This section explains how to read and interpret the key plots and metrics in IlluMeta's "
+            "output. If you are new to DNA methylation analysis, start here. Example figures are shown "
+            f"from the Minfi pipeline of {gse_name}, selected as the showcase dataset from our benchmark.")
+    else:
+        add_body(doc,
+            "This section explains how to read and interpret the key plots and metrics in IlluMeta's "
+            "output. If you are new to DNA methylation analysis, start here.")
 
-    # Volcano
+    # S6.1 Volcano
     add_heading(doc, 'S6.1 How to read a Volcano plot', level=2, font_size=9)
     add_body(doc,
         "A volcano plot shows the relationship between effect size (x-axis: log-fold change or delta-beta) "
-        "and statistical significance (y-axis: -log10 adjusted p-value). Each dot represents one CpG site.")
+        "and statistical significance (y-axis: \u2212log\u2081\u2080 adjusted p-value). Each dot represents one CpG site.")
     add_bullet(doc, "CpGs that are both highly significant (high y-axis) and have large effect sizes "
                "(far from center on x-axis) are the most biologically meaningful.",
                bold_prefix="Key interpretation")
@@ -809,20 +961,30 @@ def build_s6(doc):
                bold_prefix="Color coding")
     add_bullet(doc, "Left side = hypomethylated in test vs. control; right side = hypermethylated in test.",
                bold_prefix="Direction")
+    if showcase_dir:
+        fig = os.path.join(showcase_dir, 'Minfi_Volcano.png')
+        add_figure(doc, fig,
+            f"Figure S3. Volcano plot (Minfi pipeline, {gse_name}). Each point is a CpG site; "
+            "colored points pass FDR < 0.05.", width=5.0)
 
-    # Manhattan
+    # S6.2 Manhattan
     add_heading(doc, 'S6.2 How to read a Manhattan plot', level=2, font_size=9)
     add_body(doc,
         "A Manhattan plot displays the genomic location of each CpG (x-axis: chromosomal position) "
-        "versus its significance (y-axis: -log10 p-value). Alternating colors distinguish chromosomes.")
+        "versus its significance (y-axis: \u2212log\u2081\u2080 p-value). Alternating colors distinguish chromosomes.")
     add_bullet(doc, "Look for 'peaks' (clusters of significant CpGs in the same genomic region). "
                "These suggest coordinated methylation changes and are often more biologically meaningful "
                "than isolated hits.",
                bold_prefix="What to look for")
     add_bullet(doc, "The horizontal red line indicates the genome-wide significance threshold.",
                bold_prefix="Significance line")
+    if showcase_dir:
+        fig = os.path.join(showcase_dir, 'Minfi_Manhattan.png')
+        add_figure(doc, fig,
+            f"Figure S4. Manhattan plot (Minfi pipeline, {gse_name}). Peaks indicate genomic regions "
+            "with clusters of differentially methylated CpGs.", width=5.5)
 
-    # QQ
+    # S6.3 QQ
     add_heading(doc, 'S6.3 How to read a Q-Q plot and lambda', level=2, font_size=9)
     add_body(doc,
         "A quantile-quantile (Q-Q) plot compares observed p-values against the expected uniform "
@@ -835,8 +997,13 @@ def build_s6(doc):
     add_bullet(doc, "Points fall below the diagonal. May indicate over-correction. Check if batch "
                "correction removed too much signal.",
                bold_prefix="Lambda < 0.9 (deflated)")
+    if showcase_dir:
+        fig = os.path.join(showcase_dir, 'Minfi_QQPlot.png')
+        add_figure(doc, fig,
+            f"Figure S5. Q-Q plot (Minfi pipeline, {gse_name}). Deviation from the diagonal indicates "
+            "inflation or deflation of test statistics.", width=4.0)
 
-    # PCA
+    # S6.4 PCA
     add_heading(doc, 'S6.4 Understanding PCA plots', level=2, font_size=9)
     add_body(doc,
         "PCA (Principal Component Analysis) reduces the complexity of methylation data into a few "
@@ -847,16 +1014,105 @@ def build_s6(doc):
     add_bullet(doc, "Batch-driven clustering should disappear while group separation is preserved. "
                "If groups merge after correction, the correction may have been too aggressive.",
                bold_prefix="After correction")
+    if showcase_dir:
+        fig_before = os.path.join(showcase_dir, 'Minfi_PCA_Before.png')
+        fig_after = os.path.join(showcase_dir, 'Minfi_PCA_After_Correction.png')
+        add_figure(doc, fig_before,
+            f"Figure S6a. PCA before batch correction (Minfi pipeline, {gse_name}). "
+            "Sample colors indicate group membership.", width=4.0)
+        add_figure(doc, fig_after,
+            f"Figure S6b. PCA after batch correction (Minfi pipeline, {gse_name}). "
+            "Batch-driven clustering should be reduced while group separation is preserved.", width=4.0)
 
-    # PVCA
+    # S6.5 PVCA
     add_heading(doc, 'S6.5 Understanding PVCA', level=2, font_size=9)
     add_body(doc,
         "PVCA (Principal Variance Component Analysis) shows what proportion of total methylation "
         "variance is explained by each factor (group, batch, covariates, residuals). After correction, "
         "the primary_group proportion should increase and batch-related proportions should decrease.")
+    if showcase_dir:
+        fig = os.path.join(showcase_dir, 'Minfi_PVCA.png')
+        add_figure(doc, fig,
+            f"Figure S7. PVCA variance decomposition (Minfi pipeline, {gse_name}). "
+            "Each bar shows the proportion of variance attributed to a specific factor.", width=4.0)
 
-    # Consensus
-    add_heading(doc, 'S6.6 What consensus DMPs mean', level=2, font_size=9)
+    # S6.6 Top 100 heatmap
+    add_heading(doc, 'S6.6 How to read the Top 100 DMP heatmap', level=2, font_size=9)
+    add_body(doc,
+        "The top 100 DMP heatmap shows the beta values (methylation levels) of the 100 most significant "
+        "CpGs across all samples. Rows are CpGs (clustered by similarity) and columns are samples "
+        "(grouped by condition). A clear block pattern\u2014where control and test samples show distinct "
+        "methylation profiles\u2014indicates robust differential methylation.")
+    if showcase_dir:
+        fig = os.path.join(showcase_dir, 'Minfi_Top100_Heatmap.png')
+        add_figure(doc, fig,
+            f"Figure S8. Top 100 DMP heatmap (Minfi pipeline, {gse_name}). Rows are CpGs; columns are "
+            "samples grouped by condition. Red = high methylation, blue = low methylation.", width=5.0)
+
+    # S6.7 DMR analysis
+    add_heading(doc, 'S6.7 How to read DMR results', level=2, font_size=9)
+    add_body(doc,
+        "Differentially methylated regions (DMRs) are genomic intervals where multiple adjacent CpGs "
+        "show coordinated methylation changes. The DMR volcano plot displays each region as a point, "
+        "with the x-axis showing the mean effect size across the region and the y-axis showing "
+        "significance. DMRs provide stronger evidence of regulatory impact than individual CpGs because "
+        "coordinated changes across a region are less likely to arise from noise.")
+    if showcase_dir:
+        fig = os.path.join(showcase_dir, 'Minfi_DMR_Volcano.png')
+        add_figure(doc, fig,
+            f"Figure S9. DMR volcano plot (Minfi pipeline, {gse_name}). Each point represents a "
+            "differentially methylated region identified by dmrff.", width=5.0)
+
+    # S6.8 Sample clustering
+    add_heading(doc, 'S6.8 Sample clustering dendrogram', level=2, font_size=9)
+    add_body(doc,
+        "The sample clustering dendrogram shows hierarchical clustering of samples based on their "
+        "genome-wide methylation profiles (Euclidean distance on beta values). Samples from the same "
+        "group should cluster together. If samples cluster by batch rather than group, this may indicate "
+        "unresolved batch effects.")
+    if showcase_dir:
+        fig = os.path.join(showcase_dir, 'Minfi_Sample_Clustering_Distance.png')
+        add_figure(doc, fig,
+            f"Figure S10. Sample clustering dendrogram (Minfi pipeline, {gse_name}). "
+            "Branch colors indicate group membership.", width=4.5)
+
+    # S6.9 Batch evaluation
+    add_heading(doc, 'S6.9 Batch evaluation heatmaps', level=2, font_size=9)
+    add_body(doc,
+        "Batch evaluation heatmaps show the statistical association between known covariates/batch "
+        "variables and the top principal components of the methylation data. Cells are colored by "
+        "\u2212log\u2081\u2080(p-value): red cells indicate strong associations. Comparing before and after "
+        "correction, batch-related associations should diminish while group associations remain.")
+    if showcase_dir:
+        fig_before = os.path.join(showcase_dir, 'Minfi_Batch_Evaluation_Before.png')
+        fig_after = os.path.join(showcase_dir, 'Minfi_Batch_Evaluation_After.png')
+        add_figure(doc, fig_before,
+            f"Figure S11a. Batch evaluation heatmap before correction (Minfi pipeline, {gse_name}). "
+            "Red cells indicate strong covariate\u2013PC associations.", width=4.5)
+        add_figure(doc, fig_after,
+            f"Figure S11b. Batch evaluation heatmap after correction (Minfi pipeline, {gse_name}). "
+            "Batch-associated cells should fade while group signal persists.", width=4.5)
+
+    # S6.10 Intersection plots
+    add_heading(doc, 'S6.10 Intersection overlap and concordance', level=2, font_size=9)
+    add_body(doc,
+        "The intersection plots show the overlap between the two pipelines. The significant overlap "
+        "Venn diagram displays how many DMPs are unique to Minfi, unique to SeSAMe, or shared (consensus). "
+        "The logFC concordance scatter plot shows the correlation of effect sizes between pipelines for "
+        "shared CpGs. High concordance (points near the diagonal) confirms that both methods detect "
+        "similar biological signals.")
+    if showcase_dir:
+        fig_overlap = os.path.join(showcase_dir, 'Intersection_Significant_Overlap.png')
+        fig_concordance = os.path.join(showcase_dir, 'Intersection_LogFC_Concordance.png')
+        add_figure(doc, fig_overlap,
+            f"Figure S12a. Pipeline overlap ({gse_name}). Venn diagram of significant DMPs "
+            "from Minfi and SeSAMe pipelines.", width=3.5)
+        add_figure(doc, fig_concordance,
+            f"Figure S12b. LogFC concordance ({gse_name}). Scatter plot of per-CpG log-fold "
+            "changes between Minfi and SeSAMe for shared significant CpGs.", width=4.0)
+
+    # S6.11 Consensus DMPs
+    add_heading(doc, 'S6.11 What consensus DMPs mean', level=2, font_size=9)
     add_body(doc,
         "Consensus DMPs are CpG sites that are statistically significant in both the Minfi and SeSAMe "
         "pipelines with the same direction of effect. Because two independent methods agree, these hits "
@@ -864,22 +1120,22 @@ def build_s6(doc):
         "The consensus approach is deliberately conservative: it may miss some true signals that only "
         "one method detects, but the signals it does report have high confidence.")
 
-    # CRF
-    add_heading(doc, 'S6.7 What CRF tier means for your study', level=2, font_size=9)
+    # S6.12 CRF tier
+    add_heading(doc, 'S6.12 What CRF tier means for your study', level=2, font_size=9)
     add_body(doc,
         "The CRF tier reflects your study's statistical power based on sample size:")
     add_bullet(doc, "n < 12. Results are exploratory only. SVA and advanced diagnostics are disabled. "
                "Plan for replication in a larger cohort.",
                bold_prefix="Minimal")
-    add_bullet(doc, "n = 12-23. Independent validation is required. Limited batch correction options.",
+    add_bullet(doc, "n = 12\u201323. Independent validation is required. Limited batch correction options.",
                bold_prefix="Small")
-    add_bullet(doc, "n = 24-49. Full pipeline available with reasonable statistical power.",
+    add_bullet(doc, "n = 24\u201349. Full pipeline available with reasonable statistical power.",
                bold_prefix="Moderate")
-    add_bullet(doc, "n >= 50. All robustness checks are fully powered. Best for publication.",
+    add_bullet(doc, "n \u2265 50. All robustness checks are fully powered. Best for publication.",
                bold_prefix="Large")
 
-    # Batch
-    add_heading(doc, 'S6.8 When to worry about batch effects', level=2, font_size=9)
+    # S6.13 Batch effects
+    add_heading(doc, 'S6.13 When to worry about batch effects', level=2, font_size=9)
     add_body(doc, "You should investigate batch effects when:")
     add_bullet(doc, "PCA 'before' plot shows samples clustering by batch (e.g., Sentrix slide) rather than by group.")
     add_bullet(doc, "Lambda is much greater than 1.2 after correction.")
@@ -1147,7 +1403,7 @@ def build_s10(doc):
 
 # ── Main builder ──────────────────────────────────────────────────────────────
 
-def build_docx(benchmark_data, figures_dir, out_path):
+def build_docx(benchmark_data, figures_dir, out_path, showcase_dir=None):
     """Build the complete Supplementary Data DOCX."""
     doc = Document()
 
@@ -1208,9 +1464,14 @@ def build_docx(benchmark_data, figures_dir, out_path):
         'S1. Introduction & Overview',
         'S2. Getting Started',
         'S3. Analysis Pipeline (Detailed Methods)',
+        '    S3.1 Quality Control  \u2022  S3.2 Normalization  \u2022  S3.3 Batch Detection',
+        '    S3.4 Covariate Detection  \u2022  S3.5 DMP Analysis  \u2022  S3.6 DMR Analysis',
+        '    S3.7 Consensus Intersection  \u2022  S3.8 Cell Deconvolution  \u2022  S3.9 Clocks',
+        '    S3.10 CRF  \u2022  S3.11 CAF Score  \u2022  S3.12 Tier3 Meta-Analysis',
+        '    S3.13 Permutation Testing  \u2022  S3.14 Covariate Governance',
         'S4. Dashboard Navigation Guide',
         'S5. Output File Reference',
-        'S6. Interpreting Results (Beginner Guide)',
+        'S6. Interpreting Results (with example figures)',
         'S7. Benchmark Results',
         'S8. Command-Line Reference',
         'S9. FAQ & Troubleshooting',
@@ -1231,7 +1492,7 @@ def build_docx(benchmark_data, figures_dir, out_path):
     build_s3(doc)
     build_s4(doc)
     build_s5(doc)
-    build_s6(doc)
+    build_s6(doc, showcase_dir=showcase_dir)
     build_s7(doc, benchmark_data, figures_dir)
     build_s8(doc)
     build_s9(doc)
@@ -1262,6 +1523,8 @@ def main():
                         help='Directory containing generated figures')
     parser.add_argument('--out', default='benchmarks/application_note/IlluMeta_Supplementary_Data.docx',
                         help='Output DOCX path')
+    parser.add_argument('--showcase-gse', default=None,
+                        help='GSE accession to use as showcase dataset for S6 figures (e.g., GSE141338). Auto-selects highest-CAF dataset if omitted.')
     parser.add_argument('--allow-fallback', action='store_true',
                         help='Allow building a DOCX with hardcoded placeholder benchmark values when results are missing (NOT for submission).')
     args = parser.parse_args()
@@ -1309,9 +1572,15 @@ def main():
              'lambda_minfi': 0.952, 'lambda_sesame': 0.888, 'caf_score': 0.4335},
         ]
 
+    # Find showcase dataset for S6 figure embedding
+    print("\nFinding showcase dataset...")
+    showcase_dir = find_showcase_dataset(args.results_dir, preferred_gse=args.showcase_gse)
+    if showcase_dir is None:
+        print("WARNING: No showcase dataset found. S6 figures will be text-only.")
+
     # Build DOCX
     print("\nBuilding DOCX...")
-    build_docx(benchmark_data, args.figures_dir, args.out)
+    build_docx(benchmark_data, args.figures_dir, args.out, showcase_dir=showcase_dir)
     print("\nDone!")
 
 

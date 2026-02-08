@@ -23,7 +23,11 @@ try:
     from docx.enum.section import WD_ORIENT
     from docx.oxml.ns import qn
 except ImportError:
-    sys.exit("Missing python-docx. Install with: pip install -r requirements-paper.txt")
+    sys.exit(
+        "Missing python-docx.\n"
+        "Install (inside your conda env): python -m pip install -r requirements-paper.txt\n"
+        "Or (conda-forge): conda install -c conda-forge python-docx"
+    )
 
 
 # ── Helper utilities ──────────────────────────────────────────────────────────

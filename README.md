@@ -136,6 +136,8 @@ conda activate illumeta
 
 # 2) Install R packages (takes 10-30 min)
 Rscript r_scripts/setup_env.R
+# Optional: faster core-only install (skips optional cell references/RefFreeEWAS/planet; some features disabled)
+# ILLUMETA_INSTALL_MINIMAL=1 Rscript r_scripts/setup_env.R
 
 # 3) Verify installation
 python3 illumeta.py doctor
@@ -381,6 +383,9 @@ If you also want to build the Application Note DOCX / paper figures on the same 
 
 Optional (manuscript assets; requires local benchmark outputs):
 ```bash
+# Extra Python deps for DOCX/figures (skip if you ran: ./scripts/install_full.sh --paper)
+python -m pip install -r requirements-paper.txt
+
 # Figures/tables for the Application Note
 python3 scripts/generate_application_note_figures.py \
   --results-dir benchmarks/application_note \

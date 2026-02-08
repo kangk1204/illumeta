@@ -16,7 +16,11 @@ try:
     import matplotlib.pyplot as plt
     import numpy as np
 except ImportError:
-    sys.exit("Missing required packages. Install with: pip install -r requirements-paper.txt")
+    sys.exit(
+        "Missing required packages.\n"
+        "Install (inside your conda env): python -m pip install -r requirements-paper.txt\n"
+        "Or (conda-forge): conda install -c conda-forge matplotlib numpy requests"
+    )
 
 # Publication-quality settings
 plt.rcParams.update({

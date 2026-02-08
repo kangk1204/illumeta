@@ -11,8 +11,9 @@ import statistics
 import time
 import unicodedata
 import xml.etree.ElementTree as ET
+from bisect import bisect_left
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib import request as _urllib_request
 from urllib.error import URLError, HTTPError
 
@@ -606,24 +607,40 @@ def list_idat_basenames(idat_dir: str):
             basenames.append(os.path.join(idat_dir, base))
     return basenames
 
-def find_basename_for_id(sample_id: str, basenames):
+def build_basename_index(basenames):
+    """Precompute lookup structures for fast IDAT basename matching."""
+    entries = sorted((os.path.basename(bn), bn) for bn in basenames)
+    exact = {}
+    for bname, bn in entries:
+        exact.setdefault(bname, bn)
+    names = [bname for bname, _ in entries]
+    return {"entries": entries, "names": names, "exact": exact}
+
+def find_basename_for_id(sample_id: str, basename_index):
     if not sample_id:
         return None
-    for bn in basenames:
-        if os.path.basename(bn) == sample_id:
-            return bn
+    exact = basename_index.get("exact", {})
+    if sample_id in exact:
+        return exact[sample_id]
     # Fallback: match basenames that start with sample_id followed by '_' or end of string.
     # This avoids GSM1234 matching GSM12345 (substring collision).
-    for bn in basenames:
-        bname = os.path.basename(bn)
-        if bname.startswith(sample_id) and (len(bname) == len(sample_id) or bname[len(sample_id)] == '_'):
+    entries = basename_index.get("entries", [])
+    names = basename_index.get("names", [])
+    if not entries:
+        return None
+    start = bisect_left(names, sample_id)
+    for idx in range(start, min(start + 20, len(entries))):
+        bname, bn = entries[idx]
+        if not bname.startswith(sample_id):
+            break
+        if len(bname) == len(sample_id) or bname[len(sample_id)] == "_":
             return bn
     return None
 
-def resolve_basename(candidate: str, sample_id: str, basenames, project_dir: str, idat_dir: str):
+def resolve_basename(candidate: str, sample_id: str, basename_index, project_dir: str, idat_dir: str):
     cand = candidate or ""
     if not cand:
-        return find_basename_for_id(sample_id, basenames)
+        return find_basename_for_id(sample_id, basename_index)
     if not os.path.isabs(cand):
         cand_project = os.path.join(project_dir, cand)
         cand_idat = os.path.join(idat_dir, cand)
@@ -631,7 +648,7 @@ def resolve_basename(candidate: str, sample_id: str, basenames, project_dir: str
         if not has_idat_pair(cand) and idat_dir != project_dir and has_idat_pair(cand_idat):
             cand = cand_idat
     if not has_idat_green(cand):
-        fallback = find_basename_for_id(sample_id, basenames)
+        fallback = find_basename_for_id(sample_id, basename_index)
         if fallback:
             return fallback
     return cand
@@ -670,9 +687,11 @@ def preflight_analysis(config_path: str, idat_dir: str, group_con: str, group_te
     missing_idat_preview = []
 
     basenames = list_idat_basenames(idat_dir)
-    sample_ids = []
+    basename_index = build_basename_index(basenames)
     missing_id = []
     duplicate_ids = []
+    seen_ids = set()
+    duplicate_set = set()
     missing_pairs = []
 
     for row in rows:
@@ -680,12 +699,13 @@ def preflight_analysis(config_path: str, idat_dir: str, group_con: str, group_te
         if not sample_id:
             missing_id.append(row)
             continue
-        sample_ids.append(sample_id)
-        if sample_ids.count(sample_id) > 1 and sample_id not in duplicate_ids:
+        if sample_id in seen_ids and sample_id not in duplicate_set:
             duplicate_ids.append(sample_id)
+            duplicate_set.add(sample_id)
+        seen_ids.add(sample_id)
 
         cand = (row.get("Basename") or "").strip()
-        basename = resolve_basename(cand, sample_id, basenames, project_dir, idat_dir)
+        basename = resolve_basename(cand, sample_id, basename_index, project_dir, idat_dir)
         if not has_idat_pair(basename):
             missing_pairs.append((sample_id, basename))
 
@@ -2041,8 +2061,12 @@ def ensure_cross_reactive_lists(dest_dir, allow_network=True):
     sources_dir = os.path.join(dest_dir, "_sources")
     os.makedirs(sources_dir, exist_ok=True)
 
-    raw_base = "https://raw.githubusercontent.com/markgene/maxprobes/master/inst/extdata"
-    raw_fallback = "https://raw.githubusercontent.com/sirselim/illumina450k_filtering/master"
+    # Pin to commit hashes to avoid upstream default-branch changes breaking reproducibility.
+    # Override with env vars if you need to update mirrors.
+    maxprobes_rev = os.environ.get("ILLUMETA_MAXPROBES_REV", "").strip() or "c2120dba972e12115280ef274ff80550cee5b264"
+    filtering_rev = os.environ.get("ILLUMETA_450K_FILTERING_REV", "").strip() or "52ff77bb9dc631305e82cbeaac2027f361a7361f"
+    raw_base = f"https://raw.githubusercontent.com/markgene/maxprobes/{maxprobes_rev}/inst/extdata"
+    raw_fallback = f"https://raw.githubusercontent.com/sirselim/illumina450k_filtering/{filtering_rev}"
     urls = {
         "chen": [
             f"{raw_base}/48639-non-specific-probes-Illumina450k.csv",
@@ -2108,7 +2132,8 @@ def ensure_cross_reactive_lists(dest_dir, allow_network=True):
         _write_list(out_epicv2, probes_epic)
     meta_path = os.path.join(dest_dir, "cross_reactive_sources.json")
     with open(meta_path, "w", encoding="utf-8") as handle:
-        json.dump({"sources": downloaded, "created": datetime.utcnow().isoformat() + "Z"}, handle, indent=2)
+        created = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        json.dump({"sources": downloaded, "created": created}, handle, indent=2)
     status = "downloaded" if downloaded_any else "built_local"
     return True, status
 

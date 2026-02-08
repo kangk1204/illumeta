@@ -7,6 +7,7 @@ import csv
 import html
 import json
 import re
+import shutil
 import statistics
 import time
 import unicodedata
@@ -1592,6 +1593,19 @@ def run_analysis(args):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
+    # Snapshot the analysis script into the output directory so long-running runs
+    # are not affected by local edits (e.g., while a tmux batch is still running).
+    analyze_script = ANALYZE_SCRIPT
+    if os.environ.get("ILLUMETA_SNAPSHOT_CODE", "1") != "0":
+        snap_dir = os.path.join(output_dir, "_illumeta_code_snapshot")
+        try:
+            os.makedirs(snap_dir, exist_ok=True)
+            snap_path = os.path.join(snap_dir, os.path.basename(ANALYZE_SCRIPT))
+            shutil.copy2(ANALYZE_SCRIPT, snap_path)
+            analyze_script = snap_path
+        except OSError:
+            analyze_script = ANALYZE_SCRIPT
+
     should_prepare_cross = (
         not args.cross_reactive_list
         and not args.disable_cross_reactive
@@ -1613,7 +1627,7 @@ def run_analysis(args):
             log_err(f"    Provide --cross-reactive-list, install maxprobes, or place lists under {cross_dir}.")
     
     cmd = [
-        "Rscript", ANALYZE_SCRIPT, 
+        "Rscript", analyze_script,
         "--config", config_path, 
         "--out", output_dir, 
         "--group_con", args.group_con,
@@ -2537,7 +2551,17 @@ def generate_dashboard(output_dir, group_test, group_con):
                 buckets["info"].append(msg)
         return buckets
 
-    def compute_verdict(tier, min_per_group, mmc_core_pct, sss_overlap, ncs_score, warn_count, critical_count):
+    def compute_verdict(
+        tier,
+        min_per_group,
+        mmc_score,
+        sss_score,
+        sss_is_composite,
+        ncs_score,
+        pvca_ci_after,
+        warn_count,
+        critical_count,
+    ):
         tier = (tier or "").lower()
         if critical_count > 0:
             return "EXPLORATORY"
@@ -2545,11 +2569,44 @@ def generate_dashboard(output_dir, group_test, group_con):
             return "EXPLORATORY"
         can_high = tier in ("moderate", "large", "ample", "high")
         verdict = "MODERATE"
-        if can_high and mmc_core_pct is not None and sss_overlap is not None and mmc_core_pct >= 0.60 and sss_overlap >= 0.40 and warn_count == 0:
+        mmc_score = safe_float(mmc_score)
+        sss_score = safe_float(sss_score)
+        pvca_ci_after = safe_float(pvca_ci_after)
+
+        # Thresholds depend on which SSS metric is available:
+        # - overlap_mean_corr: intersection/k (legacy; tends to be higher)
+        # - sss_mean_corr: 0.5*Jaccard + 0.5*RBO (more conservative composite)
+        if sss_is_composite:
+            sss_high = 0.30
+            sss_moderate = 0.20
+            sss_low = 0.20
+        else:
+            sss_high = 0.40
+            sss_moderate = 0.25
+            sss_low = 0.25
+
+        if (
+            can_high
+            and mmc_score is not None
+            and sss_score is not None
+            and mmc_score >= 0.60
+            and sss_score >= sss_high
+            and warn_count == 0
+        ):
             verdict = "HIGH"
-        elif tier == "small" or (mmc_core_pct is not None and 0.40 <= mmc_core_pct < 0.60) or (sss_overlap is not None and 0.25 <= sss_overlap < 0.40) or warn_count in (1, 2):
+        elif (
+            tier == "small"
+            or (mmc_score is not None and 0.40 <= mmc_score < 0.60)
+            or (sss_score is not None and sss_moderate <= sss_score < sss_high)
+            or warn_count in (1, 2)
+        ):
             verdict = "MODERATE"
-        elif tier == "minimal" or (mmc_core_pct is not None and mmc_core_pct < 0.40) or (sss_overlap is not None and sss_overlap < 0.25) or warn_count >= 3:
+        elif (
+            tier == "minimal"
+            or (mmc_score is not None and mmc_score < 0.40)
+            or (sss_score is not None and sss_score < sss_low)
+            or warn_count >= 3
+        ):
             verdict = "LOW"
 
         # NCS score is a continuous proxy for negative-control stability.
@@ -2559,6 +2616,16 @@ def generate_dashboard(output_dir, group_test, group_con):
                 if verdict in ("HIGH", "MODERATE"):
                     verdict = "LOW"
             elif ncs_score < 0.5:
+                if verdict == "HIGH":
+                    verdict = "MODERATE"
+
+        # PVCA confounding index (batch/group): if batch dominates after correction, confidence should not be HIGH.
+        # This is a downgrade-only rule to avoid overclaiming under residual batch structure.
+        if pvca_ci_after is not None:
+            if pvca_ci_after > 1:
+                if verdict in ("HIGH", "MODERATE"):
+                    verdict = "LOW"
+            elif pvca_ci_after > 0.5:
                 if verdict == "HIGH":
                     verdict = "MODERATE"
         return verdict
@@ -2608,9 +2675,15 @@ def generate_dashboard(output_dir, group_test, group_con):
         if lam_primary > 1.2:
             if lam_ratio_primary is not None:
                 if lam_ratio_primary > 2:
-                    warnings.append(f"Lambda={lam_primary:.2f} (obs/null ratio={lam_ratio_primary:.2f}): strong enrichment vs null (heuristic).")
+                    warnings.append(
+                        f"Lambda={lam_primary:.2f} (obs/null ratio={lam_ratio_primary:.2f}): "
+                        "inflation exceeds permutation null (heuristic); could reflect widespread signal and/or group-linked structure."
+                    )
                 elif lam_ratio_primary > 1.2:
-                    warnings.append(f"Lambda={lam_primary:.2f} (obs/null ratio={lam_ratio_primary:.2f}): moderate enrichment vs null (heuristic).")
+                    warnings.append(
+                        f"Lambda={lam_primary:.2f} (obs/null ratio={lam_ratio_primary:.2f}): "
+                        "inflation moderately exceeds permutation null (heuristic); review covariates/PVCA and effect sizes."
+                    )
                 else:
                     warnings.append(f"Lambda={lam_primary:.2f} (obs/null ratio={lam_ratio_primary:.2f}): inflation similar to null; check confounding/structure.")
             else:
@@ -2651,12 +2724,24 @@ def generate_dashboard(output_dir, group_test, group_con):
     warn_important = warnings_by_level["important"]
     warn_info = warnings_by_level["info"]
     warn_count = len(warn_critical) + len(warn_important)
+    mmc_score_for_verdict = mmc_summary.get("composite")
+    if mmc_score_for_verdict is None:
+        mmc_score_for_verdict = mmc_summary.get("core_pct")
+
+    sss_score_for_verdict = sss_summary.get("sss")
+    sss_is_composite = True
+    if sss_score_for_verdict is None:
+        sss_score_for_verdict = sss_summary.get("overlap")
+        sss_is_composite = False
+
     verdict = compute_verdict(
         tier_label,
         min_per_group,
-        mmc_summary.get("core_pct"),
-        sss_summary.get("overlap"),
+        mmc_score_for_verdict,
+        sss_score_for_verdict,
+        sss_is_composite,
         ncs_summary.get("score") if ncs_summary else None,
+        pvca_ci_after,
         warn_count,
         len(warn_critical),
     )

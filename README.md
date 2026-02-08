@@ -139,6 +139,15 @@ cd illumeta
 conda env create -f environment.yml
 conda activate illumeta
 
+# Sanity check (should point inside your conda env)
+which python
+which python3
+which Rscript
+# If you see /usr/bin/... here, your conda env is NOT active (restart your shell after `conda init`).
+
+# (macOS only) If you hit compilation errors (e.g., stringi/textshaping/ragg), install prebuilt conda binaries and retry:
+# conda install -c conda-forge r-stringi r-stringr r-tidyr r-plotly r-selectr r-rvest r-textshaping r-ragg r-systemfonts
+
 # 2) Install R packages (takes 10-30 min)
 Rscript r_scripts/setup_env.R
 # Optional: faster core-only install (skips optional cell references/RefFreeEWAS/planet; some features disabled)

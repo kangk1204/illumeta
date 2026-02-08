@@ -140,13 +140,15 @@ tryCatch({
   if (ncol(design) < 2) stop("Not enough groups after filtering")
 
   fit <- lmFit(mvals, design)
-  con_name <- make.names(group_test)
-  test_name <- make.names(group_con)
+  # Explicit contrast direction: Test - Control (matches IlluMeta default).
+  con_name <- make.names(group_con)
+  test_name <- make.names(group_test)
   if (!(con_name %in% colnames(design)) || !(test_name %in% colnames(design))) {
-    con_name <- colnames(design)[2]
-    test_name <- colnames(design)[1]
+    # Fallback to design order: second level minus first level.
+    con_name <- colnames(design)[1]
+    test_name <- colnames(design)[2]
   }
-  contrast_matrix <- makeContrasts(contrasts = paste0(con_name, "-", test_name), levels = design)
+  contrast_matrix <- makeContrasts(contrasts = paste0(test_name, "-", con_name), levels = design)
   fit2 <- contrasts.fit(fit, contrast_matrix)
   fit2 <- eBayes(fit2)
 

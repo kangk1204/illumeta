@@ -41,7 +41,6 @@ suppressPackageStartupMessages(library(variancePartition))
 suppressPackageStartupMessages(library(reformulas))
 suppressPackageStartupMessages(library(Biobase))
 suppressPackageStartupMessages(library(pvca))
-suppressPackageStartupMessages(library(RefFreeEWAS))
 suppressPackageStartupMessages(library(illuminaio))
 
 if (Sys.getenv("ILLUMETA_TRACEBACK", unset = "") == "1") {

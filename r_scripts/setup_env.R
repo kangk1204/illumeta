@@ -54,8 +54,13 @@ options(timeout = max(600, getOption("timeout", 60)))
 require_epicv2 <- Sys.getenv("ILLUMETA_REQUIRE_EPICV2", unset = "") == "1"
 install_devtools <- Sys.getenv("ILLUMETA_INSTALL_DEVTOOLS", unset = "") == "1"
 install_clocks <- Sys.getenv("ILLUMETA_INSTALL_CLOCKS", unset = "") == "1"
+install_minimal <- Sys.getenv("ILLUMETA_INSTALL_MINIMAL", unset = "") == "1"
 download_retries <- suppressWarnings(as.integer(Sys.getenv("ILLUMETA_DOWNLOAD_RETRIES", unset = "2")))
 if (is.na(download_retries) || download_retries < 0) download_retries <- 2
+
+if (install_minimal) {
+    message("ILLUMETA_INSTALL_MINIMAL=1: Installing core dependencies only (skip optional cell references/RefFreeEWAS/planet).")
+}
 
 # Warn early if a conda toolchain is forced while R is NOT from conda.
 # This mismatch is a common cause of "C compiler cannot create executables" and link errors.
@@ -718,7 +723,7 @@ bioc_target <- ensure_bioc_version()
 configure_bioc_repos(bioc_target)
 
 # Core BioC packages
-bioc_pkgs <- c(
+bioc_pkgs_core <- c(
     "minfi", 
     "sesame", 
     "limma", 
@@ -733,7 +738,10 @@ bioc_pkgs <- c(
     "sva", # Added for Surrogate Variable Analysis
     "variancePartition",
     "pvca",
-    "impute",
+    "impute"
+)
+
+bioc_pkgs_cell <- c(
     "EpiDISH",
     "planet",
     "FlowSorted.Blood.EPIC",   # Cell type reference (EPIC/EPICv2)
@@ -750,6 +758,13 @@ clock_pkgs <- c(
     "methylclock",       # General epigenetic clocks
     "methylclockData"    # Data for methylclock
 )
+
+bioc_pkgs <- bioc_pkgs_core
+if (!install_minimal) {
+    bioc_pkgs <- unique(c(bioc_pkgs, bioc_pkgs_cell))
+} else {
+    message("Skipping optional cell reference packages (set ILLUMETA_INSTALL_MINIMAL=0 to install).")
+}
 
 # CRAN packages
 cran_pkgs <- c(
@@ -985,7 +1000,7 @@ if (!requireNamespace("dmrff", quietly = TRUE)) {
 }
 
 # Install RefFreeEWAS from CRAN Archive (version 2.2)
-if (!requireNamespace("RefFreeEWAS", quietly = TRUE)) {
+if (!install_minimal && !requireNamespace("RefFreeEWAS", quietly = TRUE)) {
     message("Installing RefFreeEWAS (v2.2) from CRAN Archive...")
     tryCatch({
         remotes::install_version("RefFreeEWAS", version = "2.2", repos = "https://cloud.r-project.org", lib = .libPaths()[1], upgrade = "never")
@@ -993,6 +1008,8 @@ if (!requireNamespace("RefFreeEWAS", quietly = TRUE)) {
         message("Warning: Failed to install RefFreeEWAS from CRAN Archive.")
         message(paste("Error details:", e$message))
     })
+} else if (install_minimal) {
+    message("Skipping RefFreeEWAS install in minimal mode (set ILLUMETA_INSTALL_MINIMAL=0 to install).")
 }
 
 install_epicv2_manifest <- function() {
@@ -1111,16 +1128,21 @@ epicv2_pkgs <- c(
   "IlluminaHumanMethylationEPICv2anno.20a1.hg38"
 )
 required_pkgs <- c(
+  # Core runtime deps (analyze.R attaches these at startup)
+  "optparse",
+  "ggplot2", "plotly", "DT", "htmlwidgets",
+  "data.table", "dplyr", "stringr", "jsonlite", "ggrepel",
+  # GEO/IO + modeling stack
   "xml2", "XML",
   "lme4", "reformulas", "illuminaio",
+  # Core methylation stack
   "minfi", "sesame", "limma", "dmrff", "GEOquery",
   "Biobase",
   "IlluminaHumanMethylation450kmanifest",
   "IlluminaHumanMethylationEPICmanifest",
   "IlluminaHumanMethylation450kanno.ilmn12.hg19",
   "IlluminaHumanMethylationEPICanno.ilm10b4.hg19",
-  "sesameData", "sva", "variancePartition", "pvca",
-  "RefFreeEWAS"
+  "sesameData", "sva", "variancePartition", "pvca"
 )
 required_pkgs <- c(required_pkgs, epicv2_pkgs)
 if (!require_epicv2) {
@@ -1154,14 +1176,47 @@ if (length(failed) > 0) {
     msg <- errors[[pkg]]
     message(paste0("  - ", pkg, ": ", ifelse(is.null(msg), "unknown error", msg)))
   }
-  message("\nCommon fixes on Ubuntu:")
-  message("  sudo apt-get install -y libxml2-dev libcurl4-openssl-dev libssl-dev libicu-dev")
+  message("\nRecommended fix (most robust): use the bundled conda environment for system libraries + R/Python:")
+  message("  conda env create -f environment.yml   # or environment-r45.yml")
+  message("  conda activate illumeta               # or illumeta-r45")
+  message("  Rscript r_scripts/setup_env.R")
+  message("\nCommon fixes on Ubuntu/WSL (system R):")
+  message("  sudo apt-get update && sudo apt-get install -y \\")
+  message("    libxml2-dev libcurl4-openssl-dev libssl-dev libicu-dev \\")
+  message("    build-essential gfortran cmake pkg-config")
   message("  export R_LIBS_USER=\"$HOME/R/library\" && mkdir -p \"$R_LIBS_USER\"")
-  message("  conda deactivate  # if a conda R is interfering with system libs")
-  message("Then rerun: Rscript r_scripts/setup_env.R")
+  message("  conda deactivate  # if a conda toolchain is interfering with system libs")
+  message("\nCommon fixes on macOS (system R):")
+  message("  xcode-select --install")
+  message("  brew install cmake libomp")
+  message("\nThen rerun: Rscript r_scripts/setup_env.R")
   quit(status = 1)
 } else {
   message("All required dependencies installed and loadable.")
+}
+
+optional_pkgs <- c(
+  "RefFreeEWAS",
+  "EpiDISH",
+  "planet",
+  "FlowSorted.Blood.EPIC",
+  "FlowSorted.Blood.450k",
+  "FlowSorted.CordBlood.EPIC",
+  "FlowSorted.CordBlood.450k",
+  "FlowSorted.CordBloodCombined.450k",
+  "FlowSorted.DLPFC.450k",
+  "FlowSorted.Saliva.450k"
+)
+optional_missing <- optional_pkgs[!vapply(optional_pkgs, function(pkg) requireNamespace(pkg, quietly = TRUE), logical(1))]
+if (install_minimal) {
+  message("Note: Optional packages were skipped in minimal mode. Some features (cell composition/clocks) may be unavailable.")
+} else if (length(optional_missing) > 0) {
+  message("Note: Optional packages not installed (some features may be skipped):")
+  message("  ", paste(optional_missing, collapse = ", "))
+  message("To install optional features, rerun setup_env.R with:")
+  message("  ILLUMETA_INSTALL_MINIMAL=0")
+  message("  ILLUMETA_INSTALL_CLOCKS=1      # clocks (optional)")
+  message("  ILLUMETA_REQUIRE_EPICV2=1      # EPICv2 (optional)")
 }
 
 epicv2_installed <- all(sapply(epicv2_pkgs, function(pkg) requireNamespace(pkg, quietly = TRUE)))

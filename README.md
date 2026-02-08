@@ -126,6 +126,11 @@ git clone https://github.com/kangk1204/illumeta.git && cd illumeta && ./scripts/
 ```
 This takes **30-60 minutes** (downloads R packages). Grab a coffee! ☕
 
+Faster core-only install (skips optional cell references/RefFreeEWAS/planet; some features disabled):
+```bash
+git clone https://github.com/kangk1204/illumeta.git && cd illumeta && ./scripts/install_full.sh --minimal
+```
+
 ### Option B: Step-by-step
 ```bash
 # 1) Clone and create conda environment
@@ -410,6 +415,11 @@ python3 scripts/build_supplementary_data_docx.py \
 - `--r45` uses `environment-r45.yml` (R 4.5).
 - `--env-file PATH` uses a custom conda env file.
 - `--env NAME` overrides the env name.
+- `--minimal` installs core R dependencies only (skips optional cell references/RefFreeEWAS/planet).
+- `--epicv2` installs EPIC v2 manifest/annotation (optional).
+- `--clocks` installs methylation clock packages (optional).
+- `--devtools` installs devtools/tidyverse (optional; for development).
+- `--full` installs all optional features (`--epicv2 --clocks --devtools`).
 - `--skip-doctor` skips the final `illumeta.py doctor` check.
 
 Logs are saved to `projects/illumeta_install_full_*.log`.

@@ -1618,6 +1618,8 @@ def run_analysis(args):
             log(f"[*] Downloaded cross-reactive probe lists to {cross_dir}")
         elif status == "built_local":
             log(f"[*] Built cross-reactive probe lists from local sources in {cross_dir}")
+        elif status == "built_epicv2_from_epic":
+            log(f"[*] Built EPICv2 cross-reactive probe list from existing EPIC list in {cross_dir}")
         elif status == "exists":
             log(f"[*] Cross-reactive probe lists already present: {cross_dir}")
         elif status == "skip_env":
@@ -2071,6 +2073,13 @@ def ensure_cross_reactive_lists(dest_dir, allow_network=True):
     need_epicv2 = not (os.path.exists(out_epicv2) and _file_has_min_lines(out_epicv2))
     if have_main and not need_epicv2:
         return False, "exists"
+    if have_main and need_epicv2:
+        try:
+            shutil.copyfile(out_epic, out_epicv2)
+            return True, "built_epicv2_from_epic"
+        except OSError:
+            # Fall through to source rebuild path if local copy fails.
+            pass
 
     sources_dir = os.path.join(dest_dir, "_sources")
     os.makedirs(sources_dir, exist_ok=True)

@@ -144,9 +144,10 @@ tryCatch({
   con_name <- make.names(group_con)
   test_name <- make.names(group_test)
   if (!(con_name %in% colnames(design)) || !(test_name %in% colnames(design))) {
-    # Fallback to design order: second level minus first level.
-    con_name <- colnames(design)[1]
-    test_name <- colnames(design)[2]
+    stop(sprintf(
+      "Group labels not found in design matrix. control='%s' (as '%s'), test='%s' (as '%s'), available=[%s]",
+      group_con, con_name, group_test, test_name, paste(colnames(design), collapse = ", ")
+    ))
   }
   contrast_matrix <- makeContrasts(contrasts = paste0(test_name, "-", con_name), levels = design)
   fit2 <- contrasts.fit(fit, contrast_matrix)

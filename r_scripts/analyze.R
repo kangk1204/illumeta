@@ -2016,7 +2016,8 @@ compute_caf_scores <- function(perm_summary, perm_n_probes,
   observed_lambda_all <- suppressWarnings(as.numeric(observed_lambda_all))
   observed_lambda_vp_top <- suppressWarnings(as.numeric(observed_lambda_vp_top))
   # Heuristic context metric: only compute ratio when the *overall* observed lambda is inflated.
-  # Note: this does not separate biology from group-linked confounding; it is only a rough enrichment check.
+  # Note: this does not separate biology from group-linked confounding; it is only a rough
+  # enrichment-vs-null indicator and must be interpreted with PVCA/covariate context.
   lambda_ratio <- if (is.finite(observed_lambda_all) && observed_lambda_all > 1.2 &&
                       is.finite(observed_lambda_vp_top) &&
                       is.finite(perm_lambda) && perm_lambda > 0) {
@@ -2078,9 +2079,9 @@ build_caf_report_lines <- function(prefix, applied_batch_method, n_con, n_test,
             ifelse(is.finite(perm_n_probes), as.integer(perm_n_probes), "NA")),
     sprintf("  Lambda Ratio (vp_top obs/null): %s [%s]", fmt_val(caf_res$lambda_ratio),
             if (is.finite(caf_res$lambda_ratio)) {
-              if (caf_res$lambda_ratio > 2) "strong deviation vs null (heuristic; biology and/or structure)"
+              if (caf_res$lambda_ratio > 2) "strong deviation vs null (heuristic; review PVCA/covariates)"
               else if (caf_res$lambda_ratio > 1.2) "moderate deviation vs null (heuristic; review PVCA/covariates)"
-              else "similar to null; likely structure/confounding"
+              else "close to null (heuristic; weak enrichment vs null)"
             } else {
               if (is.finite(observed_lambda_all) && observed_lambda_all <= 1.2) "N/A (observed lambda not inflated)"
               else "N/A"
@@ -2622,7 +2623,8 @@ build_crf_report_lines <- function(tier_info, mmc_summary, ncs_summary, sss_summ
 #' Correction Robustness Framework (CRF) Assessment
 #'
 #' Evaluates batch correction robustness through multiple complementary metrics:
-#' negative control stability, multi-method consistency, and signal preservation.
+#' negative control stability, multi-method consistency, signal preservation,
+#' and PVCA-based confounding variance decomposition.
 #' Produces a comprehensive CRF report with tier-appropriate assessments.
 #'
 #' @param betas_raw Raw beta matrix before batch correction
@@ -2643,10 +2645,11 @@ build_crf_report_lines <- function(tier_info, mmc_summary, ncs_summary, sss_summ
 #' @return List containing CRF assessment results and pass/fail status
 #'
 #' @details
-#' CRF includes three assessment modules:
+#' CRF includes four assessment axes:
 #' 1. Negative Control Stability (NCS): Lambda on control probes (SNP, OOB)
 #' 2. Multi-Method Consistency (MMC): Agreement across correction methods
 #' 3. Signal Stability Score (SSS): Top-K hit overlap before/after correction
+#' 4. Confounding Variance Decomposition (CVD): PVCA-derived confounding index
 #'
 #' @seealso get_crf_tier for sample tier classification
 run_crf_assessment <- function(betas_raw, betas_corr, targets, covariates, tier_info,

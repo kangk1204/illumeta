@@ -240,7 +240,7 @@ python3 illumeta.py doctor
 - **Two independent pipelines**: Minfi (Noob) and Sesame run side-by-side; Sesame reports both strict (Minfi-aligned) and native (pOOBAH-preserving) views.
 - **High-confidence consensus**: CpGs significant in BOTH pipelines with the SAME direction.
 - **Batch handling**: Evaluates correction strategies (SVA/ComBat/limma) when a batch factor exists.
-- **CRF**: Sample-size-adaptive robustness report (MMC/NCS/SSS) with tiered warnings.
+- **CRF**: Sample-size-adaptive robustness report (MMC/NCS/SSS/CVD) with tiered warnings.
 - **Defensive stats**: Guards against low-variance or single-group covariates.
 - **Executive dashboard**: Verdict + CRF quick stats + warnings at the top.
 - **Paper-ready outputs**: HTML + PNG figures, methods.md, summary.json, sessionInfo.txt.
@@ -1398,7 +1398,8 @@ Outputs:
 - `decision_ledger.tsv`: automated decision log (covariates, batch strategy, consensus branch).
 - `preflight_report.json`: preflight summary (includes auto-group info when used).
 - `Correction_Adequacy_Report.txt`: Correction Adequacy Framework (CAF) report for the primary branch.
-- `Correction_Adequacy_Summary.csv`: CAF component scores for the primary branch (calibration/preservation/batch/NCS) plus overall CAI.
+- `Correction_Adequacy_Summary.csv`: CAF component scores for the primary branch (calibration/preservation/batch/NCS) plus overall CAI and `lambda_ratio`.
+  `lambda_ratio` is a heuristic observed-vs-null context metric, not a causal confounding classifier by itself.
 
 ### QC
 - `Preflight_Summary.csv`: preflight checks and group counts before processing.
@@ -1591,6 +1592,8 @@ SESAME_NTHREAD=1 python3 illumeta.py analysis ...
 ### Small sample size limitations
 
 IlluMeta implements a sample-size-adaptive Correction Robustness Framework (CRF):
+CRF combines MMC (multi-method concordance), NCS (negative-control stability),
+SSS (subsampling stability), and CVD (PVCA-based confounding variance decomposition).
 
 | Tier | Total n | Per-group min | Key limitations |
 |------|---------|---------------|-----------------|
@@ -1605,7 +1608,9 @@ For minimal/small tiers, interpret results cautiously and plan for replication i
 
 IlluMeta supports EPIC v2 arrays with automatic manifest detection. However:
 - Some probe annotations may differ between EPIC v1 and v2
-- Cross-reactive probe lists are v1-based; v2-specific lists are being incorporated
+- Cross-reactive probe lists are v1-based; v2-specific lists are being incorporated.
+- If 450K/EPIC cross-reactive lists already exist, IlluMeta auto-derives `cross_reactive_EPICv2.tsv` locally from EPIC to reduce network dependence.
+- Full source-list rebuild still needs reachable source files (or local mirrors / pre-provided lists).
 - DMR analysis uses EPIC v1 annotations; v2-specific boundaries may vary slightly
 
 ### Multi-batch studies

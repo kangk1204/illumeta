@@ -6,6 +6,7 @@ import sys
 import csv
 import html
 import json
+import math
 import re
 import shutil
 import statistics
@@ -476,11 +477,19 @@ def apply_group_mapping(value, mapping, group_con, group_test):
     if not raw:
         return ""
     norm = normalize_group_value(raw)
+    con_norm = normalize_group_value(group_con)
+    test_norm = normalize_group_value(group_test)
     if mapping and norm in mapping:
-        return mapping[norm]
-    if norm in CONTROL_SYNONYMS:
+        mapped = str(mapping[norm]).strip()
+        mapped_norm = normalize_group_value(mapped)
+        if mapped_norm == con_norm:
+            return group_con
+        if mapped_norm == test_norm:
+            return group_test
+        return mapped
+    if norm == con_norm or norm in CONTROL_SYNONYMS:
         return group_con
-    if norm in TEST_SYNONYMS:
+    if norm == test_norm or norm in TEST_SYNONYMS:
         return group_test
     return raw
 
@@ -583,6 +592,30 @@ def auto_group_config(
     if still_missing:
         preview = ", ".join(str(i + 1) for i in still_missing[:5])
         raise ValueError(f"Auto-group left {len(still_missing)} rows empty (rows: {preview}).")
+
+    # Auto-group should only populate explicit control/test labels. Any other label
+    # indicates an ambiguous mapping that would otherwise be silently ignored later.
+    con_norm = normalize_group_value(group_con)
+    test_norm = normalize_group_value(group_test)
+    invalid_rows = []
+    for idx in pending_idx:
+        label = (rows[idx].get("primary_group") or "").strip()
+        label_norm = normalize_group_value(label)
+        if label_norm == con_norm:
+            rows[idx]["primary_group"] = group_con
+            continue
+        if label_norm == test_norm:
+            rows[idx]["primary_group"] = group_test
+            continue
+        invalid_rows.append((idx + 1, label))
+    if invalid_rows:
+        preview = ", ".join(f"{row}:{label}" for row, label in invalid_rows[:5])
+        raise ValueError(
+            "Auto-group produced label(s) outside control/test groups. "
+            f"Expected only '{group_con}' or '{group_test}'. "
+            f"Invalid rows: {preview}. "
+            "Use --group-map to map raw labels explicitly."
+        )
 
     out_path = output_path or os.path.join(os.path.dirname(os.path.abspath(config_path)), "configure_autogroup.tsv")
     write_config_rows(out_path, headers, rows)
@@ -1817,10 +1850,19 @@ def run_analysis(args):
         sys.exit(1)
 
 def safe_int(val):
+    if val is None:
+        return 0
+    if isinstance(val, str):
+        val = val.strip()
+        if val.upper() in {"", "NA", "NAN", "NONE"}:
+            return 0
     try:
-        return int(val)
+        num = float(val)
     except (ValueError, TypeError):
         return 0
+    if not math.isfinite(num):
+        return 0
+    return int(num)
 
 def safe_float(val):
     if val is None:

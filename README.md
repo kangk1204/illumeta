@@ -1128,6 +1128,7 @@ python3 illumeta.py analysis -i projects/GSE12345 \
   --auto-group --group-key disease
 ```
 Auto-detection is conservative and will stop if no clear group signal is found; in that case specify `--group-column` or edit `configure.tsv`.
+Auto-group now also stops if filled labels are outside `--group_con/--group_test` (to prevent silent sample exclusion); use `--group-map` to map all raw labels explicitly.
 Auto-group decisions and warnings are recorded in `preflight_report.json` and `decision_ledger.tsv`.
 Auto-grouping is heuristic; always verify group counts and labels before interpreting results, especially when multiple categorical columns exist.
 Auto-group prioritizes columns with high coverage and low category counts; numeric-coded categories (e.g., 0/1) are supported, while highly fragmented columns or heavy missingness are rejected.

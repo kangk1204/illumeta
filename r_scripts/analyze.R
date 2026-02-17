@@ -1071,6 +1071,16 @@ detect_bio_controls <- function(targets) {
   unique(c(sex_cols, age_cols, cell_cols))
 }
 
+compute_genomic_lambda <- function(pvals) {
+  pvals <- suppressWarnings(as.numeric(pvals))
+  pvals <- pvals[is.finite(pvals) & pvals > 0 & pvals < 1]
+  if (length(pvals) < 2) return(NA_real_)
+  chisq_vals <- suppressWarnings(qchisq(1 - pvals, 1))
+  chisq_vals <- chisq_vals[is.finite(chisq_vals)]
+  if (length(chisq_vals) < 2) return(NA_real_)
+  median(chisq_vals, na.rm = TRUE) / qchisq(0.5, 1)
+}
+
 compute_bio_preservation <- function(pca_before, pca_after, targets, bio_vars, max_pcs = 5) {
   if (is.null(pca_before) || is.null(pca_after)) return(list(score = 1, detail = NULL))
   if (length(bio_vars) == 0) return(list(score = 1, detail = NULL))
@@ -1240,10 +1250,11 @@ run_permutation_uniformity <- function(betas, targets, group_col, covariates, ba
     fitp2 <- safe_ebayes(fitp2, "perm_uniformity")
     if (is.null(fitp2)) next
     resp <- topTable(fitp2, coef = 1, number = Inf, adjust.method = "BH")
-    pvals <- resp$P.Value
+    pvals <- suppressWarnings(as.numeric(resp$P.Value))
+    pvals <- pvals[is.finite(pvals) & pvals >= 0 & pvals <= 1]
+    if (length(pvals) < 2) next
     ks_p <- tryCatch(ks.test(pvals, "punif")$p.value, error = function(e) NA_real_)
-    chisq_vals <- qchisq(1 - pvals, 1)
-    lambda_val <- median(chisq_vals) / qchisq(0.5, 1)
+    lambda_val <- compute_genomic_lambda(pvals)
     perm_results <- rbind(perm_results, data.frame(run = i, ks_p = ks_p, lambda = lambda_val))
   }
   perm_results
@@ -2335,10 +2346,13 @@ compute_negative_control_stats <- function(betas_nc, design, group_cols,
   if (is.null(betas_nc) || nrow(betas_nc) < 2) return(NULL)
   res <- tryCatch(run_limma_dmp(betas_nc, design, group_cols), error = function(e) NULL)
   if (is.null(res) || nrow(res) == 0) return(NULL)
-  pvals <- res$P.Value
+  pvals <- suppressWarnings(as.numeric(res$P.Value))
+  pvals <- pvals[is.finite(pvals) & pvals >= 0 & pvals <= 1]
+  if (length(pvals) < 2) return(NULL)
   sig_rate <- mean(pvals < 0.05, na.rm = TRUE)
-  chisq_vals <- qchisq(1 - pvals, 1)
-  lambda_val <- median(chisq_vals) / qchisq(0.5, 1)
+  chisq_vals <- suppressWarnings(qchisq(1 - pvals, 1))
+  chisq_vals <- chisq_vals[is.finite(chisq_vals)]
+  lambda_val <- compute_genomic_lambda(pvals)
   ci_low <- NA_real_
   ci_high <- NA_real_
   boot_n <- 0L
@@ -5715,8 +5729,7 @@ emit_tier3_primary_outputs <- function(meta_res, betas, targets, curr_anno, pref
   n_p <- length(p_vals)
   lambda_val <- NA_real_
   if (n_p > 1) {
-    chisq_vals <- qchisq(1 - p_vals, 1)
-    lambda_val <- median(chisq_vals) / qchisq(0.5, 1)
+    lambda_val <- compute_genomic_lambda(p_vals)
     expected <- -log10(ppoints(n_p))
     observed <- -log10(sort(p_vals))
     qq_df <- data.frame(Expected = expected, Observed = observed)
@@ -5923,8 +5936,8 @@ run_lambda_guard <- function(betas, targets, group_col, prefix, out_dir, max_poi
   p_vals <- res$P.Value
   p_vals <- p_vals[!is.na(p_vals)]
   if (length(p_vals) < 2) return(list(status = "failed", lambda = NA_real_))
-  chisq_vals <- qchisq(1 - p_vals, 1)
-  lambda_val <- median(chisq_vals) / qchisq(0.5, 1)
+  lambda_val <- compute_genomic_lambda(p_vals)
+  if (!is.finite(lambda_val)) return(list(status = "failed", lambda = NA_real_))
   
   expected <- -log10(ppoints(length(p_vals)))
   observed <- -log10(sort(p_vals))
@@ -8184,8 +8197,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     raw_res <- run_limma_dmp(betas_pre_correction, design_base, make.names(levels(targets_base$primary_group)))
     if (!is.null(raw_res) && nrow(raw_res) > 0) {
       pvals_raw <- raw_res$P.Value
-      chisq_vals_raw <- qchisq(1 - pvals_raw, 1)
-      lambda_raw <- median(chisq_vals_raw) / qchisq(0.5, 1)
+      lambda_raw <- compute_genomic_lambda(pvals_raw)
     }
   }
   if (!is.null(betas_pre_correction) && nrow(betas_pre_correction) > 0) {
@@ -8366,8 +8378,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   p_vals <- p_vals[!is.na(p_vals)]
   n_p <- length(p_vals)
   
-  chisq_vals <- qchisq(1 - p_vals, 1)
-  lambda_val <- median(chisq_vals) / qchisq(0.5, 1)
+  lambda_val <- compute_genomic_lambda(p_vals)
   message(paste("  Genomic Inflation Factor (Lambda):", round(lambda_val, 3)))
 
   # Observed lambda computed on the same probe set used for permutation calibration (vp_top).
@@ -8377,8 +8388,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     p_top <- tryCatch(res[top_cpgs, "P.Value"], error = function(e) NA_real_)
     p_top <- p_top[!is.na(p_top)]
     if (length(p_top) > 0) {
-      chisq_top <- qchisq(1 - p_top, 1)
-      lambda_vp_top <- median(chisq_top) / qchisq(0.5, 1)
+      lambda_vp_top <- compute_genomic_lambda(p_top)
     }
   }
 
@@ -8827,15 +8837,16 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
                   delta_pass_perm <- rep(FALSE, nrow(resp))
               }
           }
-          sig <- sum(resp$adj.P.Val < pval_thresh & abs(resp$logFC) > lfc_thresh & delta_pass_perm, na.rm=TRUE)
-	          minp <- suppressWarnings(min(resp$P.Value, na.rm=TRUE))
-	          pvals <- resp$P.Value
-	          ks_p <- tryCatch(ks.test(pvals, "punif")$p.value, error = function(e) NA_real_)
-	          chisq_vals <- qchisq(1 - pvals, 1)
-	          # NOTE: keep the main-model lambda_val intact; use a dedicated variable for permutation lambdas.
-	          perm_lambda <- median(chisq_vals) / qchisq(0.5, 1)
-	          perm_results <- rbind(perm_results, data.frame(run = i, sig_count = sig, min_p = minp,
-	                                                         ks_p = ks_p, lambda = perm_lambda))
+	          sig <- sum(resp$adj.P.Val < pval_thresh & abs(resp$logFC) > lfc_thresh & delta_pass_perm, na.rm=TRUE)
+		          pvals <- suppressWarnings(as.numeric(resp$P.Value))
+		          pvals <- pvals[is.finite(pvals) & pvals >= 0 & pvals <= 1]
+		          if (length(pvals) < 2) next
+		          minp <- suppressWarnings(min(pvals, na.rm = TRUE))
+		          ks_p <- tryCatch(ks.test(pvals, "punif")$p.value, error = function(e) NA_real_)
+		          # NOTE: keep the main-model lambda_val intact; use a dedicated variable for permutation lambdas.
+		          perm_lambda <- compute_genomic_lambda(pvals)
+		          perm_results <- rbind(perm_results, data.frame(run = i, sig_count = sig, min_p = minp,
+		                                                         ks_p = ks_p, lambda = perm_lambda))
           
           # Progress every 10 permutations (and at the end)
           if (i %% 10 == 0 || i == perm_n) {

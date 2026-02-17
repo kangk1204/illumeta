@@ -80,6 +80,27 @@ class AutoGroupTests(unittest.TestCase):
                     group_test="Case",
                 )
 
+    def test_auto_group_rejects_labels_outside_control_test(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = os.path.join(tmpdir, "configure.tsv")
+            headers = ["primary_group", "condition", "Basename"]
+            rows = [
+                {"primary_group": "", "condition": "control", "Basename": "S1"},
+                {"primary_group": "", "condition": "unknown", "Basename": "S2"},
+                {"primary_group": "", "condition": "case", "Basename": "S3"},
+            ]
+            write_config(config_path, headers, rows)
+
+            with self.assertRaises(ValueError) as cm:
+                auto_group_config(
+                    config_path=config_path,
+                    group_con="Control",
+                    group_test="Case",
+                    group_column="condition",
+                )
+            self.assertIn("outside control/test", str(cm.exception))
+            self.assertIn("--group-map", str(cm.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

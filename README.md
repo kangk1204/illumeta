@@ -419,20 +419,14 @@ If you also want to build the Application Note DOCX / paper figures on the same 
 
 Optional (manuscript assets; requires local benchmark outputs):
 ```bash
-# Extra Python deps for DOCX/figures (skip if you ran: ./scripts/install_full.sh --paper)
+# Extra Python deps for manuscript assets (skip if you ran: ./scripts/install_full.sh --paper)
 python -m pip install -r requirements-paper.txt
-
-# Figures/tables for the Application Note
-python3 scripts/generate_application_note_figures.py \
-  --results-dir benchmarks/application_note \
-  --out-dir benchmarks/paper_figures
 
 # Main figure policy: single main figure (Figure1_Workflow.* at 350 dpi PNG + PDF)
 # Supplementary figures/tables are generated separately (e.g., FigureS2_Ablation_Lambda.*)
 
-# Build DOCX drafts (NOT required to run IlluMeta itself)
-# Note: manuscript builder scripts are not included in this repository.
-# Contact the authors for the full reproducible build pipeline.
+# Note: manuscript builder/generator scripts are intentionally not included in this repository.
+# Contact the authors for the full reproducible paper build pipeline.
 ```
 
 <details>

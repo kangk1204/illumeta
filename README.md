@@ -329,7 +329,7 @@ IlluMeta generates an interactive HTML dashboard as the primary interface for ex
 
 Each pipeline tab contains expandable sections for Primary Results (volcano, Manhattan, heatmap, DMP table), Region-Level Results (DMRs), Quality & Diagnostics (PCA, Q-Q, PVCA), Batch & Covariates, and Clocks & Age.
 
-For a complete dashboard guide with interpretation instructions, see the **Supplementary Data** document (generate via `python3 scripts/build_supplementary_data_docx.py`; requires `./scripts/install_full.sh --paper`).
+For a complete dashboard guide with interpretation instructions, see the **Supplementary Data** document (available from the authors upon request).
 
 ## Supplementary materials (recommended for manuscripts)
 For transparency and reproducibility, we recommend including the following files in your Supplementary Materials:
@@ -431,16 +431,8 @@ python3 scripts/generate_application_note_figures.py \
 # Supplementary figures/tables are generated separately (e.g., FigureS2_Ablation_Lambda.*)
 
 # Build DOCX drafts (NOT required to run IlluMeta itself)
-python3 scripts/build_application_note_docx.py \
-  --results-dir benchmarks/application_note \
-  --figures-dir benchmarks/paper_figures \
-  --out benchmarks/application_note/IlluMeta_Application_Note.docx \
-  --contact-email you@example.com
-
-python3 scripts/build_supplementary_data_docx.py \
-  --results-dir benchmarks/application_note \
-  --figures-dir benchmarks/paper_figures \
-  --out benchmarks/application_note/IlluMeta_Supplementary_Data.docx
+# Note: manuscript builder scripts are not included in this repository.
+# Contact the authors for the full reproducible build pipeline.
 ```
 
 <details>

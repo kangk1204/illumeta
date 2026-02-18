@@ -435,6 +435,7 @@ python -m pip install -r requirements-paper.txt
 - `--r45` uses `environment-r45.yml` (R 4.5).
 - `--env-file PATH` uses a custom conda env file.
 - `--env NAME` overrides the env name.
+- `--paper` installs extra Python deps for manuscript/figure asset generation (`requirements-paper.txt`).
 - `--minimal` installs core R dependencies only (skips optional cell references/RefFreeEWAS/planet).
 - `--epicv2` installs EPIC v2 manifest/annotation (optional).
 - `--clocks` installs methylation clock packages (optional).
@@ -442,6 +443,7 @@ python -m pip install -r requirements-paper.txt
 - `--full` installs all optional features (`--epicv2 --clocks --devtools`).
 - `--preflight` checks prerequisites only (no environment/package install).
 - `--skip-doctor` skips the final `illumeta.py doctor` check.
+- `-h, --help` shows script help.
 
 Logs are saved to `projects/illumeta_install_full_*.log`.
 </details>

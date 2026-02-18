@@ -427,6 +427,9 @@ python3 scripts/generate_application_note_figures.py \
   --results-dir benchmarks/application_note \
   --out-dir benchmarks/paper_figures
 
+# Main figure policy: single main figure (Figure1_Workflow.* at 350 dpi PNG + PDF)
+# Supplementary figures/tables are generated separately (e.g., FigureS2_Ablation_Lambda.*)
+
 # Build DOCX drafts (NOT required to run IlluMeta itself)
 python3 scripts/build_application_note_docx.py \
   --results-dir benchmarks/application_note \

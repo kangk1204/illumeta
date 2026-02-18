@@ -51,3 +51,7 @@ references/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Manuscript builder scripts (contain unpublished paper text — keep local only)
+scripts/build_application_note_docx.py
+scripts/build_supplementary_data_docx.py

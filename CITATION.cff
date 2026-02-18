@@ -24,7 +24,7 @@ preferred-citation:
   authors:
     - family-names: "Kang"
       given-names: "Keunsoo"
-  title: "IlluMeta: an automated dual-pipeline framework for robust Illumina DNA methylation analysis"
+  title: "IlluMeta: an automated dual-pipeline framework for robust DNA methylation analysis"
   journal: "Bioinformatics"
   year: 2026
   doi: ""

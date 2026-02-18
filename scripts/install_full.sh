@@ -10,6 +10,7 @@ INSTALL_MINIMAL=0
 INSTALL_CLOCKS=0
 INSTALL_DEVTOOLS=0
 INSTALL_EPICV2=0
+PRECHECK_ONLY=0
 
 usage() {
   cat <<'USAGE'
@@ -23,6 +24,7 @@ Options:
   --devtools         Install optional devtools/tidyverse (for development)
   --epicv2           Install optional EPIC v2 manifest/annotation packages
   --full             Install all optional features: --epicv2 --clocks --devtools
+  --preflight        Validate prerequisites only (no env/package install)
   --env-file PATH    Use a custom conda env file
   --env NAME         Override env name (default: name: from env file)
   --skip-doctor      Skip `illumeta.py doctor` after install
@@ -70,6 +72,10 @@ while [[ $# -gt 0 ]]; do
       INSTALL_EPICV2=1
       shift
       ;;
+    --preflight)
+      PRECHECK_ONLY=1
+      shift
+      ;;
     --skip-doctor)
       RUN_DOCTOR=0
       shift
@@ -95,15 +101,66 @@ if [[ -z "${ENV_NAME}" ]]; then
   ENV_NAME="$(awk -F: '/^name:/ {gsub(/ /,"",$2); print $2; exit}' "${ENV_FILE}")"
 fi
 
+miniforge_installer_url() {
+  local os arch
+  os="$(uname -s)"
+  arch="$(uname -m)"
+  case "${os}:${arch}" in
+    Linux:x86_64) echo "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh" ;;
+    Linux:aarch64|Linux:arm64) echo "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-aarch64.sh" ;;
+    Darwin:arm64) echo "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-arm64.sh" ;;
+    Darwin:x86_64) echo "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-x86_64.sh" ;;
+    *) echo "" ;;
+  esac
+}
+
+print_conda_install_hint() {
+  local url shell_name
+  url="$(miniforge_installer_url)"
+  shell_name="$(basename "${SHELL:-bash}")"
+  if [[ "${shell_name}" != "bash" && "${shell_name}" != "zsh" ]]; then
+    shell_name="bash"
+  fi
+
+  echo "    Install Miniforge, then rerun this script."
+  if [[ -n "${url}" ]]; then
+    if [[ "$(uname -s)" == "Linux" ]]; then
+      echo "    (Ubuntu/WSL) sudo apt-get update && sudo apt-get install -y curl"
+    fi
+    echo "    curl -L -o Miniforge3.sh ${url}"
+    echo "    bash Miniforge3.sh -b -p \"\$HOME/miniforge3\""
+    echo "    \"\$HOME/miniforge3/bin/conda\" init ${shell_name}"
+    echo "    source \"\$HOME/.${shell_name}rc\""
+  else
+    echo "    https://github.com/conda-forge/miniforge"
+  fi
+}
+
 CONDA_BIN=""
 if command -v conda >/dev/null 2>&1; then
   CONDA_BIN="conda"
 elif command -v mamba >/dev/null 2>&1; then
   CONDA_BIN="mamba"
 else
+  for candidate in \
+    "${HOME}/miniforge3/bin/conda" \
+    "${HOME}/mambaforge/bin/conda" \
+    "${HOME}/anaconda3/bin/conda"; do
+    if [[ -x "${candidate}" ]]; then
+      CONDA_BIN="${candidate}"
+      break
+    fi
+  done
+fi
+
+if [[ -z "${CONDA_BIN}" ]]; then
   echo "[!] conda/mamba not found in PATH."
-  echo "    Install Miniforge first: https://github.com/conda-forge/miniforge"
+  print_conda_install_hint
   exit 1
+fi
+
+if [[ "${CONDA_BIN}" == "${HOME}"/*"/bin/conda" ]]; then
+  echo "[*] Using detected conda binary: ${CONDA_BIN}"
 fi
 
 # macOS needs Xcode Command Line Tools even when using conda, because compilers
@@ -114,6 +171,15 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     echo "    Install them first: xcode-select --install"
     exit 1
   fi
+fi
+
+if [[ "${PRECHECK_ONLY}" -eq 1 ]]; then
+  echo "[*] Preflight check passed."
+  echo "[*] Env file: ${ENV_FILE}"
+  echo "[*] Env name: ${ENV_NAME}"
+  echo "[*] Conda command: ${CONDA_BIN}"
+  echo "[*] Next: ./scripts/install_full.sh"
+  exit 0
 fi
 
 LOG_DIR="${ROOT_DIR}/projects"

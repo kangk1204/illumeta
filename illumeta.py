@@ -1124,7 +1124,7 @@ def ensure_r_dependencies():
             marker_ok = marker_epicv2_required == require_epicv2 and r_version_matches
             if not r_version_matches:
                 log(f"[*] R version changed ({marker_r_version} -> {current_r_ver}); re-running setup...")
-        except Exception:
+        except (OSError, ValueError):
             marker_ok = False
     core_pkgs = CORE_R_PACKAGES + (EPICV2_R_PACKAGES if require_epicv2 else [])
     optional_pkgs = OPTIONAL_R_PACKAGES + ([] if require_epicv2 else EPICV2_R_PACKAGES)
@@ -1517,7 +1517,7 @@ def write_failure_summary(base_dir: str, stage: str, code: str, message: str, de
             json.dump(payload, handle, indent=2, ensure_ascii=True)
         with open(os.path.join(base_dir, "failure_reason.txt"), "w", encoding="utf-8") as handle:
             handle.write(f"{code}: {message}\n")
-    except Exception as e:
+    except OSError as e:
         log_err(f"[!] Failed to write failure summary: {e}")
 
 def run_analysis(args):
@@ -1950,7 +1950,7 @@ def collect_dashboard_warnings(stats, analysis_params, qc_summary, cell_summary=
                 if eta is not None and eta > threshold:
                     warnings.append(f"Cell composition strongly associated with group (Eta^2>{threshold}); over-correction risk.")
                     break
-        except Exception:
+        except (TypeError, KeyError, ValueError):
             pass
 
     return warnings
@@ -2055,7 +2055,7 @@ def _read_cross_reactive_local_dir(yaml_path):
     try:
         with open(yaml_path, "r", encoding="utf-8") as handle:
             lines = handle.readlines()
-    except Exception:
+    except OSError:
         return ""
     block_indent = None
     for raw in lines:
@@ -2082,7 +2082,7 @@ def _file_has_min_lines(path, min_lines=10):
             for idx, _ in enumerate(handle, start=1):
                 if idx >= min_lines:
                     return True
-    except Exception:
+    except OSError:
         return False
     return False
 
@@ -2171,7 +2171,7 @@ def ensure_cross_reactive_lists(dest_dir, allow_network=True):
                 downloaded_any = True
                 downloaded[key] = meta
                 continue
-            except Exception:
+            except (OSError, IOError, ValueError, RuntimeError):
                 pass
         meta["path"] = ""
         downloaded[key] = meta
@@ -2331,7 +2331,7 @@ def generate_dashboard(output_dir, group_test, group_con):
                     reader = csv.DictReader(f)
                     for row in reader:
                         metrics[row["metric"]] = row["value"]
-            except Exception:
+            except (OSError, KeyError, csv.Error):
                 pass
         return metrics
 
@@ -2385,7 +2385,7 @@ def generate_dashboard(output_dir, group_test, group_con):
                     reader = csv.DictReader(f)
                     for row in reader:
                         metrics[row["metric"]] = row["value"]
-            except Exception:
+            except (OSError, KeyError, csv.Error):
                 pass
         return metrics
 
@@ -2397,7 +2397,7 @@ def generate_dashboard(output_dir, group_test, group_con):
                 with open(path, newline="") as f:
                     reader = csv.DictReader(f)
                     rows = [row for row in reader]
-            except Exception:
+            except (OSError, csv.Error):
                 rows = []
         return rows
 
@@ -2409,7 +2409,7 @@ def generate_dashboard(output_dir, group_test, group_con):
                     with open(path, newline="") as f:
                         reader = csv.DictReader(f)
                         return [row for row in reader]
-                except Exception:
+                except (OSError, csv.Error):
                     return []
         return []
 
@@ -2425,7 +2425,7 @@ def generate_dashboard(output_dir, group_test, group_con):
                         if not reason or reason == "NA":
                             continue
                         reasons[reason] = reasons.get(reason, 0) + 1
-            except Exception:
+            except (OSError, KeyError, csv.Error):
                 pass
         return reasons
 
@@ -2436,7 +2436,7 @@ def generate_dashboard(output_dir, group_test, group_con):
             with open(path, newline="") as f:
                 reader = csv.DictReader(f)
                 return [row for row in reader]
-        except Exception:
+        except (OSError, csv.Error):
             return []
 
     def load_crf_sample_tier():
@@ -2818,7 +2818,7 @@ def generate_dashboard(output_dir, group_test, group_con):
     if abs_deltas:
         try:
             median_abs = statistics.median(abs_deltas)
-        except Exception:
+        except statistics.StatisticsError:
             median_abs = None
     effect_tag = effect_label(median_abs)
 
@@ -3518,7 +3518,7 @@ def generate_dashboard(output_dir, group_test, group_con):
         for fname in os.listdir(output_dir):
             if fname.startswith("cell_counts_") and fname.endswith(".csv") and fname not in {"cell_counts_merged.csv"}:
                 extra_cell_files.append(fname)
-    except Exception:
+    except OSError:
         extra_cell_files = []
 
     for fname in sorted(extra_cell_files):

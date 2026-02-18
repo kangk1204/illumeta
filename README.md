@@ -78,6 +78,13 @@ New to DNA methylation analysis? Here are the key terms you'll encounter:
 ## 🚀 Quick Start (Copy & Paste)
 
 > **Prerequisites:** You need `conda` (recommended) or `mamba`. If you don't have it yet, install **Miniforge (conda)** first (macOS/Ubuntu) using the snippet below.
+>
+> **Fresh-machine checklist (important):**
+> - Stable internet connection (first install downloads many R/Bioconductor packages).
+> - Free disk space: **at least 20 GB** for environment/package cache, plus extra space for datasets and outputs.
+> - Recommended memory: **8 GB+ RAM** (large cohorts benefit from 16 GB+).
+> - First install time: typically **30-60 minutes**.
+> - macOS: install Xcode Command Line Tools first (`xcode-select --install`).
 
 <details>
 <summary><strong>Install conda (Miniforge) - macOS / Ubuntu (fresh machine)</strong></summary>
@@ -122,9 +129,15 @@ If you use bash on macOS, replace `zsh` with `bash` and source `~/.bashrc` inste
 
 ### Option A: One-line installer (Recommended for beginners)
 ```bash
-git clone https://github.com/kangk1204/illumeta.git && cd illumeta && ./scripts/install_full.sh
+git clone https://github.com/kangk1204/illumeta.git
+cd illumeta
+./scripts/install_full.sh --preflight
+./scripts/install_full.sh
 ```
 This takes **30-60 minutes** (downloads R packages). Grab a coffee! ☕
+For a fresh machine, use this path first (do not run Option B in parallel).
+If `conda` is installed but your shell is not reloaded yet, the installer will also auto-detect
+`$HOME/miniforge3/bin/conda`.
 
 Faster core-only install (skips optional cell references/RefFreeEWAS/planet; some features disabled):
 ```bash
@@ -147,6 +160,8 @@ which Rscript
 
 # (macOS only) If you hit compilation errors (e.g., stringi/textshaping/ragg), install prebuilt conda binaries and retry:
 # conda install -c conda-forge r-stringi r-stringr r-tidyr r-plotly r-selectr r-rvest r-textshaping r-ragg r-systemfonts
+# Then rerun:
+# Rscript r_scripts/setup_env.R
 
 # 2) Install R packages (takes 10-30 min)
 Rscript r_scripts/setup_env.R
@@ -341,6 +356,10 @@ Auto-group is a convenience feature and **not** a substitute for manual group cu
 
 IlluMeta is easiest to install with **conda**. Windows users should use **WSL2 (Ubuntu)**.
 
+Fresh machine recommendation:
+- Start with `./scripts/install_full.sh` only.
+- Use the detailed OS sections below only when the installer fails and you need manual recovery.
+
 ### Quick full install (all OS)
 
 Prerequisites (fresh machine):
@@ -387,7 +406,10 @@ If you use bash on macOS, replace `zsh` with `bash` and source `~/.bashrc` inste
 </details>
 
 ```bash
-git clone https://github.com/kangk1204/illumeta.git && cd illumeta && ./scripts/install_full.sh
+git clone https://github.com/kangk1204/illumeta.git
+cd illumeta
+./scripts/install_full.sh --preflight
+./scripts/install_full.sh
 ```
 
 If you also want to build the Application Note DOCX / paper figures on the same machine:
@@ -429,6 +451,7 @@ python3 scripts/build_supplementary_data_docx.py \
 - `--clocks` installs methylation clock packages (optional).
 - `--devtools` installs devtools/tidyverse (optional; for development).
 - `--full` installs all optional features (`--epicv2 --clocks --devtools`).
+- `--preflight` checks prerequisites only (no environment/package install).
 - `--skip-doctor` skips the final `illumeta.py doctor` check.
 
 Logs are saved to `projects/illumeta_install_full_*.log`.
@@ -967,7 +990,7 @@ docker run --rm -it -v "$PWD":/app illumeta analysis \
   --tier3-on-fail skip
 ```
 
-## Quick start
+## First Analysis (After Installation)
 
 ### 0) Choose your input type
 - If you have **GEO**: follow steps 1–4 below.
@@ -1399,7 +1422,7 @@ Outputs:
 - `decision_ledger.tsv`: automated decision log (covariates, batch strategy, consensus branch).
 - `preflight_report.json`: preflight summary (includes auto-group info when used).
 - `Correction_Adequacy_Report.txt`: Correction Adequacy Framework (CAF) report for the primary branch.
-- `Correction_Adequacy_Summary.csv`: CAF component scores for the primary branch (calibration/preservation/batch/NCS) plus overall CAI and `lambda_ratio`.
+- `Correction_Adequacy_Summary.csv`: CAF component scores for the primary branch (calibration/preservation/batch/NCS) plus overall CAI (`cai`; surfaced as `caf_score` in pipeline metrics) and `lambda_ratio`.
   `lambda_ratio` is a heuristic observed-vs-null context metric, not a causal confounding classifier by itself.
 
 ### QC
@@ -1444,7 +1467,7 @@ Common issues:
 - **`clang: error: unsupported option '-fopenmp'`** (macOS, often `data.table`): install LLVM and rerun setup with Homebrew clang:
   `brew install llvm && CC=/opt/homebrew/opt/llvm/bin/clang CXX=/opt/homebrew/opt/llvm/bin/clang++ Rscript r_scripts/setup_env.R`.
 - **`stringi` configure: `cannot run C++ compiled programs`** (macOS conda): install prebuilt R packages in the conda env, then rerun setup:
-  `conda install -c conda-forge r-stringi r-stringr r-tidyr r-plotly r-selectr r-rvest`.
+  `conda install -c conda-forge r-stringi r-stringr r-tidyr r-plotly r-selectr r-rvest r-textshaping r-ragg r-systemfonts`.
 - **`C17 standard requested but CC17 is not defined`**: update to the latest IlluMeta and rerun setup. If it persists, reinstall compilers (macOS: `xcode-select --install`, conda: `conda install -c conda-forge c-compiler cxx-compiler`).
 - **Bioconductor version mismatch** (e.g., R 4.4 but Bioc 3.22): rerun with an explicit Bioc version:
   `ILLUMETA_BIOC_VERSION=3.20 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.

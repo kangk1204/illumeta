@@ -74,6 +74,7 @@ def build_primary_table(rows):
     fields = [
         "gse_id",
         "pipeline",
+        "consensus_primary_view",
         "primary_result_mode",
         "primary_tier3_meta_method",
         "primary_tier3_meta_i2_median",
@@ -83,13 +84,20 @@ def build_primary_table(rows):
         "perm_lambda_median",
         "lambda",
         "vp_primary_group_mean",
+        "intersection_native_n_both",
+        "intersection_n_both",
+        "intersection_native_jaccard_overlap",
+        "intersection_jaccard_overlap",
         "primary_dmr_status",
         "primary_branch_override",
         "primary_branch_reason",
     ]
     out_rows = []
     for row in rows:
-        out_rows.append({field: row.get(field, "") for field in fields})
+        record = {field: row.get(field, "") for field in fields}
+        # IlluMeta dashboard/reporting treats native intersection as primary, strict as sensitivity.
+        record["consensus_primary_view"] = "Intersection_Native"
+        out_rows.append(record)
     return out_rows, fields
 
 
@@ -121,7 +129,8 @@ def plot_summary(rows, out_path):
     batch_red = get_series("batch_sig_reduction")
     perm_lambda = get_series("perm_lambda_median", default=1.0)
     vp_primary = get_series("vp_primary_group_mean")
-    jaccard = get_series("intersection_jaccard_overlap")
+    jaccard_strict = get_series("intersection_jaccard_overlap")
+    jaccard_native = get_series("intersection_native_jaccard_overlap")
     pvca_batch_delta = get_series("pvca_batch_delta")
 
     fig_w = max(10, n * 0.6)
@@ -158,10 +167,12 @@ def plot_summary(rows, out_path):
     ax.set_xticklabels(labels, rotation=45, ha="right")
 
     ax = axes[2, 0]
-    ax.bar(x, jaccard, color="#b279a2")
-    ax.set_title("Intersection Jaccard (Minfi vs Sesame)")
+    ax.bar([i - width / 2 for i in x], jaccard_native, width, color="#b279a2", label="Native (primary)")
+    ax.bar([i + width / 2 for i in x], jaccard_strict, width, color="#9d9da1", label="Strict (sensitivity)")
+    ax.set_title("Intersection Jaccard (Native vs Strict)")
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=45, ha="right")
+    ax.legend(fontsize=8)
 
     ax = axes[2, 1]
     ax.bar(x, pvca_batch_delta, color="#72b7b2")

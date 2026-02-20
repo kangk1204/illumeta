@@ -72,10 +72,14 @@ FIELDNAMES = [
     "intersection_native_logFC_correlation",
     "intersection_native_jaccard_overlap",
     "intersection_native_n_both",
+    "consensus_primary_view",
+    "consensus_sensitivity_view",
     "array_type",
     "preset",
     "tissue",
     "tissue_source",
+    "code_version",
+    "code_version_status",
 ]
 
 
@@ -106,6 +110,14 @@ def load_json(path):
             return json.load(handle)
     except (OSError, json.JSONDecodeError):
         return None
+
+
+def read_text_first_line(path):
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            return handle.readline().strip()
+    except OSError:
+        return ""
 
 
 def parse_metrics_csv(path):
@@ -290,6 +302,7 @@ def build_rows(rows, projects_root):
 
         summary = load_json(os.path.join(result_dir, "summary.json")) or {}
         params = load_json(os.path.join(result_dir, "analysis_parameters.json")) or {}
+        code_version = read_text_first_line(os.path.join(result_dir, "code_version.txt"))
         qc_summary = parse_kv_csv(os.path.join(result_dir, "QC_Summary.csv"))
         group_counts = parse_group_counts(os.path.join(result_dir, "Input_Group_Distribution.csv"))
         primary_branch, tier3_batch = parse_decision_ledger(os.path.join(result_dir, "decision_ledger.tsv"))
@@ -407,16 +420,61 @@ def build_rows(rows, projects_root):
                     "intersection_native_logFC_correlation": intersection_native_metrics.get("logFC_correlation", ""),
                     "intersection_native_jaccard_overlap": intersection_native_metrics.get("jaccard_overlap", ""),
                     "intersection_native_n_both": intersection_native_metrics.get("n_both", ""),
+                    "consensus_primary_view": "Intersection_Native",
+                    "consensus_sensitivity_view": "Intersection_Strict",
                     "array_type": params.get("array_type", ""),
                     "preset": params.get("preset", ""),
                     "tissue": params.get("tissue", ""),
                     "tissue_source": params.get("tissue_source", ""),
+                    "code_version": code_version,
+                    "code_version_status": "",
                 }
             )
     return out_rows, missing
 
 
-def write_markdown(path, input_tsv, projects_root, rows, missing):
+def summarize_code_versions(rows):
+    """Summarize code_version values at dataset level (not per-pipeline row)."""
+    by_dataset = {}
+    for row in rows:
+        gse_id = (row.get("gse_id") or "").strip()
+        ver = (row.get("code_version") or "").strip()
+        if not gse_id:
+            continue
+        by_dataset.setdefault(gse_id, set())
+        if ver:
+            by_dataset[gse_id].add(ver)
+
+    version_counts = {}
+    missing = []
+    mixed = []
+    for gse_id, vers in sorted(by_dataset.items()):
+        if not vers:
+            missing.append(gse_id)
+            continue
+        if len(vers) > 1:
+            mixed.append(gse_id)
+        for ver in vers:
+            version_counts[ver] = version_counts.get(ver, 0) + 1
+    return version_counts, missing, mixed
+
+
+def resolve_expected_code_version(raw_value):
+    value = (raw_value or "").strip()
+    if not value:
+        return ""
+    if value.lower() not in {"auto", "head"}:
+        return value
+    try:
+        import subprocess
+
+        out = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True)
+        return out.strip()
+    except Exception:
+        return ""
+
+
+def write_markdown(path, input_tsv, projects_root, rows, missing, expected_code_version=""):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     gse_ids = sorted({row["gse_id"] for row in rows})
     pipeline_counts = {p: 0 for p in PIPELINES}
@@ -433,6 +491,19 @@ def write_markdown(path, input_tsv, projects_root, rows, missing):
         f"- Rows written: {len(rows)}",
         "- Pipelines: " + ", ".join(f"{p}={pipeline_counts[p]}" for p in PIPELINES),
     ]
+    version_counts, version_missing, version_mixed = summarize_code_versions(rows)
+    if version_counts:
+        versions_desc = ", ".join(
+            f"{ver[:12]}… ({cnt})" if len(ver) > 12 else f"{ver} ({cnt})"
+            for ver, cnt in sorted(version_counts.items())
+        )
+        lines.append(f"- Code versions (dataset-level): {versions_desc}")
+    if version_missing:
+        lines.append(f"- Missing code_version.txt: {len(version_missing)} dataset(s)")
+    if version_mixed:
+        lines.append(f"- Mixed code_version within dataset: {len(version_mixed)} dataset(s)")
+    if expected_code_version:
+        lines.append(f"- Expected code version: {expected_code_version}")
     if missing:
         lines.append(f"- Missing results: {len(missing)} (see console output)")
     lines.append("")
@@ -466,6 +537,21 @@ def main():
         default=os.path.join("benchmarks", "benchmark_summary.md"),
         help="Output Markdown summary path",
     )
+    parser.add_argument(
+        "--expected-code-version",
+        default="auto",
+        help="Expected commit hash for code_version.txt checks (default: auto=git HEAD; set empty to disable).",
+    )
+    parser.add_argument(
+        "--require-consistent-code-version",
+        action="store_true",
+        help="Fail if benchmark result folders were generated by mixed code versions or differ from expected.",
+    )
+    parser.add_argument(
+        "--allow-missing-code-version",
+        action="store_true",
+        help="When requiring consistency, do not fail if code_version.txt is missing.",
+    )
     args = parser.parse_args()
 
     rows = read_tsv(args.input_tsv)
@@ -474,13 +560,77 @@ def main():
         print("No benchmark rows found. Check input TSV and projects root.", flush=True)
         return 1
 
+    expected_code_version = resolve_expected_code_version(args.expected_code_version)
+    version_counts, version_missing, version_mixed = summarize_code_versions(out_rows)
+
+    # Annotate row-level status for traceability.
+    for row in out_rows:
+        version = (row.get("code_version") or "").strip()
+        status = "ok"
+        if not version:
+            status = "missing"
+        elif expected_code_version and version != expected_code_version:
+            status = "mismatch_expected"
+        if row.get("gse_id") in version_mixed:
+            status = "mixed_dataset"
+        row["code_version_status"] = status
+
     fieldnames = FIELDNAMES
     write_tsv(args.output_tsv, out_rows, fieldnames)
-    write_markdown(args.output_md, args.input_tsv, args.projects_root, out_rows, missing)
+    write_markdown(
+        args.output_md,
+        args.input_tsv,
+        args.projects_root,
+        out_rows,
+        missing,
+        expected_code_version=expected_code_version,
+    )
 
     print(f"Wrote {len(out_rows)} rows to {args.output_tsv}")
+    if version_counts:
+        print(
+            "Code versions detected (dataset-level): "
+            + ", ".join(
+                f"{ver[:12]}… ({cnt})" if len(ver) > 12 else f"{ver} ({cnt})"
+                for ver, cnt in sorted(version_counts.items())
+            )
+        )
+    if version_missing:
+        print(f"Datasets missing code_version.txt: {', '.join(version_missing)}")
+    if version_mixed:
+        print(f"Datasets with mixed code_version values: {', '.join(version_mixed)}")
+    if expected_code_version:
+        print(f"Expected code version: {expected_code_version}")
     if missing:
         print(f"Missing results for {len(missing)} datasets: {', '.join(missing)}")
+
+    if args.require_consistent_code_version:
+        fail_reasons = []
+        if len(version_counts) > 1:
+            fail_reasons.append("multiple code versions detected")
+        if version_mixed:
+            fail_reasons.append("mixed code versions within at least one dataset")
+        if expected_code_version:
+            mismatched = sorted(
+                {
+                    row.get("gse_id", "")
+                    for row in out_rows
+                    if (row.get("code_version") or "").strip()
+                    and (row.get("code_version") or "").strip() != expected_code_version
+                }
+            )
+            if mismatched:
+                fail_reasons.append(
+                    "datasets differ from expected code version: " + ", ".join(mismatched)
+                )
+        if version_missing and not args.allow_missing_code_version:
+            fail_reasons.append("missing code_version.txt in one or more datasets")
+        if fail_reasons:
+            print("Code-version consistency check failed:")
+            for reason in fail_reasons:
+                print(f"  - {reason}")
+            return 2
+
     return 0
 
 

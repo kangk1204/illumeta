@@ -46,6 +46,8 @@ class BenchmarkTableTests(unittest.TestCase):
 
             with open(os.path.join(result_dir, "analysis_parameters.json"), "w", encoding="utf-8") as handle:
                 json.dump({"array_type": "EPIC", "preset": "conservative"}, handle)
+            with open(os.path.join(result_dir, "code_version.txt"), "w", encoding="utf-8") as handle:
+                handle.write("abc123def456\n")
 
             write_csv(
                 os.path.join(result_dir, "QC_Summary.csv"),
@@ -100,6 +102,25 @@ class BenchmarkTableTests(unittest.TestCase):
             self.assertEqual(row["batch_sig_reduction"], "6.0")
             self.assertEqual(row["primary_tier3_meta_method"], "random")
             self.assertEqual(str(row["primary_tier3_meta_i2_median"]), "0.6")
+            self.assertEqual(row["code_version"], "abc123def456")
+            self.assertEqual(row["consensus_primary_view"], "Intersection_Native")
+            self.assertEqual(row["consensus_sensitivity_view"], "Intersection_Strict")
+
+    def test_summarize_code_versions(self):
+        bbt = load_benchmark_module()
+        rows = [
+            {"gse_id": "GSE1", "pipeline": "Minfi", "code_version": "aaa"},
+            {"gse_id": "GSE1", "pipeline": "Sesame", "code_version": "aaa"},
+            {"gse_id": "GSE2", "pipeline": "Minfi", "code_version": ""},
+            {"gse_id": "GSE3", "pipeline": "Minfi", "code_version": "bbb"},
+            {"gse_id": "GSE3", "pipeline": "Sesame", "code_version": "ccc"},
+        ]
+        version_counts, missing, mixed = bbt.summarize_code_versions(rows)
+        self.assertEqual(version_counts["aaa"], 1)
+        self.assertEqual(version_counts["bbb"], 1)
+        self.assertEqual(version_counts["ccc"], 1)
+        self.assertEqual(missing, ["GSE2"])
+        self.assertEqual(mixed, ["GSE3"])
 
 
 if __name__ == "__main__":

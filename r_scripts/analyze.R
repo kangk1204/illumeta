@@ -9375,7 +9375,9 @@ run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
     # Use Fisher combined p-value as the consensus statistic (more principled
     # than pmax; already computed above for the full concordance table).
     consensus_df$P.Value <- consensus_df$P.Fisher
-    consensus_df$adj.P.Val <- p.adjust(consensus_df$P.Fisher, "BH")
+    # Use genome-wide BH-corrected Fisher p-values (computed on the full
+    # concordance table, not just the consensus subset) for proper FDR control.
+    consensus_df$adj.P.Val <- consensus_df$adj.P.Fisher
     # Retain per-pipeline max as legacy columns for backwards compatibility
     consensus_df$P.Value.max <- pmax(consensus_df$P.Value.Minfi, consensus_df$P.Value.Sesame, na.rm = TRUE)
     consensus_df$adj.P.Val.max <- pmax(consensus_df$adj.P.Val.Minfi, consensus_df$adj.P.Val.Sesame, na.rm = TRUE)

@@ -2,6 +2,7 @@
 cache/
 GSE*/
 geo_idat_methylation.tsv
+placenta_geo_idat_methylation.tsv
 
 # Python bytecode
 __pycache__/

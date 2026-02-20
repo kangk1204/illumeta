@@ -192,9 +192,6 @@ Open the dashboard:
 
 ## 📊 What You Get
 
-<!-- Dashboard preview screenshot will be added before publication -->
-<!-- ![Dashboard preview](docs/assets/dashboard_preview.gif) -->
-
 *Interactive dashboard generated automatically. No additional coding required.*
 
 ---

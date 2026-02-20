@@ -27,4 +27,5 @@ preferred-citation:
   title: "IlluMeta: an automated dual-pipeline framework for robust DNA methylation analysis"
   journal: "Bioinformatics"
   year: 2026
+  status: submitted
   abstract: "IlluMeta is an automated pipeline that simultaneously runs minfi and sesame normalization workflows, providing consensus high-confidence CpG calls with sample-size adaptive robustness assessment."

@@ -852,26 +852,30 @@ if (!cache_preexisting) {
 # --- Helper Functions ---
 
 save_interactive_plot <- function(p, filename, dir) {
-  # Prefer explicit `text` tooltips when available (prevents hover picking a
-  # layer without tooltip and makes overlapping points usable).
-  has_text <- FALSE
   tryCatch({
-    if (!is.null(p$mapping) && !is.null(p$mapping$text)) {
-      has_text <- TRUE
-    } else if (!is.null(p$layers) && length(p$layers) > 0) {
-      for (ly in p$layers) {
-        if (!is.null(ly$mapping) && !is.null(ly$mapping$text)) {
-          has_text <- TRUE
-          break
+    # Prefer explicit `text` tooltips when available (prevents hover picking a
+    # layer without tooltip and makes overlapping points usable).
+    has_text <- FALSE
+    tryCatch({
+      if (!is.null(p$mapping) && !is.null(p$mapping$text)) {
+        has_text <- TRUE
+      } else if (!is.null(p$layers) && length(p$layers) > 0) {
+        for (ly in p$layers) {
+          if (!is.null(ly$mapping) && !is.null(ly$mapping$text)) {
+            has_text <- TRUE
+            break
+          }
         }
       }
-    }
+    }, error = function(e) {
+      has_text <<- FALSE
+    })
+    pp <- if (isTRUE(has_text)) ggplotly(p, tooltip = "text") else ggplotly(p)
+    pp <- plotly::layout(pp, hovermode = "closest")
+    saveWidget(pp, file = file.path(dir, filename), selfcontained = TRUE)
   }, error = function(e) {
-    has_text <<- FALSE
+    message(sprintf("  Interactive plot save skipped (%s): %s", filename, e$message))
   })
-  pp <- if (isTRUE(has_text)) ggplotly(p, tooltip = "text") else ggplotly(p)
-  pp <- plotly::layout(pp, hovermode = "closest")
-  saveWidget(pp, file = file.path(dir, filename), selfcontained = TRUE)
 }
 
 STATIC_PLOT_DPI <- 300

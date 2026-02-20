@@ -38,14 +38,16 @@ def safe_path_component(name: str, fallback: str = "results") -> str:
 def sniff_delimiter(path: str) -> str:
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as handle:
-            first = handle.readline()
+            for line in (handle.readline() for _ in range(3)):
+                if "\t" in line:
+                    return "\t"
     except OSError:
         return "\t"
-    return "\t" if "\t" in first else ","
+    return ","
 
 def load_config_rows(path: str):
     delim = sniff_delimiter(path)
-    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+    with open(path, "r", newline="", encoding="utf-8", errors="replace") as handle:
         reader = csv.DictReader(handle, delimiter=delim)
         rows = [row for row in reader]
     return rows, reader.fieldnames or [], delim
@@ -934,13 +936,14 @@ CORE_R_PACKAGES = [
     "IlluminaHumanMethylationEPICmanifest",
     "IlluminaHumanMethylation450kanno.ilmn12.hg19",
     "IlluminaHumanMethylationEPICanno.ilm10b4.hg19",
-    "planet",
 ]
 EPICV2_R_PACKAGES = [
     "IlluminaHumanMethylationEPICv2manifest",
     "IlluminaHumanMethylationEPICv2anno.20a1.hg38",
 ]
 OPTIONAL_R_PACKAGES = [
+    "EpiDISH",
+    "planet",
     "FlowSorted.Blood.EPIC",
     "FlowSorted.Blood.450k",
     "FlowSorted.CordBlood.EPIC",
@@ -1008,6 +1011,8 @@ def check_pandoc_installation():
         sys.exit(1)
 
 def check_r_package(pkg, env):
+    if not re.match(r'^[A-Za-z][A-Za-z0-9._]+$', pkg):
+        return False, f"Invalid package name: {pkg}"
     expr = (
         'lib <- Sys.getenv("R_LIBS_USER"); '
         'if (nzchar(lib)) .libPaths(c(lib, .Library, .Library.site)); '
@@ -1211,6 +1216,9 @@ def run_doctor(args):
 
 def run_download(args):
     """Executes the download step."""
+    if not re.match(r'^GSE\d+$', args.gse_id):
+        log_err(f"[!] Invalid GEO Series ID: {args.gse_id}. Expected format: GSE followed by digits (e.g., GSE12345).")
+        sys.exit(1)
     out_dir = args.out_dir if args.out_dir else os.path.abspath(args.gse_id)
     log(f"[*] Starting download pipeline for {args.gse_id}...")
     log(f"[*] Output directory: {out_dir}")
@@ -1265,11 +1273,11 @@ def search_eutils_request(path: str, params: dict, email: str, sleep_s: float):
     last_exc = None
     for attempt in range(1, SEARCH_EUTILS_RETRY + 1):
         try:
-            resp = requests.get(url, params=params, timeout=20)
+            resp = _get_requests().get(url, params=params, timeout=20)
             resp.raise_for_status()
             time.sleep(sleep_s)
             return resp
-        except Exception as exc:
+        except (OSError, ValueError) as exc:
             last_exc = exc
             if attempt < SEARCH_EUTILS_RETRY:
                 time.sleep(SEARCH_EUTILS_RETRY_DELAY)
@@ -1346,6 +1354,8 @@ def fetch_search_summaries(ids, email: str, sleep_s: float):
 
 
 def geo_suppl_url(gse_id: str) -> str:
+    if len(gse_id) < 4:
+        raise ValueError(f"Invalid GSE ID: {gse_id}")
     prefix = gse_id[:-3] + "nnn"
     return f"https://ftp.ncbi.nlm.nih.gov/geo/series/{prefix}/{gse_id}/suppl/"
 
@@ -1354,7 +1364,7 @@ def search_fetch_with_retry(url: str, method: str = "get", headers=None, stream:
     last_resp = None
     for attempt in range(1, SEARCH_SUPPL_RETRY + 1):
         try:
-            resp = requests.request(
+            resp = _get_requests().request(
                 method=method,
                 url=url,
                 timeout=15,
@@ -1365,7 +1375,7 @@ def search_fetch_with_retry(url: str, method: str = "get", headers=None, stream:
             last_resp = resp
             if resp.status_code == 200:
                 return resp
-        except Exception:
+        except (OSError, ValueError):
             last_resp = None
         if attempt < SEARCH_SUPPL_RETRY:
             time.sleep(SEARCH_SUPPL_RETRY_DELAY)
@@ -1378,11 +1388,11 @@ def raw_tar_exists(raw_url: str, gse_id: str):
 
     def probe(url: str, method: str, headers=None, stream: bool = False):
         try:
-            resp = requests.request(method=method, url=url, timeout=15, allow_redirects=True, headers=headers, stream=stream)
+            resp = _get_requests().request(method=method, url=url, timeout=15, allow_redirects=True, headers=headers, stream=stream)
             status = resp.status_code
             resp.close()
             return status
-        except Exception:
+        except (OSError, ValueError):
             return None
 
     for attempt in range(1, SEARCH_SUPPL_RETRY + 1):
@@ -1476,15 +1486,26 @@ def write_search_tsv(rows, path: str) -> None:
     log(f"[*] Saved {len(rows)} records to {path}")
 
 
+def _get_requests():
+    """Return the requests module, importing lazily on first call."""
+    global _requests_mod
+    try:
+        return _requests_mod
+    except NameError:
+        pass
+    try:
+        import requests as _mod
+    except ImportError:
+        raise RuntimeError("Python package 'requests' is missing. Install with: python3 -m pip install requests")
+    _requests_mod = _mod
+    return _requests_mod
+
 def run_search(args):
     try:
-        import requests as _requests
-    except ImportError:
-        log_err("Error: Python package 'requests' is missing.")
-        log_err("Install with: python3 -m pip install requests")
+        _get_requests()
+    except RuntimeError as exc:
+        log_err(f"Error: {exc}")
         return
-
-    globals()["requests"] = _requests
 
     if args.email:
         log(f"[*] Using contact email for NCBI requests: {args.email}")
@@ -1736,8 +1757,11 @@ def run_analysis(args):
         )
         if preflight.get("config_path") and preflight["config_path"] != config_path:
             config_path = preflight["config_path"]
-            config_idx = cmd.index("--config") + 1
-            cmd[config_idx] = config_path
+            try:
+                config_idx = cmd.index("--config") + 1
+                cmd[config_idx] = config_path
+            except ValueError:
+                cmd.extend(["--config", config_path])
             log(f"[*] Using filtered config: {config_path}")
         log(f"[*] Preflight OK: samples={preflight['sample_count']}, "
             f"{args.group_con}={preflight['group_con']}, {args.group_test}={preflight['group_test']}")
@@ -1831,13 +1855,22 @@ def run_analysis(args):
         env["TMPDIR"] = os.path.abspath(args.tmp_dir)
         log(f"[*] Using custom temporary directory: {env['TMPDIR']}")
 
+    timeout_sec = int(os.environ.get("ILLUMETA_TIMEOUT", 86400))  # default 24h
     try:
-        subprocess.run(cmd, check=True, env=env)
+        subprocess.run(cmd, check=True, env=env, timeout=timeout_sec)
         log(f"[*] Analysis complete. Results are in: {output_dir}")
-        
+
         # Generate Dashboard
         generate_dashboard(output_dir, args.group_test, args.group_con)
-        
+
+    except KeyboardInterrupt:
+        log_err("\n[!] Interrupted by user.")
+        write_failure_summary(output_dir, "analysis", "INTERRUPTED", "User interrupted analysis (Ctrl+C).")
+        sys.exit(130)
+    except subprocess.TimeoutExpired:
+        log_err(f"[!] Analysis timed out after {timeout_sec}s. Set ILLUMETA_TIMEOUT to increase.")
+        write_failure_summary(output_dir, "analysis", "TIMEOUT", f"Analysis exceeded {timeout_sec}s timeout.")
+        sys.exit(1)
     except subprocess.CalledProcessError as e:
         log_err(f"[!] Error during analysis step: {e}")
         write_failure_summary(
@@ -1969,7 +2002,7 @@ def _read_probe_ids(path, col_candidates=None):
         return []
     col_candidates = col_candidates or ["TargetID", "CpG", "IlmnID", "Probe", "probe", "ID", "Name", "X", "PROBE"]
     ids = []
-    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+    with open(path, "r", newline="", encoding="utf-8", errors="replace") as handle:
         first = handle.readline()
         if not first:
             return []
@@ -1977,21 +2010,22 @@ def _read_probe_ids(path, col_candidates=None):
         handle.seek(0)
         if delim:
             reader = csv.reader(handle, delimiter=delim)
-            rows = list(reader)
-            if not rows:
+            header = next(reader, None)
+            if not header:
                 return []
-            header = rows[0]
             header_map = {h.strip(): idx for idx, h in enumerate(header)}
             use_idx = None
             for cand in col_candidates:
                 if cand in header_map:
                     use_idx = header_map[cand]
                     break
-            start_row = 1
             if use_idx is None:
                 use_idx = 0
-                start_row = 0
-            for row in rows[start_row:]:
+                # First row wasn't a recognised header — treat it as data
+                val = header[0].strip() if header else ""
+                if val and not val.startswith("#"):
+                    ids.append(val)
+            for row in reader:
                 if not row:
                     continue
                 if use_idx >= len(row):
@@ -2018,11 +2052,15 @@ def _filter_probe_ids(ids):
             out.append(v)
     return sorted(set(out))
 
+_DOWNLOAD_MAX_SIZE = 50 * 1024 * 1024  # 50 MB
+
 def _download_file(url, dest_path):
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
     req = _urllib_request.Request(url, headers={"User-Agent": "IlluMeta/1.0"})
     with _urllib_request.urlopen(req, timeout=30) as resp:
-        data = resp.read()
+        data = resp.read(_DOWNLOAD_MAX_SIZE + 1)
+        if len(data) > _DOWNLOAD_MAX_SIZE:
+            raise ValueError(f"Download exceeds {_DOWNLOAD_MAX_SIZE // (1024*1024)} MB limit: {url}")
     with open(dest_path, "wb") as handle:
         handle.write(data)
     return dest_path
@@ -2211,6 +2249,10 @@ def resolve_cross_reactive_dir(config_path, config_yaml_path=None):
     if not os.path.isabs(local_dir):
         local_dir = os.path.join(config_dir, local_dir)
     return local_dir
+
+def _h(val):
+    """HTML-escape a value for safe interpolation into dashboard HTML."""
+    return html.escape(str(val)) if val is not None else "N/A"
 
 def generate_dashboard(output_dir, group_test, group_con):
     """Generates a beautiful HTML dashboard to navigate results."""
@@ -3453,9 +3495,9 @@ def generate_dashboard(output_dir, group_test, group_con):
             html_parts.append('        <div class="metrics-card">\n')
             html_parts.append('            <div class="metrics-title">Analysis Parameters</div>\n')
             html_parts.append(f'            <div class="metrics-row" title="FDR (False Discovery Rate): adjusted p-value threshold controlling for multiple testing. |logFC|: minimum log2 fold-change in methylation M-values. |DeltaBeta|: minimum absolute difference in beta-values (0-1 scale). Stricter thresholds yield fewer but more confident results."><span>FDR / |logFC| / |DeltaBeta|</span><span>{analysis_params.get("pval_threshold", "N/A")} / {analysis_params.get("lfc_threshold", "N/A")} / {analysis_params.get("delta_beta_threshold", "N/A")}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>Tissue</span><span>{analysis_params.get("tissue", "N/A")} ({analysis_params.get("tissue_source", "N/A")})</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>Array type</span><span>{analysis_params.get("array_type", "N/A")}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row" title="Correction Robustness Framework tier. Minimal (<12): exploratory only, SVA disabled. Small (12-23): limited power. Moderate (24-49): full pipeline. Large (>=50): all checks powered."><span>CRF sample tier</span><span>{analysis_params.get("crf_sample_tier", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Tissue</span><span>{_h(analysis_params.get("tissue", "N/A"))} ({_h(analysis_params.get("tissue_source", "N/A"))})</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Array type</span><span>{_h(analysis_params.get("array_type", "N/A"))}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row" title="Correction Robustness Framework tier. Minimal (<12): exploratory only, SVA disabled. Small (12-23): limited power. Moderate (24-49): full pipeline. Large (>=50): all checks powered."><span>CRF sample tier</span><span>{_h(analysis_params.get("crf_sample_tier", "N/A"))}</span></div>\n')
             cell_ref = analysis_params.get("cell_reference", "")
             cell_ref_platform = analysis_params.get("cell_reference_platform", "")
             cell_ref_label = "default" if not cell_ref else f"{cell_ref} ({cell_ref_platform or 'auto'})"
@@ -3576,17 +3618,17 @@ def generate_dashboard(output_dir, group_test, group_con):
             html_parts.append('        <div class="metrics-card">\n')
             html_parts.append('            <div class="metrics-title">Model & Batch Summary</div>\n')
             html_parts.append(f'            <div class="metrics-row" title="Genomic inflation factor. Ideal: 0.9-1.1. Values >1.2 suggest p-value inflation (possible batch effects or widespread signal). Values <0.9 suggest over-correction."><span>λ (inflation)</span><span>{metrics.get("lambda", "N/A")}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>Batch method</span><span>{metrics.get("batch_method_applied", "N/A")}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>Samples / CpGs</span><span>{metrics.get("n_samples", "N/A")} / {metrics.get("n_cpgs", "N/A")}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>Covariates used (n)</span><span>{metrics.get("n_covariates_used", "N/A")}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>Covariates used</span><span>{metrics.get("covariates_used", "None") or "None"}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Batch method</span><span>{_h(metrics.get("batch_method_applied", "N/A"))}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Samples / CpGs</span><span>{_h(metrics.get("n_samples", "N/A"))} / {_h(metrics.get("n_cpgs", "N/A"))}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Covariates used (n)</span><span>{_h(metrics.get("n_covariates_used", "N/A"))}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Covariates used</span><span>{_h(metrics.get("covariates_used", "None") or "None")}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>SVs used</span><span>{metrics.get("n_sv_used", "0")}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Batch p<0.05 (Before→After)</span><span>{metrics.get("batch_sig_p_lt_0.05_before", "N/A")} → {metrics.get("batch_sig_p_lt_0.05_after", "N/A")}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Min batch p (Before→After)</span><span>{metrics.get("batch_min_p_before", "N/A")} → {metrics.get("batch_min_p_after", "N/A")}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Group min p (Before→After)</span><span>{metrics.get("group_min_p_before", "N/A")} → {metrics.get("group_min_p_after", "N/A")}</span></div>\n')
             guidance = build_correction_guidance(metrics)
             if guidance:
-                html_parts.append(f'            <div class="metrics-row"><span>Correction guide</span><span>{guidance}</span></div>\n')
+                html_parts.append(f'            <div class="metrics-row"><span>Correction guide</span><span>{_h(guidance)}</span></div>\n')
             if metrics.get("perm_mean_sig") is not None:
                 html_parts.append(f'            <div class="metrics-row"><span>Perm mean/max sig (null)</span><span>{metrics.get("perm_mean_sig", "N/A")} / {metrics.get("perm_max_sig", "N/A")}</span></div>\n')
             lam_ratio = safe_float(metrics.get("lambda_ratio"))
@@ -3606,10 +3648,10 @@ def generate_dashboard(output_dir, group_test, group_con):
             if metrics.get("vp_primary_group_mean") is not None:
                 html_parts.append(f'            <div class="metrics-row"><span>VarPart primary_group</span><span>{metrics.get("vp_primary_group_mean", "N/A")}</span></div>\n')
             if metrics.get("dropped_covariates"):
-                html_parts.append(f'            <div class="metrics-row"><span>Dropped covariates</span><span>{metrics.get("dropped_covariates")}</span></div>\n')
+                html_parts.append(f'            <div class="metrics-row"><span>Dropped covariates</span><span>{_h(metrics.get("dropped_covariates"))}</span></div>\n')
             drop_reasons = load_drop_reasons(pipe_id)
             if drop_reasons:
-                reasons_txt = ", ".join([f"{k}:{v}" for k, v in drop_reasons.items()])
+                reasons_txt = ", ".join([f"{_h(k)}:{_h(v)}" for k, v in drop_reasons.items()])
                 html_parts.append(f'            <div class="metrics-row"><span>Drop reasons</span><span>{reasons_txt}</span></div>\n')
             html_parts.append('        </div>\n')
         files_found = 0
@@ -3731,13 +3773,14 @@ def generate_dashboard(output_dir, group_test, group_con):
 
     full_html = "".join(html_parts)
 
-    with open(dashboard_path, "w") as f:
+    with open(dashboard_path, "w", encoding="utf-8") as f:
         f.write(full_html)
     
     log(f"[*] Dashboard generated: {dashboard_path}")
 
 def main():
     parser = argparse.ArgumentParser(description="IlluMeta: Automated Illumina DNA Methylation Analysis Pipeline")
+    parser.add_argument("--version", action="version", version=f"IlluMeta {__version__}")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
     
     # Download Command
@@ -3798,7 +3841,7 @@ def main():
     parser_analysis.add_argument("--include-clock-covariates", action="store_true", help="Compute epigenetic clocks and include them as candidate covariates")
     parser_analysis.add_argument("--beginner-safe", action="store_true",
                                  help="Enable beginner-safe mode (stricter group checks and conservative thresholds)")
-    parser_analysis.add_argument("--tissue", type=str, default="Auto", help="Tissue type for cell deconvolution (default Auto = reference-free; options: Auto, Blood, CordBlood, DLPFC, Placenta)")
+    parser_analysis.add_argument("--tissue", type=str, default="Auto", help="Tissue type for cell deconvolution (default Auto = reference-free; options: Auto, Blood, CordBlood, DLPFC, Placenta, Saliva)")
     parser_analysis.add_argument("--cell-reference", type=str, help="Custom cell reference (package name, package::object, or .rds/.rda path)")
     parser_analysis.add_argument("--cell-reference-platform", type=str, help="Reference platform for cell reference (e.g. IlluminaHumanMethylationEPIC or IlluminaHumanMethylation450k)")
     parser_analysis.add_argument("--positive_controls", type=str, help="Comma-separated list of known marker genes to verify (e.g. 'AHRR,CYP1A1')")
@@ -3869,6 +3912,9 @@ def main():
     parser_doctor.add_argument("--skip-pandoc", action="store_true", help="Skip pandoc check")
     
     args = parser.parse_args()
+
+    if sys.platform == "win32":
+        log("[!] Warning: IlluMeta has not been tested on Windows. Please use Linux or macOS for reliable results.")
 
     # Early handling for missing subcommand or required args
     if not args.command:

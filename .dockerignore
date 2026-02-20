@@ -2,14 +2,8 @@
 .r-lib
 .R
 cache
-00_backup
-01_first_set
-02_second_set
-03_second_set_illuout
-03_second_set_illuout2
-03_second_set_illuout3
-03_second_set_illuout4
-03_second_set_illuout5
+projects
+benchmarks
 *.html
 *.xlsx
 *.idat

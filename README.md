@@ -173,6 +173,10 @@ python3 illumeta.py doctor
 ```
 
 ### Run an example
+
+> **Note:** The first `analysis` run also installs R packages if they were not set up
+> separately (via `Rscript r_scripts/setup_env.R`). This one-time step may take 10-30 minutes.
+
 ```bash
 # Download a GEO dataset (DCIS vs Adjacent Normal breast tissue, 450K)
 python3 illumeta.py download GSE66313 -o projects/GSE66313
@@ -182,7 +186,7 @@ python3 illumeta.py analysis -i projects/GSE66313 \
   --group_con Control --group_test Case \
   --auto-group --group-column source_name_ch1 \
   --group-map "Adjacent-Normal=Control;DCIS=Case" \
-  --tier3-on-fail skip
+  --tier3-on-fail skip  # skip stratified analysis if batch confounding detected
 ```
 
 Open the dashboard:
@@ -975,7 +979,7 @@ docker run --rm -it -v "$PWD":/app illumeta analysis \
   --group_test Case \
   --auto-group --group-column source_name_ch1 \
   --group-map "Adjacent-Normal=Control;DCIS=Case" \
-  --tier3-on-fail skip
+  --tier3-on-fail skip  # skip stratified analysis if batch confounding detected
 ```
 
 ## First Analysis (After Installation)
@@ -1020,7 +1024,7 @@ python3 illumeta.py analysis \
   --group_test Case \
   --auto-group --group-column source_name_ch1 \
   --group-map "Adjacent-Normal=Control;DCIS=Case" \
-  --tier3-on-fail skip
+  --tier3-on-fail skip  # skip stratified analysis if batch confounding detected
 ```
 If you filled `primary_group` manually (Option A), you can omit the `--auto-group` flags.
 Note: the default output folder name is derived from the group labels. If it contains non-ASCII characters, IlluMeta normalizes it to a safe ASCII name for filesystem compatibility (the dashboard filename follows the folder name).
@@ -1206,6 +1210,7 @@ IlluMeta estimates cell type composition to adjust for cellular heterogeneity, w
 | `CordBlood` | FlowSorted.CordBlood | Nucleated RBC, CD8T, CD4T, etc. | Cord blood samples |
 | `Placenta` | planet | Trophoblast, Stromal, etc. | Placenta samples |
 | `DLPFC` | FlowSorted.DLPFC | NeuN+, NeuN- | Brain (prefrontal cortex) |
+| `Saliva` | FlowSorted.Saliva.450k | Epithelial, Immune | Saliva samples |
 
 #### Which method should I use?
 
@@ -1321,7 +1326,13 @@ Outputs:
 - `ablation_metrics_long.tsv`: long-form metrics table
 - `ablation_parameters.json`: exact parameters per variant
 
-Lambda guard + variancePartition autoscale settings live in `config.yaml` (copy from `config.yaml.template`):
+Lambda guard + variancePartition autoscale settings live in `config.yaml`.
+To create one, copy the template into your project directory:
+```bash
+cp config.yaml.template projects/GSE66313/config.yaml
+# Edit as needed — IlluMeta looks for config.yaml next to configure.tsv
+```
+Example settings:
 ```yaml
 lambda_guard:
   enabled: true

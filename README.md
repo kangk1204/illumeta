@@ -244,7 +244,7 @@ python3 illumeta.py doctor
 - 📝 **Auto-generated methods**: Ready-to-use text for your paper
 
 ### For Experts
-- **Dual-pipeline design**: Runs both **Minfi** and **Sesame** independently
+- **Dual-pipeline design**: Runs **Minfi** and **SeSAMe** preprocessing in parallel with strict/native SeSAMe views
 - **Consensus calling**: High-confidence results where both methods agree
 - **Adaptive batch correction**: Automatically selects optimal method (SVA/ComBat/limma)
 - **CRF robustness framework**: Sample-size-adaptive quality assessment
@@ -1271,7 +1271,9 @@ Use these scripts to report objective QC, batch correction, and robustness metri
 python3 scripts/build_benchmark_table.py \
   --input-tsv benchmarks/benchmark_inputs.tsv \
   --projects-root projects \
-  --out benchmarks/benchmark_summary.tsv
+  --output-tsv benchmarks/benchmark_summary.tsv \
+  --output-md benchmarks/benchmark_summary.md \
+  --require-consistent-code-version
 
 # 2) Generate a primary-branch summary table + figure
 python3 scripts/build_benchmark_figures.py \
@@ -1303,6 +1305,7 @@ Notes:
 - **Sesame runs single-thread by default** for stability. If you want multi-threading, set `ILLUMETA_SESAME_SINGLE_THREAD=0` in your shell.
 - **Auto-grouping is heuristic**: always verify group labels/counts before interpreting results.
 - **Small n**: consider `--disable-sva` and report this choice explicitly.
+- **Version lock for figures/tables**: `build_benchmark_table.py --require-consistent-code-version` fails when mixed `code_version.txt` commits are detected across datasets.
 Tips:
 - Start small (e.g., 10–50). Larger values take longer.
 - Results are saved as `*_Permutation_Results.csv` and `*_Permutation_Summary.csv`.
@@ -1363,6 +1366,7 @@ The summary table now includes objective QC/robustness indicators such as:
 - Lambda / permutation calibration (KS, lambda)
 - Variance partition signal for primary_group
 - Tier3/DMR status and primary-branch overrides (if any)
+- `code_version` and `code_version_status` so mixed-commit benchmark folders are visible before plotting
 
 ### Paper-ready summary figure
 Generate a compact table + figure from the benchmark TSV (primary branch only by default):
@@ -1376,6 +1380,7 @@ Outputs:
 - `benchmarks/benchmark_primary_summary.md`
 - `benchmarks/benchmark_primary_summary.png`
 Tip: add `--all-rows` to include every pipeline row instead of collapsing to the primary branch.
+Convention: the summary figure treats **Intersection_Native** as the primary consensus view and **Intersection_Strict** as a sensitivity view.
 
 ### Smoke tests (multi-run)
 Prepare a TSV with columns `config`, `group_con`, `group_test` (optional: `name`, `output`, `extra_args`) and run:
@@ -1445,7 +1450,7 @@ For each pipeline (`Minfi`, `Sesame` = strict/Minfi-aligned, `Sesame_Native` = n
 - `Intersection_Native_Consensus_DMPs.csv` and `Intersection_Native_Consensus_DMPs.html` (native)
 - `Intersection*_LogFC_Concordance.html/.png` (minfi vs sesame logFC concordance)
 - `Intersection*_Significant_Overlap.html/.png` (significant counts and overlap)
-> Tip: use `Intersection_Native_*` as a high-confidence subset and review Minfi/Sesame outputs for additional signals. The intersection is intentionally conservative.
+> Tip: treat `Intersection_Native_*` as the primary consensus call set, and `Intersection_Consensus_*` (strict) as a conservative sensitivity set. The intersection is intentionally conservative.
 
 ## Troubleshooting
 

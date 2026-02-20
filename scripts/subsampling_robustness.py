@@ -452,6 +452,15 @@ def _fmt_mean_sd(vals: List[float], digits: int = 3) -> str:
     return f"{m:.{digits}g}±{sd:.{digits}g}"
 
 
+def _public_path(path_like: Path, anchor: Path) -> str:
+    """Render a path without exposing machine-specific absolute prefixes."""
+    p = Path(path_like).resolve()
+    try:
+        return str(p.relative_to(anchor))
+    except ValueError:
+        return p.name
+
+
 def _pearsonr(xs: List[float], ys: List[float]) -> Optional[float]:
     if len(xs) < 2 or len(ys) < 2 or len(xs) != len(ys):
         return None
@@ -529,6 +538,7 @@ def summarize_cmd(args: argparse.Namespace) -> int:
 
     run_summ_rows: List[Dict[str, str]] = []
     scenario_groups: Dict[str, List[Dict[str, str]]] = {}
+    anchor_dir = Path.cwd().resolve()
 
     for row in plan_rows:
         name = (row.get("name") or "").strip()
@@ -592,7 +602,7 @@ def summarize_cmd(args: argparse.Namespace) -> int:
             "consensus_total": str(total_cons),
             "jaccard_topN_vs_ref": f"{jaccard:.6g}" if jaccard is not None else "",
             "logfc_r_topN_vs_ref": f"{logfc_r:.6g}" if logfc_r is not None else "",
-            "output": str(out),
+            "output": _public_path(out, anchor_dir),
         }
 
         run_summ_rows.append(out_row)
@@ -850,4 +860,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -920,7 +920,7 @@ CORE_R_PACKAGES = [
     "variancePartition",
     "pvca",
     "illuminaio",
-    "RefFreeEWAS",
+    "lme4",
     "Biobase",
     "reformulas",
     "ggplot2",
@@ -942,6 +942,7 @@ EPICV2_R_PACKAGES = [
     "IlluminaHumanMethylationEPICv2anno.20a1.hg38",
 ]
 OPTIONAL_R_PACKAGES = [
+    "RefFreeEWAS",
     "EpiDISH",
     "planet",
     "FlowSorted.Blood.EPIC",
@@ -1147,7 +1148,7 @@ def ensure_r_dependencies():
 
     log("[*] Ensuring R dependencies (this may take a few minutes on first run)...")
     try:
-        subprocess.run(["Rscript", SETUP_SCRIPT], check=True, env=env)
+        subprocess.run(["Rscript", SETUP_SCRIPT], check=True, env=env, timeout=7200)
         with open(SETUP_MARKER, "w") as f:
             f.write(f"setup completed at {datetime.now().isoformat()}\n")
             f.write(f"epicv2_required={1 if require_epicv2 else 0}\n")
@@ -1234,9 +1235,15 @@ def run_download(args):
     env = add_conda_paths(env)
 
     try:
-        subprocess.run(cmd, check=True, env=env)
+        subprocess.run(cmd, check=True, env=env, timeout=3600)
         log(f"[*] Download complete. Fill 'primary_group' in: {os.path.join(out_dir, 'configure.tsv')}")
         log("[*] Tip: you can auto-fill it during analysis with --auto-group/--group-column/--group-key.")
+    except KeyboardInterrupt:
+        log_err("\n[!] Download interrupted by user.")
+        sys.exit(130)
+    except subprocess.TimeoutExpired:
+        log_err("[!] Download timed out after 1 hour.")
+        sys.exit(1)
     except subprocess.CalledProcessError as e:
         log_err(f"[!] Error during download step: {e}")
         sys.exit(1)
@@ -1354,7 +1361,7 @@ def fetch_search_summaries(ids, email: str, sleep_s: float):
 
 
 def geo_suppl_url(gse_id: str) -> str:
-    if len(gse_id) < 4:
+    if not re.match(r'^GSE\d{1,8}$', gse_id):
         raise ValueError(f"Invalid GSE ID: {gse_id}")
     prefix = gse_id[:-3] + "nnn"
     return f"https://ftp.ncbi.nlm.nih.gov/geo/series/{prefix}/{gse_id}/suppl/"
@@ -1855,7 +1862,11 @@ def run_analysis(args):
         env["TMPDIR"] = os.path.abspath(args.tmp_dir)
         log(f"[*] Using custom temporary directory: {env['TMPDIR']}")
 
-    timeout_sec = int(os.environ.get("ILLUMETA_TIMEOUT", 86400))  # default 24h
+    try:
+        timeout_sec = int(os.environ.get("ILLUMETA_TIMEOUT", 86400))
+    except (ValueError, TypeError):
+        log_err("[!] ILLUMETA_TIMEOUT must be an integer (seconds). Using default 86400.")
+        timeout_sec = 86400
     try:
         subprocess.run(cmd, check=True, env=env, timeout=timeout_sec)
         log(f"[*] Analysis complete. Results are in: {output_dir}")
@@ -2070,7 +2081,7 @@ def _try_download(urls, dest_path):
     for url in urls:
         try:
             return _download_file(url, dest_path), url
-        except (URLError, HTTPError, TimeoutError) as err:
+        except (URLError, HTTPError, TimeoutError, ValueError) as err:
             last_err = err
             continue
     if last_err:
@@ -2260,6 +2271,7 @@ def generate_dashboard(output_dir, group_test, group_con):
     group_test = html.escape(str(group_test))
     group_con = html.escape(str(group_con))
     results_folder_name = os.path.basename(os.path.normpath(output_dir))
+    results_folder_name_html = html.escape(results_folder_name, quote=True)
     parent_dir = os.path.dirname(os.path.normpath(output_dir))
     dashboard_filename = f"{results_folder_name}_index.html"
     dashboard_path = os.path.join(parent_dir, dashboard_filename)
@@ -2726,7 +2738,7 @@ def generate_dashboard(output_dir, group_test, group_con):
     def pill_link(filename, label):
         fpath = os.path.join(output_dir, filename)
         if os.path.exists(fpath):
-            rel_path = f"{results_folder_name}/{filename}"
+            rel_path = f"{results_folder_name_html}/{html.escape(filename, quote=True)}"
             return f'<a class="pill" href="{rel_path}" target="_blank">{label}</a>'
         return f'<span class="pill muted">{label}</span>'
 
@@ -3329,7 +3341,7 @@ def generate_dashboard(output_dir, group_test, group_con):
             <div class="hero-top">
                 <div class="hero-eyebrow">IlluMeta Analysis</div>
                 <div class="hero-actions">
-                    <a class="icon-btn" href="{results_folder_name}/" title="Open results directory ({results_folder_name}/)">
+                    <a class="icon-btn" href="{results_folder_name_html}/" title="Open results directory ({results_folder_name_html}/)">
                         <svg viewBox="0 0 24 24" aria-hidden="true">
                             <path d="M10 4l2 2h8a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2h6z"></path>
                         </svg>
@@ -3398,11 +3410,11 @@ def generate_dashboard(output_dir, group_test, group_con):
             <div>
                 <div class="verdict-badge {verdict_class}" title="HIGH = Results are robust and suitable for publication. MODERATE = Usable results; review warnings carefully. LOW = Interpret with caution; significant limitations detected. EXPLORATORY = Hypothesis-generating only; not suitable for definitive conclusions.">{verdict} Confidence</div>
                 <div style="font-size:0.78rem;color:#555;margin:0.25rem 0 0.4rem;">{"Results are robust and suitable for publication." if verdict == "HIGH" else "Usable results; review warnings and consider validation." if verdict == "MODERATE" else "Interpret with caution; significant limitations detected." if verdict == "LOW" else "Hypothesis-generating only; not for definitive conclusions."}</div>
-                <div class="summary-meta">Samples: {total_samples} (Control {n_con} / Test {n_test}) · <span title="CRF tier reflects your study's statistical power based on sample size: Minimal (&lt;12), Small (12-23), Moderate (24-49), Large (&ge;50). Higher tiers enable more robust statistical checks.">Tier: {tier_label.upper() if tier_label else "N/A"}</span></div>
+                <div class="summary-meta">Samples: {_h(total_samples)} (Control {_h(n_con)} / Test {_h(n_test)}) · <span title="CRF tier reflects your study's statistical power based on sample size: Minimal (&lt;12), Small (12-23), Moderate (24-49), Large (&ge;50). Higher tiers enable more robust statistical checks.">Tier: {_h(tier_label.upper() if tier_label else "N/A")}</span></div>
                 <div class="summary-kpis">
                     <div class="kpi-card" title="The normalization pipeline used as the primary analysis branch. Results from this pipeline drive the executive summary metrics.">
                         <div class="kpi-label">Primary Branch</div>
-                        <div class="kpi-value">{primary_branch or "N/A"}</div>
+                        <div class="kpi-value">{_h(primary_branch or "N/A")}</div>
                     </div>
                     <div class="kpi-card" title="Number of consensus DMPs (differentially methylated positions) found significant in BOTH pipelines with concordant direction. These are your most reliable results.">
                         <div class="kpi-label">Intersection (Native)</div>
@@ -3494,35 +3506,35 @@ def generate_dashboard(output_dir, group_test, group_con):
         if analysis_params:
             html_parts.append('        <div class="metrics-card">\n')
             html_parts.append('            <div class="metrics-title">Analysis Parameters</div>\n')
-            html_parts.append(f'            <div class="metrics-row" title="FDR (False Discovery Rate): adjusted p-value threshold controlling for multiple testing. |logFC|: minimum log2 fold-change in methylation M-values. |DeltaBeta|: minimum absolute difference in beta-values (0-1 scale). Stricter thresholds yield fewer but more confident results."><span>FDR / |logFC| / |DeltaBeta|</span><span>{analysis_params.get("pval_threshold", "N/A")} / {analysis_params.get("lfc_threshold", "N/A")} / {analysis_params.get("delta_beta_threshold", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row" title="FDR (False Discovery Rate): adjusted p-value threshold controlling for multiple testing. |logFC|: minimum log2 fold-change in methylation M-values. |DeltaBeta|: minimum absolute difference in beta-values (0-1 scale). Stricter thresholds yield fewer but more confident results."><span>FDR / |logFC| / |DeltaBeta|</span><span>{_h(analysis_params.get("pval_threshold", "N/A"))} / {_h(analysis_params.get("lfc_threshold", "N/A"))} / {_h(analysis_params.get("delta_beta_threshold", "N/A"))}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Tissue</span><span>{_h(analysis_params.get("tissue", "N/A"))} ({_h(analysis_params.get("tissue_source", "N/A"))})</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Array type</span><span>{_h(analysis_params.get("array_type", "N/A"))}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row" title="Correction Robustness Framework tier. Minimal (<12): exploratory only, SVA disabled. Small (12-23): limited power. Moderate (24-49): full pipeline. Large (>=50): all checks powered."><span>CRF sample tier</span><span>{_h(analysis_params.get("crf_sample_tier", "N/A"))}</span></div>\n')
             cell_ref = analysis_params.get("cell_reference", "")
             cell_ref_platform = analysis_params.get("cell_reference_platform", "")
             cell_ref_label = "default" if not cell_ref else f"{cell_ref} ({cell_ref_platform or 'auto'})"
-            html_parts.append(f'            <div class="metrics-row"><span>Cell reference</span><span>{cell_ref_label}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Cell reference</span><span>{_h(cell_ref_label)}</span></div>\n')
             auto_cov_enabled = analysis_params.get("auto_covariates_enabled", "N/A")
             auto_cov_exclude = analysis_params.get("auto_covariates_exclude_group_associated", "N/A")
             auto_cov_p = analysis_params.get("auto_covariates_group_assoc_p_threshold", "N/A")
             auto_cov_cor = analysis_params.get("auto_covariates_max_cor", "N/A")
-            html_parts.append(f'            <div class="metrics-row"><span>Auto covariates</span><span>enabled={auto_cov_enabled}, alpha={analysis_params.get("auto_covariate_alpha", "N/A")}, max_pcs={analysis_params.get("auto_covariate_max_pcs", "N/A")}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>Auto covariate guards</span><span>exclude_group={auto_cov_exclude}, p&lt;{auto_cov_p}, max_cor={auto_cov_cor}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>Sesame native NA max</span><span>{analysis_params.get("sesame_native_na_max_frac", "N/A")}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>Over/Under guard</span><span>{analysis_params.get("overcorrection_guard_ratio", "N/A")} / {analysis_params.get("undercorrection_guard_min_sv", "N/A")}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>SVA</span><span>{analysis_params.get("sva_enabled", "N/A")} ({analysis_params.get("sva_inclusion_rule", "N/A")})</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>Clock covariates</span><span>{analysis_params.get("clock_covariates_enabled", "N/A")}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>SV group filter</span><span>P<{analysis_params.get("sv_group_p_threshold", "N/A")}, Eta^2>{analysis_params.get("sv_group_eta2_threshold", "N/A")}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>PVCA min n</span><span>{analysis_params.get("pvca_min_samples", "N/A")}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>DMR (maxgap/p)</span><span>{analysis_params.get("dmr_maxgap", "N/A")} / {analysis_params.get("dmr_p_cutoff", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Auto covariates</span><span>enabled={_h(auto_cov_enabled)}, alpha={_h(analysis_params.get("auto_covariate_alpha", "N/A"))}, max_pcs={_h(analysis_params.get("auto_covariate_max_pcs", "N/A"))}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Auto covariate guards</span><span>exclude_group={_h(auto_cov_exclude)}, p&lt;{_h(auto_cov_p)}, max_cor={_h(auto_cov_cor)}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Sesame native NA max</span><span>{_h(analysis_params.get("sesame_native_na_max_frac", "N/A"))}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Over/Under guard</span><span>{_h(analysis_params.get("overcorrection_guard_ratio", "N/A"))} / {_h(analysis_params.get("undercorrection_guard_min_sv", "N/A"))}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>SVA</span><span>{_h(analysis_params.get("sva_enabled", "N/A"))} ({_h(analysis_params.get("sva_inclusion_rule", "N/A"))})</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Clock covariates</span><span>{_h(analysis_params.get("clock_covariates_enabled", "N/A"))}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>SV group filter</span><span>P&lt;{_h(analysis_params.get("sv_group_p_threshold", "N/A"))}, Eta^2&gt;{_h(analysis_params.get("sv_group_eta2_threshold", "N/A"))}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>PVCA min n</span><span>{_h(analysis_params.get("pvca_min_samples", "N/A"))}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>DMR (maxgap/p)</span><span>{_h(analysis_params.get("dmr_maxgap", "N/A"))} / {_h(analysis_params.get("dmr_p_cutoff", "N/A"))}</span></div>\n')
             html_parts.append('        </div>\n')
         if qc_summary:
             html_parts.append('        <div class="metrics-card">\n')
             html_parts.append('            <div class="metrics-title">QC Summary</div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>Samples (pass/fail)</span><span>{qc_summary.get("Samples_passed_QC", "N/A")} / {qc_summary.get("Samples_failed_QC", "N/A")}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>Probes final</span><span>{qc_summary.get("Probes_final", "N/A")}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>Probes dropped (det/cross/SNP/sex)</span><span>{qc_summary.get("Probes_failed_detection", "N/A")} / {qc_summary.get("Probes_cross_reactive", "N/A")} / {qc_summary.get("Probes_with_SNPs", "N/A")} / {qc_summary.get("Probes_sex_chromosomes", "N/A")}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>Sex mismatches (flagged/dropped)</span><span>{qc_summary.get("Sex_mismatch_samples", "N/A")} / {qc_summary.get("Samples_failed_sex_mismatch", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Samples (pass/fail)</span><span>{_h(qc_summary.get("Samples_passed_QC", "N/A"))} / {_h(qc_summary.get("Samples_failed_QC", "N/A"))}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Probes final</span><span>{_h(qc_summary.get("Probes_final", "N/A"))}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Probes dropped (det/cross/SNP/sex)</span><span>{_h(qc_summary.get("Probes_failed_detection", "N/A"))} / {_h(qc_summary.get("Probes_cross_reactive", "N/A"))} / {_h(qc_summary.get("Probes_with_SNPs", "N/A"))} / {_h(qc_summary.get("Probes_sex_chromosomes", "N/A"))}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Sex mismatches (flagged/dropped)</span><span>{_h(qc_summary.get("Sex_mismatch_samples", "N/A"))} / {_h(qc_summary.get("Samples_failed_sex_mismatch", "N/A"))}</span></div>\n')
             html_parts.append('        </div>\n')
         html_parts.append('</div>')
 
@@ -3564,13 +3576,13 @@ def generate_dashboard(output_dir, group_test, group_con):
         extra_cell_files = []
 
     for fname in sorted(extra_cell_files):
-        run_docs.append((fname, f"{fname}", "Cell composition reference output (CSV).", "CSV"))
+        run_docs.append((fname, html.escape(fname), "Cell composition reference output (CSV).", "CSV"))
 
     doc_cards = []
     for fname, title, desc, badge in run_docs:
         fpath = os.path.join(output_dir, fname)
         if os.path.exists(fpath):
-            rel_path = f"{results_folder_name}/{fname}"
+            rel_path = f"{results_folder_name_html}/{html.escape(fname, quote=True)}"
             doc_cards.append((title, desc, rel_path, badge))
 
     # Build the documentation section HTML, but append it after the pipeline results
@@ -3617,20 +3629,20 @@ def generate_dashboard(output_dir, group_test, group_con):
         if metrics:
             html_parts.append('        <div class="metrics-card">\n')
             html_parts.append('            <div class="metrics-title">Model & Batch Summary</div>\n')
-            html_parts.append(f'            <div class="metrics-row" title="Genomic inflation factor. Ideal: 0.9-1.1. Values >1.2 suggest p-value inflation (possible batch effects or widespread signal). Values <0.9 suggest over-correction."><span>λ (inflation)</span><span>{metrics.get("lambda", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row" title="Genomic inflation factor. Ideal: 0.9-1.1. Values >1.2 suggest p-value inflation (possible batch effects or widespread signal). Values <0.9 suggest over-correction."><span>λ (inflation)</span><span>{_h(metrics.get("lambda", "N/A"))}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Batch method</span><span>{_h(metrics.get("batch_method_applied", "N/A"))}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Samples / CpGs</span><span>{_h(metrics.get("n_samples", "N/A"))} / {_h(metrics.get("n_cpgs", "N/A"))}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Covariates used (n)</span><span>{_h(metrics.get("n_covariates_used", "N/A"))}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Covariates used</span><span>{_h(metrics.get("covariates_used", "None") or "None")}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>SVs used</span><span>{metrics.get("n_sv_used", "0")}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>Batch p<0.05 (Before→After)</span><span>{metrics.get("batch_sig_p_lt_0.05_before", "N/A")} → {metrics.get("batch_sig_p_lt_0.05_after", "N/A")}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>Min batch p (Before→After)</span><span>{metrics.get("batch_min_p_before", "N/A")} → {metrics.get("batch_min_p_after", "N/A")}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>Group min p (Before→After)</span><span>{metrics.get("group_min_p_before", "N/A")} → {metrics.get("group_min_p_after", "N/A")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>SVs used</span><span>{_h(metrics.get("n_sv_used", "0"))}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Batch p&lt;0.05 (Before→After)</span><span>{_h(metrics.get("batch_sig_p_lt_0.05_before", "N/A"))} → {_h(metrics.get("batch_sig_p_lt_0.05_after", "N/A"))}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Min batch p (Before→After)</span><span>{_h(metrics.get("batch_min_p_before", "N/A"))} → {_h(metrics.get("batch_min_p_after", "N/A"))}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Group min p (Before→After)</span><span>{_h(metrics.get("group_min_p_before", "N/A"))} → {_h(metrics.get("group_min_p_after", "N/A"))}</span></div>\n')
             guidance = build_correction_guidance(metrics)
             if guidance:
                 html_parts.append(f'            <div class="metrics-row"><span>Correction guide</span><span>{_h(guidance)}</span></div>\n')
             if metrics.get("perm_mean_sig") is not None:
-                html_parts.append(f'            <div class="metrics-row"><span>Perm mean/max sig (null)</span><span>{metrics.get("perm_mean_sig", "N/A")} / {metrics.get("perm_max_sig", "N/A")}</span></div>\n')
+                html_parts.append(f'            <div class="metrics-row"><span>Perm mean/max sig (null)</span><span>{_h(metrics.get("perm_mean_sig", "N/A"))} / {_h(metrics.get("perm_max_sig", "N/A"))}</span></div>\n')
             lam_ratio = safe_float(metrics.get("lambda_ratio"))
             if lam_ratio is not None:
                 if lam_ratio > 2:
@@ -3646,7 +3658,7 @@ def generate_dashboard(output_dir, group_test, group_con):
                     f'<span>λ ratio (obs/null)</span><span>{lam_ratio:.2f} [{ratio_hint}]</span></div>\n'
                 )
             if metrics.get("vp_primary_group_mean") is not None:
-                html_parts.append(f'            <div class="metrics-row"><span>VarPart primary_group</span><span>{metrics.get("vp_primary_group_mean", "N/A")}</span></div>\n')
+                html_parts.append(f'            <div class="metrics-row"><span>VarPart primary_group</span><span>{_h(metrics.get("vp_primary_group_mean", "N/A"))}</span></div>\n')
             if metrics.get("dropped_covariates"):
                 html_parts.append(f'            <div class="metrics-row"><span>Dropped covariates</span><span>{_h(metrics.get("dropped_covariates"))}</span></div>\n')
             drop_reasons = load_drop_reasons(pipe_id)
@@ -3663,7 +3675,7 @@ def generate_dashboard(output_dir, group_test, group_con):
             for suffix, title, desc, badge in section_items:
                 filename = f"{pipe_id}{suffix}"
                 file_path = os.path.join(output_dir, filename)
-                rel_path = f"{results_folder_name}/{filename}"
+                rel_path = f"{results_folder_name_html}/{html.escape(filename, quote=True)}"
                 if os.path.exists(file_path):
                     card_index += 1
                     badge_class = f"badge-{badge.lower()}"

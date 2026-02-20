@@ -108,7 +108,7 @@ minfi_start <- Sys.time()
 
 tryCatch({
   cat("  Reading IDAT files...\n")
-  rgSet <- read.metharray(basenames, verbose = FALSE)
+  rgSet <- read.metharray(basenames, verbose = FALSE, force = TRUE)
 
   ann <- tryCatch(minfi::annotation(rgSet), error = function(e) NULL)
   if (!is.null(ann) && length(ann) >= 1) {
@@ -208,6 +208,14 @@ if (champ_available) {
 
     array_type <- if (!is.na(array_type_detected)) array_type_detected else "EPIC"
 
+    # Remove any extra CSV files in idat_dir that may confuse champ.load
+    all_csv <- normalizePath(list.files(idat_dir, pattern = "\\.csv$", full.names = TRUE, ignore.case = TRUE), mustWork = FALSE)
+    extra_csv <- setdiff(all_csv, normalizePath(champ_sheet, mustWork = FALSE))
+    if (length(extra_csv) > 0) {
+      cat("  Moving", length(extra_csv), "extra CSV file(s) to avoid champ.load confusion...\n")
+      for (f in extra_csv) file.rename(f, paste0(f, ".champ_bak"))
+    }
+
     cat("  Loading data with champ.load()...\n")
     myLoad <- suppressMessages(champ.load(
       directory = idat_dir,
@@ -218,8 +226,13 @@ if (champ_available) {
       filterBeads = FALSE,
       filterNoCG = TRUE,
       filterSNPs = TRUE,
-      arraytype = array_type
+      arraytype = array_type,
+      force = TRUE
     ))
+
+    # Restore backed-up CSV files
+    bak_files <- list.files(idat_dir, pattern = "\\.champ_bak$", full.names = TRUE)
+    for (f in bak_files) file.rename(f, sub("\\.champ_bak$", "", f))
 
     cat("  Normalization with champ.norm() (BMIQ)...\n")
     myNorm <- suppressMessages(champ.norm(
@@ -281,6 +294,13 @@ if (champ_available) {
     cat("  ERROR:", e$message, "\n")
     results$champ <<- list(error = e$message)
   })
+
+  # Always restore backed-up CSV files (even if ChAMP errored)
+  bak_files <- list.files(idat_dir, pattern = "\\.champ_bak$", full.names = TRUE)
+  if (length(bak_files) > 0) {
+    for (f in bak_files) file.rename(f, sub("\\.champ_bak$", "", f))
+    cat("  Restored", length(bak_files), "backed-up CSV file(s).\n")
+  }
 
 } else {
   cat("  ChAMP not installed, skipping...\n")

@@ -22,6 +22,34 @@ if (Sys.getenv("ILLUMETA_SESAME_SINGLE_THREAD", "1") == "1") {
   force_single_thread()
 }
 
+# ── Headless rendering ──────────────────────────────────────────────────────
+# ggplotly() internally opens a temporary graphics device.  On headless
+# systems (Docker, HPC, SSH) this fails with "X11 is not available" (Linux)
+# or "unable to open connection to QuartzCore" (macOS).  We detect whether a
+# working raster device is available and, if not, fall back to cairo or pdf.
+.illumeta_ensure_graphics_device <- function() {
+  # Quick probe: can the current default png() actually open?
+  ok <- tryCatch({
+    tf <- tempfile(fileext = ".png")
+    on.exit(unlink(tf), add = TRUE)
+    grDevices::png(tf, width = 1, height = 1)
+    grDevices::dev.off()
+    TRUE
+  }, error = function(e) FALSE)
+
+  if (ok) return(invisible(NULL))  # default device works — nothing to do
+
+  # Default device failed.  Try cairo, then pdf as last resort.
+  if (capabilities("cairo")) {
+    options(bitmapType = "cairo")
+    options(device = function(...) grDevices::png(type = "cairo", ...))
+  } else {
+    options(device = grDevices::pdf)
+  }
+  invisible(NULL)
+}
+.illumeta_ensure_graphics_device()
+
 suppressPackageStartupMessages(library(optparse))
 suppressPackageStartupMessages(library(minfi))
 suppressPackageStartupMessages(library(sesame))
@@ -311,8 +339,8 @@ CONFIG_DEFAULTS <- list(
     profile = "auto",
     target_fpr = 0.05,
     weights = list(
-      conservative = list(calibration = 0.40, preservation = 0.35, batch = 0.25),
-      discovery = list(calibration = 0.25, preservation = 0.25, batch = 0.50)
+      conservative = list(calibration = 0.40, preservation = 0.35, batch = 0.25, ncs = 0.00),
+      discovery = list(calibration = 0.25, preservation = 0.25, batch = 0.50, ncs = 0.00)
     )
   ),
   crf = list(
@@ -1938,9 +1966,10 @@ fmt_val <- function(x, digits = 3) {
 }
 
 resolve_caf_weights <- function(caf_cfg, preset_name = "conservative") {
-  # Default CAF weights now include NCS (negative-control stability) as an optional component.
-  # If NCS is unavailable, CAI is computed from the remaining finite components and weights are renormalized.
-  default_weights <- c(calibration = 0.35, preservation = 0.30, batch = 0.25, ncs = 0.10)
+  # Conservative default keeps the original 3-term CAI definition.
+  # NCS is optional and contributes only when explicitly given a non-zero weight.
+  # If any component is unavailable, finite components are renormalized in compute_caf_scores().
+  default_weights <- c(calibration = 0.40, preservation = 0.35, batch = 0.25, ncs = 0.00)
   if (is.null(caf_cfg)) return(default_weights)
   profile <- ifelse(is.null(caf_cfg$profile), "auto", tolower(as.character(caf_cfg$profile)))
   if (profile == "auto") {

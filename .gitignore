@@ -66,5 +66,6 @@ scripts/sanitize_publication_assets.py
 benchmarks/application_note/
 benchmarks/paper_figures/
 benchmarks/subsampling_robustness/
+docs/submission_package/
 *Application_Note*.docx
 *Supplementary_Data*.docx

@@ -551,9 +551,18 @@ log_decision <- function(stage, decision, value, reason = "", metrics = NULL) {
   )
 }
 
-safe_ebayes <- function(fit, label = "") {
+safe_ebayes <- function(fit, label = "", robust = TRUE) {
   if (is.null(fit)) return(NULL)
-  out <- tryCatch(eBayes(fit), error = function(e) {
+  out <- tryCatch(eBayes(fit, robust = robust), error = function(e) {
+    if (robust) {
+      # Retry without robust if it fails (e.g., too few residuals)
+      out2 <- tryCatch(eBayes(fit, robust = FALSE), error = function(e2) NULL)
+      if (!is.null(out2)) {
+        msg <- if (nzchar(label)) paste0(label, ": ") else ""
+        message("  eBayes robust=TRUE failed; falling back to robust=FALSE: ", msg, conditionMessage(e))
+        return(out2)
+      }
+    }
     msg <- if (nzchar(label)) paste0(label, ": ") else ""
     message("  eBayes skipped: ", msg, conditionMessage(e))
     return(NULL)
@@ -2968,7 +2977,11 @@ auto_detect_covariates <- function(targets, gsm_col, pca_scores, alpha=AUTO_COVA
     min_pc <- if (all(is.na(p_vec))) NA_integer_ else which.min(p_vec)[1]
 
     log_df <- rbind(log_df, data.frame(Variable = col, MinP = min_p, MinPC = min_pc, Type = vtype))
-    if (min_p < alpha) keep <- c(keep, col)
+    # Bonferroni-correct alpha over the number of PCs tested to control
+    # the per-variable false selection rate (min-p across PCs is anti-conservative).
+    n_pcs_tested <- sum(is.finite(p_vec))
+    adj_alpha <- if (n_pcs_tested > 1) alpha / n_pcs_tested else alpha
+    if (min_p < adj_alpha) keep <- c(keep, col)
   }
   
   return(list(selected = keep, log = log_df))
@@ -9359,8 +9372,13 @@ run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
 
     consensus_df <- concord[is_up | is_down, , drop = FALSE]
     consensus_df$logFC_mean <- rowMeans(consensus_df[, c("logFC.Minfi", "logFC.Sesame")], na.rm = TRUE)
-    consensus_df$P.Value <- pmax(consensus_df$P.Value.Minfi, consensus_df$P.Value.Sesame, na.rm = TRUE)
-    consensus_df$adj.P.Val <- pmax(consensus_df$adj.P.Val.Minfi, consensus_df$adj.P.Val.Sesame, na.rm = TRUE)
+    # Use Fisher combined p-value as the consensus statistic (more principled
+    # than pmax; already computed above for the full concordance table).
+    consensus_df$P.Value <- consensus_df$P.Fisher
+    consensus_df$adj.P.Val <- p.adjust(consensus_df$P.Fisher, "BH")
+    # Retain per-pipeline max as legacy columns for backwards compatibility
+    consensus_df$P.Value.max <- pmax(consensus_df$P.Value.Minfi, consensus_df$P.Value.Sesame, na.rm = TRUE)
+    consensus_df$adj.P.Val.max <- pmax(consensus_df$adj.P.Val.Minfi, consensus_df$adj.P.Val.Sesame, na.rm = TRUE)
     consensus_df <- consensus_df[order(consensus_df$P.Value, consensus_df$adj.P.Val), , drop = FALSE]
 
     out_cons_csv <- file.path(out_dir, paste0(prefix, "_Consensus_DMPs.csv"))
@@ -9989,7 +10007,7 @@ tryCatch({
     sprintf("- **sesame native view**: probes with <= %.2f missingness are retained; remaining NAs are imputed via KNN (impute::impute.knn, k=%d) when available, with row-mean fallback if KNN is unavailable.", SESAME_NATIVE_NA_MAX_FRAC, SESAME_NATIVE_KNN_K),
     "",
     "## Covariates and batch control",
-    sprintf("- Automatic covariate discovery: metadata variables associated with the top PCs (alpha=%.3f; up to %d PCs) are considered, then filtered for stability/confounding.", AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION),
+    sprintf("- Automatic covariate discovery: metadata variables associated with the top PCs (alpha=%.3f, Bonferroni-corrected over %d PCs; effective alpha=%.4f) are considered, then filtered for stability/confounding.", AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION, AUTO_COVARIATE_ALPHA / MAX_PCS_FOR_COVARIATE_DETECTION),
     sprintf("- Auto covariate guard: variables associated with the group (p < %.1g) are excluded by default.", auto_cov_group_p),
     "- Auto-selected covariates may include mediators; verify biological plausibility before interpretation.",
     "- Small-n safeguard: if covariate count would eliminate residual degrees of freedom, covariates are capped using PC-association/variance ranking to preserve model stability.",
@@ -10013,7 +10031,7 @@ tryCatch({
     "",
     "## Differential methylation (DMP)",
     sprintf("- Beta values are transformed to M-values with a logit offset of %.6f.", LOGIT_OFFSET),
-    "- Differential methylation is tested using limma (`lmFit`/`eBayes`) with a group contrast (test - control).",
+    "- Differential methylation is tested using limma (`lmFit`/`eBayes(robust=TRUE)`) with a group contrast (test - control).",
     "- Multiple testing is controlled by Benjamini-Hochberg FDR.",
     "",
     "## Differentially methylated regions (DMR)",
@@ -10022,7 +10040,7 @@ tryCatch({
     "## Consensus (intersection) call set",
     "- Consensus DMPs are defined as CpGs significant in **both** minfi and sesame with the **same direction** under the same thresholds.",
     "- Intersection is intended as a high-confidence subset; pipeline-specific results may capture additional true positives and are reported as sensitivity/discovery sets.",
-    "- Intersection tables include Fisher-combined P-values as a heuristic cross-pipeline signal summary.",
+    "- Consensus P-values are computed using Fisher's combined probability test (chi-squared, df=4) across both pipelines, with separate Benjamini-Hochberg FDR correction.",
     "- Consensus is computed for both the strict (Minfi-aligned) and native Sesame views.",
     "- Consensus outputs: `Intersection_Consensus_DMPs.*` and `Intersection_Native_Consensus_DMPs.*`, plus concordance/overlap plots.",
     "- Primary branch is selected by the optimization score (see `results/consensus/primary_branch.txt`); the other branch is reported as sensitivity.",

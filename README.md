@@ -185,7 +185,7 @@ python3 illumeta.py download GSE66313 -o projects/GSE66313
 python3 illumeta.py analysis -i projects/GSE66313 \
   --group_con Control --group_test Case \
   --auto-group --group-column source_name_ch1 \
-  --group-map "Adjacent-Normal=Control;DCIS=Case" \
+  --group-map "Adjacent-Normal=Control,DCIS=Case" \
   --tier3-on-fail skip  # skip stratified analysis if batch confounding detected
 ```
 
@@ -978,7 +978,7 @@ docker run --rm -it -v "$PWD":/app illumeta analysis \
   --group_con Control \
   --group_test Case \
   --auto-group --group-column source_name_ch1 \
-  --group-map "Adjacent-Normal=Control;DCIS=Case" \
+  --group-map "Adjacent-Normal=Control,DCIS=Case" \
   --tier3-on-fail skip  # skip stratified analysis if batch confounding detected
 ```
 
@@ -1023,7 +1023,7 @@ python3 illumeta.py analysis \
   --group_con Control \
   --group_test Case \
   --auto-group --group-column source_name_ch1 \
-  --group-map "Adjacent-Normal=Control;DCIS=Case" \
+  --group-map "Adjacent-Normal=Control,DCIS=Case" \
   --tier3-on-fail skip  # skip stratified analysis if batch confounding detected
 ```
 If you filled `primary_group` manually (Option A), you can omit the `--auto-group` flags.
@@ -1036,7 +1036,7 @@ python3 illumeta.py analysis \
   --group_con Control \
   --group_test Case \
   --auto-group --group-column source_name_ch1 \
-  --group-map "Adjacent-Normal=Control;DCIS=Case" \
+  --group-map "Adjacent-Normal=Control,DCIS=Case" \
   --tier3-on-fail skip \
   --marker-list markers.tsv
 ```
@@ -1134,7 +1134,7 @@ If your metadata already contains a reliable group column, IlluMeta can populate
 python3 illumeta.py analysis -i projects/GSE12345 \
   --group_con Control --group_test Case \
   --auto-group --group-column disease_state \
-  --group-map "normal=Control;tumor=Case"
+  --group-map "normal=Control,tumor=Case"
 ```
 For GEO characteristics, use a key (parsed from `key: value` patterns):
 ```bash
@@ -1152,7 +1152,7 @@ Auto-group prioritizes columns with high coverage and low category counts; numer
 ```bash
 # Auto-group from a metadata column
 python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case \
-  --auto-group --group-column disease_state --group-map "normal=Control;tumor=Case"
+  --auto-group --group-column disease_state --group-map "normal=Control,tumor=Case"
 
 # Tighten thresholds
 python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --pval 0.01 --lfc 1.0
@@ -1486,7 +1486,7 @@ Common issues:
 - **Model matrix errors** (`contrasts can be applied only to factors with 2 or more levels`): IlluMeta drops single-level covariates after NA filtering and during batch evaluation. Check `decision_ledger.tsv` for dropped covariates; remove or merge constant columns in `configure.tsv` if the issue persists.
 - **`eBayes` failures** (`No finite residual standard deviations`): this can happen with very small n or near-zero variance after correction. IlluMeta skips stability scoring in those cases; consider reducing covariates or disabling batch correction for tiny cohorts.
 - **Mixed array sizes**: by default, IlluMeta drops samples that deviate from the modal array size; use `--force-idat` only when appropriate.
-- **Missing IDAT pairs**: IlluMeta now auto-filters samples with incomplete `_Grn/_Red` pairs during preflight and logs the decision in `preflight_report.json`. If you prefer to fail instead, use `--keep-missing-idat`.
+- **Missing IDAT pairs**: IlluMeta now auto-filters samples with incomplete `_Grn/_Red` pairs during preflight and logs the decision in `preflight_report.json`. If you prefer to fail instead, use `--fail-on-missing-idat`.
 - **Reference package unavailable** (e.g., FlowSorted.* not in your Bioconductor): IlluMeta falls back to RefFreeEWAS; consider `--cell-reference` or upgrading R/Bioconductor.
 - **Sesame: `No normalization control probes found!`**: some EPIC IDATs do not include normalization controls or the cache is stale. IlluMeta now attempts a one-time refresh of `EPIC.1.SigDF` and retries automatically; you can also run `R -q -e 'library(sesame); sesameDataCache("EPIC.1.SigDF")'` manually. If it persists, IlluMeta continues without dye bias correction (or use `--skip-sesame`).
 - **CSV configure file**: IlluMeta requires `configure.tsv` to be **tab-delimited**. Convert CSV to TSV and retry.
@@ -1608,13 +1608,13 @@ python3 illumeta.py analysis -i projects/GSE12345 \
 
 On certain R installations (particularly with OpenBLAS or non-standard threading configurations), Sesame's internal parallelization may trigger `pthread` errors or segmentation faults. IlluMeta automatically:
 1. Detects these errors during Sesame normalization
-2. Falls back to single-threaded mode (`SESAME_NTHREAD=1`)
+2. Falls back to single-threaded mode (`ILLUMETA_SESAME_SINGLE_THREAD=1`)
 3. Retries the normalization
 
 If you see warnings like `"pthread_create: Resource temporarily unavailable"` or `"caught segfault"`, IlluMeta handles these gracefully. To force single-threaded mode from the start:
 
 ```bash
-SESAME_NTHREAD=1 python3 illumeta.py analysis ...
+ILLUMETA_SESAME_SINGLE_THREAD=1 python3 illumeta.py analysis ...
 ```
 
 ### Small sample size limitations
@@ -1645,7 +1645,7 @@ IlluMeta supports EPIC v2 arrays with automatic manifest detection. However:
 
 When analyzing studies with multiple batches:
 - ComBat assumes balanced designs; highly imbalanced batches may introduce bias
-- For >=3 batches with small per-batch n, consider stratified analysis (`--tier3-batch`)
+- For >=3 batches with small per-batch n, use `--tier3-on-fail skip` if Tier 3 stratification is ineligible
 - Cross-platform (450K + EPIC) studies should subset to overlapping probes first
 
 ## Citing IlluMeta

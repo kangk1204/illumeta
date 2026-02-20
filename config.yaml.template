@@ -141,7 +141,7 @@ lambda_guard:
   enabled: true
   threshold: 1.5
   min_samples: 8
-  action: warn  # none | warn | warn_simplify | simplify
+  action: warn_simplify  # none | warn | warn_simplify | simplify
 
 sva:
   group_p_threshold: 1.0e-6

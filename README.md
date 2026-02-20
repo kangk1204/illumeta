@@ -245,8 +245,9 @@ python3 illumeta.py doctor
 
 ### For Experts
 - **Dual-pipeline design**: Runs **Minfi** and **SeSAMe** preprocessing in parallel with strict/native SeSAMe views
-- **Consensus calling**: High-confidence results where both methods agree
+- **Consensus calling**: High-confidence results where both methods agree (Fisher's combined P-value)
 - **Adaptive batch correction**: Automatically selects optimal method (SVA/ComBat/limma)
+- **Bonferroni-corrected covariate selection**: PC-association screening with α/nPCs correction
 - **CRF robustness framework**: Sample-size-adaptive quality assessment
 - **Full reproducibility**: All parameters and decisions logged
 
@@ -254,10 +255,11 @@ python3 illumeta.py doctor
 <summary><strong>🔬 Technical highlights (click to expand)</strong></summary>
 
 - **Two independent pipelines**: Minfi (Noob) and Sesame run side-by-side; Sesame reports both strict (Minfi-aligned) and native (pOOBAH-preserving) views.
-- **High-confidence consensus**: CpGs significant in BOTH pipelines with the SAME direction.
+- **High-confidence consensus**: CpGs significant in BOTH pipelines with the SAME direction; consensus P-values via Fisher's combined probability test (χ², df=4) with genome-wide BH FDR correction.
 - **Batch handling**: Evaluates correction strategies (SVA/ComBat/limma) when a batch factor exists.
 - **CRF**: Sample-size-adaptive robustness report (MMC/NCS/SSS/CVD) with tiered warnings.
-- **Defensive stats**: Guards against low-variance or single-group covariates.
+- **Covariate selection**: PC-association screening uses Bonferroni-corrected α (0.01/5 PCs = 0.002 effective) to control false covariate inclusion.
+- **Defensive stats**: Guards against low-variance or single-group covariates; uses `eBayes(robust=TRUE)` with automatic standard-eBayes fallback.
 - **Executive dashboard**: Verdict + CRF quick stats + warnings at the top.
 - **Paper-ready outputs**: HTML + PNG figures, methods.md, summary.json, sessionInfo.txt.
 
@@ -287,7 +289,7 @@ Input: IDAT files + sample sheet
     │                │   │  as Minfi        │   │  probe set (wider)    │
     └───────┬────────┘   └────────┬─────────┘   └──────────┬────────────┘
             │                     │                        │
-            ├── Auto-covariate selection (PCA + PVCA)      │
+            ├── Auto-covariate selection (PC assoc., Bonferroni α) │
             ├── Batch evaluation (SVA / ComBat / limma)    │
             ├── DMP analysis (limma) + lambda QC           │
             ├── DMR analysis (dmrff)                       │
@@ -1451,6 +1453,8 @@ For each pipeline (`Minfi`, `Sesame` = strict/Minfi-aligned, `Sesame_Native` = n
 - `Intersection*_LogFC_Concordance.html/.png` (minfi vs sesame logFC concordance)
 - `Intersection*_Significant_Overlap.html/.png` (significant counts and overlap)
 > Tip: treat `Intersection_Native_*` as the primary consensus call set, and `Intersection_Consensus_*` (strict) as a conservative sensitivity set. The intersection is intentionally conservative.
+>
+> **Column note**: `P.Value` and `adj.P.Val` in the consensus CSV are Fisher's combined probability (χ², df=4) across both pipelines, BH FDR-adjusted genome-wide. Per-pipeline maximum p-values are retained as `P.Value.max` and `adj.P.Val.max` for backward compatibility.
 
 ## Troubleshooting
 
@@ -1484,7 +1488,7 @@ Common issues:
 - **Too few samples after QC**: IlluMeta stops if total n is too small for reliable stats; inspect `QC_Summary.csv` and consider adjusting `--qc-intensity-threshold` (or disable by setting `--qc-intensity-threshold 0`).
 - **ComBat covariate confounding** (`At least one covariate is confounded with batch`): IlluMeta now auto-drops batch-confounded covariates for ComBat and falls back to limma/none if needed. Check `*_BatchMethodComparison.csv` and `*_Metrics.csv` to see the applied method.
 - **Model matrix errors** (`contrasts can be applied only to factors with 2 or more levels`): IlluMeta drops single-level covariates after NA filtering and during batch evaluation. Check `decision_ledger.tsv` for dropped covariates; remove or merge constant columns in `configure.tsv` if the issue persists.
-- **`eBayes` failures** (`No finite residual standard deviations`): this can happen with very small n or near-zero variance after correction. IlluMeta skips stability scoring in those cases; consider reducing covariates or disabling batch correction for tiny cohorts.
+- **`eBayes` failures** (`No finite residual standard deviations`): IlluMeta uses `eBayes(robust=TRUE)` by default; if that fails (e.g., too few residual degrees of freedom), it automatically retries with standard `eBayes`. If both fail, results are skipped for that pipeline and a message is logged. For tiny cohorts, consider reducing covariates or disabling batch correction.
 - **Mixed array sizes**: by default, IlluMeta drops samples that deviate from the modal array size; use `--force-idat` only when appropriate.
 - **Missing IDAT pairs**: IlluMeta now auto-filters samples with incomplete `_Grn/_Red` pairs during preflight and logs the decision in `preflight_report.json`. If you prefer to fail instead, use `--fail-on-missing-idat`.
 - **Reference package unavailable** (e.g., FlowSorted.* not in your Bioconductor): IlluMeta falls back to RefFreeEWAS; consider `--cell-reference` or upgrading R/Bioconductor.

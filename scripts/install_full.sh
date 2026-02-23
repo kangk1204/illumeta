@@ -231,6 +231,19 @@ export ILLUMETA_INSTALL_DEVTOOLS="${ILLUMETA_INSTALL_DEVTOOLS:-${INSTALL_DEVTOOL
 export ILLUMETA_INSTALL_CLOCKS="${ILLUMETA_INSTALL_CLOCKS:-${INSTALL_CLOCKS}}"
 export ILLUMETA_REQUIRE_EPICV2="${ILLUMETA_REQUIRE_EPICV2:-${INSTALL_EPICV2}}"
 
+# macOS: pre-install R packages that frequently fail to compile from source
+# (stringi needs ICU, textshaping/ragg/systemfonts need system graphics libs).
+# Conda prebuilt binaries bypass these compilation issues entirely.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  echo "[*] macOS detected — installing prebuilt R packages via conda to avoid compilation errors..."
+  "${CONDA_BIN}" install -n "${ENV_NAME}" -c conda-forge -y \
+    r-stringi r-stringr r-tidyr r-rvest r-selectr \
+    r-textshaping r-ragg r-systemfonts r-plotly 2>&1 || {
+    echo "[!] Warning: some prebuilt R packages failed to install via conda."
+    echo "    R setup_env.R will attempt source compilation as fallback."
+  }
+fi
+
 echo "[*] Running R setup_env.R..."
 "${CONDA_BIN}" run -n "${ENV_NAME}" Rscript "${ROOT_DIR}/r_scripts/setup_env.R"
 

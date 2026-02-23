@@ -26,7 +26,7 @@ max_per_group <- if (length(args) >= 5 && nzchar(args[5])) as.integer(args[5]) e
 sample_sheet <- if (length(args) >= 6 && nzchar(args[6])) args[6] else file.path(idat_dir, "SampleSheet.csv")
 seed <- if (length(args) >= 7 && nzchar(args[7])) as.integer(args[7]) else 42
 
-run_limma_dmp <- function(beta, groups) {
+run_limma_dmp <- function(beta, groups, group_con = "", group_test = "") {
   groups <- as.factor(groups)
   design <- model.matrix(~ 0 + groups)
   colnames(design) <- make.names(levels(groups))
@@ -35,7 +35,21 @@ run_limma_dmp <- function(beta, groups) {
   mvals[is.infinite(mvals)] <- NA
   mvals <- mvals[complete.cases(mvals), ]
   fit <- lmFit(mvals, design)
-  contrast_str <- paste0(colnames(design)[2], "-", colnames(design)[1])
+  # Prefer explicit Test-Control direction when group labels are provided.
+  if (nzchar(group_con) && nzchar(group_test)) {
+    con_name <- make.names(group_con)
+    test_name <- make.names(group_test)
+    if (!(con_name %in% colnames(design)) || !(test_name %in% colnames(design))) {
+      stop(sprintf(
+        "Group labels not found in design matrix for fallback limma. control='%s' (as '%s'), test='%s' (as '%s'), available=[%s]",
+        group_con, con_name, group_test, test_name, paste(colnames(design), collapse = ", ")
+      ))
+    }
+    contrast_str <- paste0(test_name, "-", con_name)
+  } else {
+    contrast_str <- paste0(colnames(design)[2], "-", colnames(design)[1])
+    warning("run_limma_dmp: group labels not provided; contrast defaults to second-first factor level.")
+  }
   cm <- makeContrasts(contrasts = contrast_str, levels = design)
   fit2 <- contrasts.fit(fit, cm)
   fit2 <- eBayes(fit2)
@@ -266,7 +280,12 @@ if (champ_available) {
     }
 
     if (is.null(dmps_champ)) {
-      dmps_champ <- run_limma_dmp(myNorm, myLoad$pd$Sample_Group)
+      dmps_champ <- run_limma_dmp(
+        myNorm,
+        myLoad$pd$Sample_Group,
+        group_con = group_con,
+        group_test = group_test
+      )
     }
 
     champ_end <- Sys.time()

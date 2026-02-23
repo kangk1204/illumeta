@@ -13,7 +13,7 @@ WORKDIR /app
 COPY . /app
 
 # Pre-install R/Bioconductor dependencies inside the container.
-RUN micromamba run -n illumeta ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R
+RUN ILLUMETA_FORCE_SETUP=1 micromamba run -n illumeta Rscript r_scripts/setup_env.R
 
 ENTRYPOINT ["micromamba", "run", "-n", "illumeta", "python3", "illumeta.py"]
 CMD ["--help"]

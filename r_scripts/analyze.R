@@ -9372,15 +9372,18 @@ run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
 
     consensus_df <- concord[is_up | is_down, , drop = FALSE]
     consensus_df$logFC_mean <- rowMeans(consensus_df[, c("logFC.Minfi", "logFC.Sesame")], na.rm = TRUE)
-    # Use Fisher combined p-value as the consensus statistic (more principled
-    # than pmax; already computed above for the full concordance table).
+    # Use Fisher combined p-value as the consensus ranking statistic.
+    # Selection itself is still based on per-pipeline significance + direction
+    # (is_up / is_down defined above).
     consensus_df$P.Value <- consensus_df$P.Fisher
     # Use genome-wide BH-corrected Fisher p-values (computed on the full
     # concordance table, not just the consensus subset) for proper FDR control.
     consensus_df$adj.P.Val <- consensus_df$adj.P.Fisher
-    # Retain per-pipeline max as legacy columns for backwards compatibility
+    # Retain selection-rule p-values explicitly for transparency/back-compat.
     consensus_df$P.Value.max <- pmax(consensus_df$P.Value.Minfi, consensus_df$P.Value.Sesame, na.rm = TRUE)
     consensus_df$adj.P.Val.max <- pmax(consensus_df$adj.P.Val.Minfi, consensus_df$adj.P.Val.Sesame, na.rm = TRUE)
+    consensus_df$P.Value.selection <- consensus_df$P.Value.max
+    consensus_df$adj.P.Val.selection <- consensus_df$adj.P.Val.max
     consensus_df <- consensus_df[order(consensus_df$P.Value, consensus_df$adj.P.Val), , drop = FALSE]
 
     out_cons_csv <- file.path(out_dir, paste0(prefix, "_Consensus_DMPs.csv"))
@@ -10009,7 +10012,7 @@ tryCatch({
     sprintf("- **sesame native view**: probes with <= %.2f missingness are retained; remaining NAs are imputed via KNN (impute::impute.knn, k=%d) when available, with row-mean fallback if KNN is unavailable.", SESAME_NATIVE_NA_MAX_FRAC, SESAME_NATIVE_KNN_K),
     "",
     "## Covariates and batch control",
-    sprintf("- Automatic covariate discovery: metadata variables associated with the top PCs (alpha=%.3f, Bonferroni-corrected over %d PCs; effective alpha=%.4f) are considered, then filtered for stability/confounding.", AUTO_COVARIATE_ALPHA, MAX_PCS_FOR_COVARIATE_DETECTION, AUTO_COVARIATE_ALPHA / MAX_PCS_FOR_COVARIATE_DETECTION),
+    sprintf("- Automatic covariate discovery: metadata variables associated with the top PCs (base alpha=%.3f) are considered; per-variable significance is Bonferroni-corrected by the number of finite PCs tested for that variable (effective alpha = alpha / n_tested_PCs), then filtered for stability/confounding.", AUTO_COVARIATE_ALPHA),
     sprintf("- Auto covariate guard: variables associated with the group (p < %.1g) are excluded by default.", auto_cov_group_p),
     "- Auto-selected covariates may include mediators; verify biological plausibility before interpretation.",
     "- Small-n safeguard: if covariate count would eliminate residual degrees of freedom, covariates are capped using PC-association/variance ranking to preserve model stability.",
@@ -10042,7 +10045,7 @@ tryCatch({
     "## Consensus (intersection) call set",
     "- Consensus DMPs are defined as CpGs significant in **both** minfi and sesame with the **same direction** under the same thresholds.",
     "- Intersection is intended as a high-confidence subset; pipeline-specific results may capture additional true positives and are reported as sensitivity/discovery sets.",
-    "- Consensus P-values are computed using Fisher's combined probability test (chi-squared, df=4) across both pipelines, with separate Benjamini-Hochberg FDR correction.",
+    "- Consensus table ranking uses Fisher's combined probability test (chi-squared, df=4) with genome-wide Benjamini-Hochberg FDR (`P.Value`/`adj.P.Val`). Selection-rule p-values are retained as `P.Value.selection` and `adj.P.Val.selection` (also mirrored in `*.max` legacy columns).",
     "- Consensus is computed for both the strict (Minfi-aligned) and native Sesame views.",
     "- Consensus outputs: `Intersection_Consensus_DMPs.*` and `Intersection_Native_Consensus_DMPs.*`, plus concordance/overlap plots.",
     "- Primary branch is selected by the optimization score (see `results/consensus/primary_branch.txt`); the other branch is reported as sensitivity.",

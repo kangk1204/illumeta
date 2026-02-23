@@ -158,10 +158,8 @@ which python3
 which Rscript
 # If you see /usr/bin/... here, your conda env is NOT active (restart your shell after `conda init`).
 
-# (macOS only) If you hit compilation errors (e.g., stringi/textshaping/ragg), install prebuilt conda binaries and retry:
+# (macOS only — REQUIRED) Pre-install R packages that fail to compile from source on Apple Silicon:
 # conda install -c conda-forge r-stringi r-stringr r-tidyr r-plotly r-selectr r-rvest r-textshaping r-ragg r-systemfonts
-# Then rerun:
-# Rscript r_scripts/setup_env.R
 
 # 2) Install R packages (takes 10-30 min)
 Rscript r_scripts/setup_env.R
@@ -247,7 +245,7 @@ python3 illumeta.py doctor
 - **Dual-pipeline design**: Runs **Minfi** and **SeSAMe** preprocessing in parallel with strict/native SeSAMe views
 - **Consensus calling**: High-confidence results where both methods agree (Fisher's combined P-value)
 - **Adaptive batch correction**: Automatically selects optimal method (SVA/ComBat/limma)
-- **Bonferroni-corrected covariate selection**: PC-association screening with α/nPCs correction
+- **Bonferroni-corrected covariate selection**: PC-association screening with per-variable α/n_tested_PCs correction
 - **CRF robustness framework**: Sample-size-adaptive quality assessment
 - **Full reproducibility**: All parameters and decisions logged
 
@@ -258,7 +256,7 @@ python3 illumeta.py doctor
 - **High-confidence consensus**: CpGs significant in BOTH pipelines with the SAME direction; consensus P-values via Fisher's combined probability test (χ², df=4) with genome-wide BH FDR correction.
 - **Batch handling**: Evaluates correction strategies (SVA/ComBat/limma) when a batch factor exists.
 - **CRF**: Sample-size-adaptive robustness report (MMC/NCS/SSS/CVD) with tiered warnings.
-- **Covariate selection**: PC-association screening uses Bonferroni-corrected α (0.01/5 PCs = 0.002 effective) to control false covariate inclusion.
+- **Covariate selection**: PC-association screening uses Bonferroni-corrected α per variable (`alpha / n_tested_PCs`) to control false covariate inclusion.
 - **Defensive stats**: Guards against low-variance or single-group covariates; uses `eBayes(robust=TRUE)` with automatic standard-eBayes fallback.
 - **Executive dashboard**: Verdict + CRF quick stats + warnings at the top.
 - **Paper-ready outputs**: HTML + PNG figures, methods.md, summary.json, sessionInfo.txt.
@@ -1065,7 +1063,7 @@ Open the generated HTML:
 | File | What it contains | When to use it |
 |------|------------------|----------------|
 | `*_index.html` | Interactive dashboard | First look at results |
-| `Intersection_Consensus_DMPs.csv` | High-confidence DMPs | Primary results for paper |
+| `Intersection_Native_Consensus_DMPs.csv` | High-confidence DMPs (native consensus) | Primary results for paper |
 | `*_Volcano.html` | Effect size vs significance plot | Visualize overall signal |
 | `*_Manhattan.html` | Genomic distribution of hits | Check for regional enrichment |
 | `methods.md` | Auto-generated methods text | Copy to your paper |
@@ -1454,7 +1452,7 @@ For each pipeline (`Minfi`, `Sesame` = strict/Minfi-aligned, `Sesame_Native` = n
 - `Intersection*_Significant_Overlap.html/.png` (significant counts and overlap)
 > Tip: treat `Intersection_Native_*` as the primary consensus call set, and `Intersection_Consensus_*` (strict) as a conservative sensitivity set. The intersection is intentionally conservative.
 >
-> **Column note**: `P.Value` and `adj.P.Val` in the consensus CSV are Fisher's combined probability (χ², df=4) across both pipelines, BH FDR-adjusted genome-wide. Per-pipeline maximum p-values are retained as `P.Value.max` and `adj.P.Val.max` for backward compatibility.
+> **Column note**: `P.Value` and `adj.P.Val` in the consensus CSV are Fisher's combined probability (χ², df=4) across both pipelines, BH FDR-adjusted genome-wide. Selection-rule p-values are provided as `P.Value.selection` / `adj.P.Val.selection` (and mirrored as legacy `P.Value.max` / `adj.P.Val.max`).
 
 ## Troubleshooting
 
@@ -1474,7 +1472,7 @@ Common issues:
 - **OpenMP / `libomp` errors** (macOS): install `libomp` (`brew install libomp`) and rerun setup.
 - **`clang: error: unsupported option '-fopenmp'`** (macOS, often `data.table`): install LLVM and rerun setup with Homebrew clang:
   `brew install llvm && CC=/opt/homebrew/opt/llvm/bin/clang CXX=/opt/homebrew/opt/llvm/bin/clang++ Rscript r_scripts/setup_env.R`.
-- **`stringi` configure: `cannot run C++ compiled programs`** (macOS conda): install prebuilt R packages in the conda env, then rerun setup:
+- **`stringi` configure: `cannot run C++ compiled programs`** (macOS conda): Option A (`install_full.sh`) handles this automatically. For Option B, install prebuilt R packages before running setup_env.R:
   `conda install -c conda-forge r-stringi r-stringr r-tidyr r-plotly r-selectr r-rvest r-textshaping r-ragg r-systemfonts`.
 - **`C17 standard requested but CC17 is not defined`**: update to the latest IlluMeta and rerun setup. If it persists, reinstall compilers (macOS: `xcode-select --install`, conda: `conda install -c conda-forge c-compiler cxx-compiler`).
 - **Bioconductor version mismatch** (e.g., R 4.4 but Bioc 3.22): rerun with an explicit Bioc version:

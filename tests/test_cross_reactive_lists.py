@@ -2,7 +2,7 @@ import os
 import tempfile
 import unittest
 
-from illumeta import ensure_cross_reactive_lists
+from illumeta import ensure_cross_reactive_lists, resolve_cross_reactive_dir
 
 
 class CrossReactiveListTests(unittest.TestCase):
@@ -69,6 +69,55 @@ class CrossReactiveListTests(unittest.TestCase):
             created, status = ensure_cross_reactive_lists(tmpdir, allow_network=False)
             self.assertFalse(created)
             self.assertEqual(status, "missing_sources")
+
+
+    def test_resolve_cross_reactive_dir_relative_config_yaml(self):
+        """Relative --config_yaml should resolve relative to configure.tsv dir, not CWD."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create project structure:
+            #   tmpdir/project/configure.tsv
+            #   tmpdir/project/my_config.yaml  (has local_dir: custom_lists)
+            #   tmpdir/project/custom_lists/    (target directory)
+            project_dir = os.path.join(tmpdir, "project")
+            os.makedirs(project_dir, exist_ok=True)
+
+            config_path = os.path.join(project_dir, "configure.tsv")
+            with open(config_path, "w") as f:
+                f.write("Basename\tprimary_group\n")
+
+            yaml_path = os.path.join(project_dir, "my_config.yaml")
+            with open(yaml_path, "w") as f:
+                f.write("cross_reactive:\n  local_dir: custom_lists\n")
+
+            custom_dir = os.path.join(project_dir, "custom_lists")
+            os.makedirs(custom_dir, exist_ok=True)
+
+            # Resolve with a RELATIVE config_yaml path
+            result = resolve_cross_reactive_dir(config_path, config_yaml_path="my_config.yaml")
+
+            # Should resolve to project_dir/custom_lists, NOT CWD/custom_lists
+            self.assertEqual(os.path.realpath(result), os.path.realpath(custom_dir))
+
+    def test_resolve_cross_reactive_dir_absolute_config_yaml(self):
+        """Absolute --config_yaml should work as-is."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = os.path.join(tmpdir, "project")
+            os.makedirs(project_dir, exist_ok=True)
+
+            config_path = os.path.join(project_dir, "configure.tsv")
+            with open(config_path, "w") as f:
+                f.write("Basename\tprimary_group\n")
+
+            yaml_path = os.path.join(project_dir, "my_config.yaml")
+            with open(yaml_path, "w") as f:
+                f.write("cross_reactive:\n  local_dir: custom_lists\n")
+
+            custom_dir = os.path.join(project_dir, "custom_lists")
+            os.makedirs(custom_dir, exist_ok=True)
+
+            # Absolute path should work directly
+            result = resolve_cross_reactive_dir(config_path, config_yaml_path=yaml_path)
+            self.assertEqual(os.path.realpath(result), os.path.realpath(custom_dir))
 
 
 if __name__ == "__main__":

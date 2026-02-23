@@ -1860,7 +1860,11 @@ def run_analysis(args):
     if args.sesame_typeinorm:
         cmd.append("--sesame_typeinorm")
     if args.config_yaml:
-        cmd.extend(["--config_yaml", args.config_yaml])
+        # Resolve relative config_yaml relative to configure.tsv directory, not CWD
+        yaml_path = args.config_yaml
+        if not os.path.isabs(yaml_path):
+            yaml_path = os.path.join(os.path.dirname(os.path.abspath(config_path)), yaml_path)
+        cmd.extend(["--config_yaml", yaml_path])
     if args.preset:
         cmd.extend(["--preset", args.preset])
     if args.qc_detection_p_threshold is not None:
@@ -2290,7 +2294,8 @@ def ensure_cross_reactive_lists(dest_dir, allow_network=True):
 def resolve_cross_reactive_dir(config_path, config_yaml_path=None):
     config_dir = os.path.dirname(os.path.abspath(config_path))
     if config_yaml_path and not os.path.isabs(config_yaml_path):
-        config_yaml_path = os.path.abspath(config_yaml_path)
+        # Resolve relative to configure.tsv directory, not CWD
+        config_yaml_path = os.path.join(config_dir, config_yaml_path)
     yaml_path = config_yaml_path or os.path.join(config_dir, "config.yaml")
     local_dir = _read_cross_reactive_local_dir(yaml_path)
     if not local_dir:

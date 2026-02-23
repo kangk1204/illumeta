@@ -584,6 +584,9 @@ if (is.null(opt$config) || is.null(opt$group_con) || is.null(opt$group_test)){
 config_file <- normalizePath(opt$config, winslash = "/", mustWork = FALSE)
 project_dir <- dirname(config_file)
 config_yaml_path <- opt$config_yaml
+if (nzchar(config_yaml_path)) {
+  config_yaml_path <- normalizePath(config_yaml_path, winslash = "/", mustWork = FALSE)
+}
 if (!nzchar(config_yaml_path)) {
   config_yaml_path <- file.path(dirname(config_file), "config.yaml")
 }
@@ -817,6 +820,7 @@ if (!is.finite(dmr_p_cutoff) || dmr_p_cutoff <= 0) {
 }
 
 if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+if (!dir.exists(out_dir)) stop(paste("Cannot create output directory:", out_dir))
 results_root <- file.path(out_dir, "results")
 results_dirs <- list(
   minfi = file.path(results_root, "minfi"),
@@ -5184,7 +5188,13 @@ eval_batch_method <- function(M_mat, meta, group_col, batch_col, covariates, met
                   n_pc_batch_sig = NA_real_, prop_batch_sig = NA_real_, M_corr = M_mat,
                   failed = TRUE, fail_reason = "Limma covariate design failed.", note = note))
     }
-    M_corr <- removeBatchEffect(M_mat, batch = batch, covariates = cov_mat, design = design)
+    M_corr <- tryCatch(
+      removeBatchEffect(M_mat, batch = batch, covariates = cov_mat, design = design),
+      error = function(e) {
+        message(sprintf("    - removeBatchEffect (limma) failed: %s", conditionMessage(e)))
+        M_mat
+      }
+    )
   } else if (method == "sva") {
     mod <- mm_safe(paste("~", paste(c(group_col, cov_terms_use), collapse = " + ")), meta_use)
     mod0_terms <- if (length(cov_terms_use) > 0) paste(cov_terms_use, collapse = " + ") else "1"
@@ -5211,7 +5221,13 @@ eval_batch_method <- function(M_mat, meta, group_col, batch_col, covariates, met
         M_corr <- M_mat
       } else {
         design_keep <- mm_safe(paste("~ 0 +", group_col), meta_use)
-        M_corr <- removeBatchEffect(M_mat, covariates = sv_mat, design = design_keep)
+        M_corr <- tryCatch(
+          removeBatchEffect(M_mat, covariates = sv_mat, design = design_keep),
+          error = function(e) {
+            message(sprintf("    - removeBatchEffect (SVA) failed: %s", conditionMessage(e)))
+            M_mat
+          }
+        )
       }
     }
   } else {
@@ -5777,7 +5793,7 @@ emit_tier3_primary_outputs <- function(meta_res, betas, targets, curr_anno, pref
   if (n_p > 1) {
     lambda_val <- compute_genomic_lambda(p_vals)
     expected <- -log10(ppoints(n_p))
-    observed <- -log10(sort(p_vals))
+    observed <- -log10(pmax(sort(p_vals), .Machine$double.xmin))
     qq_df <- data.frame(Expected = expected, Observed = observed)
     if (nrow(qq_df) > max_points) {
       idx <- unique(c(1:1000, seq(1001, n_p, length.out = max_points)))
@@ -5986,7 +6002,7 @@ run_lambda_guard <- function(betas, targets, group_col, prefix, out_dir, max_poi
   if (!is.finite(lambda_val)) return(list(status = "failed", lambda = NA_real_))
   
   expected <- -log10(ppoints(length(p_vals)))
-  observed <- -log10(sort(p_vals))
+  observed <- -log10(pmax(sort(p_vals), .Machine$double.xmin))
   qq_df <- data.frame(Expected = expected, Observed = observed)
   if (nrow(qq_df) > max_points) {
     idx <- unique(c(1:1000, seq(1001, nrow(qq_df), length.out = max_points)))
@@ -6485,7 +6501,17 @@ first_line <- tryCatch(readLines(config_file, n = 1, warn = FALSE), error = func
 if (!length(first_line) || !grepl("\t", first_line)) {
   stop("configure.tsv must be tab-delimited (TSV). CSV/other delimiters are not supported.")
 }
-targets <- read.delim(config_file, stringsAsFactors = FALSE)
+targets <- tryCatch(
+  read.delim(config_file, stringsAsFactors = FALSE, fileEncoding = "UTF-8"),
+  error = function(e) {
+    tryCatch(
+      read.delim(config_file, stringsAsFactors = FALSE),
+      error = function(e2) {
+        stop(paste("Cannot read configure.tsv:", conditionMessage(e2)))
+      }
+    )
+  }
+)
 
 # Force Batch/ID columns to be factors (categorical)
 if ("Sentrix_ID" %in% colnames(targets)) targets$Sentrix_ID <- as.factor(targets$Sentrix_ID)
@@ -6783,7 +6809,14 @@ message("--- Starting Minfi Analysis ---")
 if (force_idat) {
   message("  Forcing IDAT read despite differing array sizes (force=TRUE).")
 }
-rgSet <- read.metharray.exp(targets = targets, force = force_idat)
+rgSet <- tryCatch(
+  read.metharray.exp(targets = targets, force = force_idat),
+  error = function(e) {
+    stop(paste("Failed to read IDAT files via minfi:",
+               conditionMessage(e),
+               "\nCheck that IDAT files exist and are not corrupted."))
+  }
+)
 array_type <- detect_array_type(rgSet)
 if (!is.na(array_type)) {
   message(sprintf("Detected array type: %s", array_type))
@@ -6853,6 +6886,8 @@ if (ncol(beta_minfi_prefilter) != nrow(targets)) {
 }
 # Preserve explicit sample IDs (no underscore trimming)
 colnames(beta_minfi_prefilter) <- targets[[gsm_col]]
+stopifnot("Minfi prefilter beta column order does not match targets" =
+  identical(colnames(beta_minfi_prefilter), targets[[gsm_col]]))
 prefilter_beta_path <- file.path(out_dir, "Minfi_BetaMatrix_PreFilter.tsv.gz")
 write_matrix_tsv_gz(beta_minfi_prefilter, prefilter_beta_path)
 prefilter_mval_path <- file.path(out_dir, "Minfi_MvalueMatrix_PreFilter.tsv.gz")
@@ -7259,6 +7294,8 @@ if (ncol(beta_minfi) != nrow(targets)) {
 }
 # Preserve explicit sample IDs (no underscore trimming)
 colnames(beta_minfi) <- targets[[gsm_col]]
+stopifnot("Minfi beta column order does not match targets" =
+  identical(colnames(beta_minfi), targets[[gsm_col]]))
 
 anno_data <- getAnnotation(gmSet)
 anno <- anno_data[, c("chr", "pos", "Name", "UCSC_RefGene_Name", "UCSC_RefGene_Group", "Relation_to_Island")]
@@ -7374,6 +7411,8 @@ if (opt$skip_sesame) {
     common_probes_sesame <- Reduce(intersect, lapply(betas_sesame_list, names))
     beta_sesame_raw <- do.call(cbind, lapply(betas_sesame_list, function(x) x[common_probes_sesame]))
     colnames(beta_sesame_raw) <- targets[[gsm_col]]
+    stopifnot("SeSAMe beta column order does not match targets" =
+      identical(colnames(beta_sesame_raw), targets[[gsm_col]]))
     if (nrow(beta_sesame_raw) == 0) {
       stop("Sesame preprocessing produced no probes after alignment.")
     }
@@ -8217,10 +8256,19 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     
     design_keep <- model.matrix(~ primary_group, data=targets)
     
-    clean_betas <- removeBatchEffect(betas, covariates=cov_mat, design=design_keep)
+    clean_betas <- tryCatch(
+      removeBatchEffect(betas, covariates=cov_mat, design=design_keep),
+      error = function(e) {
+        message(sprintf("  [!] removeBatchEffect for PCA correction failed: %s", conditionMessage(e)))
+        NULL
+      }
+    )
+    if (is.null(clean_betas)) {
+      message("  Skipping corrected PCA plot.")
+    } else {
     clean_betas[!is.finite(clean_betas)] <- NA
     clean_betas <- pmin(pmax(clean_betas, LOGIT_OFFSET), 1 - LOGIT_OFFSET)
-    
+
     pca_clean <- safe_prcomp(t(clean_betas), label = paste(prefix, "PCA corrected"), scale. = TRUE)
     if (!is.null(pca_clean)) {
       pca_clean_df <- data.frame(PC1 = pca_clean$x[,1], PC2 = pca_clean$x[,2], Group = targets$primary_group)
@@ -8235,6 +8283,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     
     # PVCA after correction to quantify residual batch/group contribution
     run_pvca_assessment(clean_betas, targets, pvca_factors, paste0(prefix, "_AfterCorrection"), out_dir, threshold = 0.6, max_probes = 5000, sample_ids = colnames(clean_betas))
+    }
   }
 
   betas_pre_correction <- betas
@@ -8331,7 +8380,42 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   m_vals <- if (!is.null(mvals_for_model)) mvals_for_model else logit_offset(betas)
   mval_out_path <- file.path(out_dir, paste0(prefix, "_MvalueMatrix.tsv.gz"))
   write_matrix_tsv_gz(m_vals, mval_out_path)
-  fit <- lmFit(m_vals, design)
+  fit <- tryCatch(lmFit(m_vals, design), error = function(e) {
+    message(sprintf("  [!] lmFit failed: %s", conditionMessage(e)))
+    NULL
+  })
+  if (is.null(fit)) {
+    message("  Skipping stats: lmFit failed; no DMP/DMR results generated for this pipeline.")
+    branch_summary <- list(
+      pipeline = prefix,
+      n_samples = nrow(targets),
+      n_cpgs = nrow(betas),
+      batch_candidate = ifelse(is.null(batch_col), "", batch_col),
+      batch_tier = ifelse(is.na(batch_tier), "", batch_tier),
+      best_method = best_method,
+      lambda_guard_status = lambda_guard_status,
+      lambda_guard_action = lambda_guard_action,
+      lambda_guard_threshold = lambda_guard_threshold,
+      lambda_guard_lambda = lambda_guard_lambda,
+      tier3_mode = tier3_mode,
+      tier3_ineligible = tier3_ineligible,
+      tier3_low_power = tier3_low_power,
+      tier3_batch = ifelse(is.null(tier3_batch), "", tier3_batch),
+      primary_result_mode = "analysis_failed",
+      tier3_primary_lambda = NA_real_,
+      tier3_meta_method = "",
+      tier3_meta_i2_median = NA_real_,
+      dmr_status = "skipped",
+      dmr_reason = "lmfit_failed",
+      dmr_strategy = "standard",
+      caf_score = NA_real_,
+      best_candidate_score = best_candidate_score,
+      covariates_used = used_covariates,
+      sv_used = sv_cols,
+      permutations = perm_n
+    )
+    return(branch_summary)
+  }
   fit2 <- contrasts.fit(fit, cm)
   fit2 <- safe_ebayes(fit2, paste(prefix, "primary_model"))
   if (is.null(fit2)) {
@@ -8479,9 +8563,9 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   }
   
   expected <- -log10(ppoints(n_p))
-  observed <- -log10(sort(p_vals))
+  observed <- -log10(pmax(sort(p_vals), .Machine$double.xmin))
   qq_df <- data.frame(Expected = expected, Observed = observed)
-  
+
   if (nrow(qq_df) > max_points) {
       idx <- unique(c(1:1000, seq(1001, n_p, length.out=max_points)))
       qq_df <- qq_df[idx, ]
@@ -8780,7 +8864,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
      
      pvals_melt <- as.data.frame(as.table(pvals))
      colnames(pvals_melt) <- c("Variable", "PC", "P_Value")
-     pvals_melt$LogP <- -log10(pvals_melt$P_Value)
+     pvals_melt$LogP <- -log10(pmax(pvals_melt$P_Value, .Machine$double.xmin))
      
      p_heat <- ggplot(pvals_melt, aes(x=PC, y=Variable, fill=LogP, text=P_Value)) +
          geom_tile() +

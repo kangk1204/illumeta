@@ -257,7 +257,10 @@ python3 illumeta.py doctor
 - **Batch handling**: Evaluates correction strategies (SVA/ComBat/limma) when a batch factor exists.
 - **CRF**: Sample-size-adaptive robustness report (MMC/NCS/SSS/CVD) with tiered warnings.
 - **Covariate selection**: PC-association screening uses Bonferroni-corrected α per variable (`alpha / n_tested_PCs`) to control false covariate inclusion.
-- **Defensive stats**: Guards against low-variance or single-group covariates; uses `eBayes(robust=TRUE)` with automatic standard-eBayes fallback.
+- **Defensive stats**: Guards against low-variance or single-group covariates; uses `eBayes(robust=TRUE)` with automatic standard-eBayes fallback. `lmFit`, `removeBatchEffect`, and IDAT loading are all wrapped in `tryCatch` for graceful degradation.
+- **Sample-order assertions**: `stopifnot()` checks verify column–sample alignment at every pipeline handoff (Minfi prefilter, Minfi final, SeSAMe).
+- **Security hardening**: All subprocess calls use list-based arguments (no shell injection); shell scripts quote all variables and pass values via environment variables.
+- **Type-safe numerics**: `-log10(0)` guards, `Inf`/`NaN` filtering in `safe_float()`, and `isfinite()` checks prevent silent propagation of invalid values.
 - **Executive dashboard**: Verdict + CRF quick stats + warnings at the top.
 - **Paper-ready outputs**: HTML + PNG figures, methods.md, summary.json, sessionInfo.txt.
 
@@ -1487,6 +1490,7 @@ Common issues:
 - **ComBat covariate confounding** (`At least one covariate is confounded with batch`): IlluMeta now auto-drops batch-confounded covariates for ComBat and falls back to limma/none if needed. Check `*_BatchMethodComparison.csv` and `*_Metrics.csv` to see the applied method.
 - **Model matrix errors** (`contrasts can be applied only to factors with 2 or more levels`): IlluMeta drops single-level covariates after NA filtering and during batch evaluation. Check `decision_ledger.tsv` for dropped covariates; remove or merge constant columns in `configure.tsv` if the issue persists.
 - **`eBayes` failures** (`No finite residual standard deviations`): IlluMeta uses `eBayes(robust=TRUE)` by default; if that fails (e.g., too few residual degrees of freedom), it automatically retries with standard `eBayes`. If both fail, results are skipped for that pipeline and a message is logged. For tiny cohorts, consider reducing covariates or disabling batch correction.
+- **`lmFit` failures**: If `lmFit` fails (e.g., rank-deficient design matrix), IlluMeta skips DMP/DMR analysis for that pipeline and logs a clear message. Check your covariates and group sizes.
 - **Mixed array sizes**: by default, IlluMeta drops samples that deviate from the modal array size; use `--force-idat` only when appropriate.
 - **Missing IDAT pairs**: IlluMeta now auto-filters samples with incomplete `_Grn/_Red` pairs during preflight and logs the decision in `preflight_report.json`. If you prefer to fail instead, use `--fail-on-missing-idat`.
 - **Reference package unavailable** (e.g., FlowSorted.* not in your Bioconductor): IlluMeta falls back to RefFreeEWAS; consider `--cell-reference` or upgrading R/Bioconductor.

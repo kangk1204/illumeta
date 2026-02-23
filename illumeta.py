@@ -24,7 +24,7 @@ __version__ = "1.0.0"
 # Configuration for R script paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-def safe_path_component(name: str, fallback: str = "results") -> str:
+def safe_path_component(name: str, fallback: str = "results", max_len: int = 200) -> str:
     """Return an ASCII-only path component safe across filesystems/locales."""
     if not name:
         return fallback
@@ -33,6 +33,8 @@ def safe_path_component(name: str, fallback: str = "results") -> str:
     ascii_name = re.sub(r"\s+", "_", ascii_name)
     ascii_name = re.sub(r"[^A-Za-z0-9._-]+", "_", ascii_name)
     ascii_name = re.sub(r"_+", "_", ascii_name).strip("._-")
+    if len(ascii_name) > max_len:
+        ascii_name = ascii_name[:max_len].rstrip("._-")
     return ascii_name or fallback
 
 def sniff_delimiter(path: str) -> str:
@@ -673,8 +675,17 @@ def find_basename_for_id(sample_id: str, basename_index):
             return bn
     return None
 
+_IDAT_SUFFIXES = ("_Grn.idat.gz", "_Red.idat.gz", "_Grn.idat", "_Red.idat")
+
+def strip_idat_suffix(path: str) -> str:
+    """Remove trailing IDAT suffixes so resolve_basename doesn't double-append."""
+    for suffix in _IDAT_SUFFIXES:
+        if path.endswith(suffix):
+            return path[: -len(suffix)]
+    return path
+
 def resolve_basename(candidate: str, sample_id: str, basename_index, project_dir: str, idat_dir: str):
-    cand = candidate or ""
+    cand = strip_idat_suffix(candidate or "")
     if not cand:
         return find_basename_for_id(sample_id, basename_index)
     if not os.path.isabs(cand):
@@ -773,6 +784,11 @@ def preflight_analysis(config_path: str, idat_dir: str, group_con: str, group_te
     test_lower = (group_test or "").strip().lower()
     if con_lower == test_lower:
         raise ValueError("Control and test group labels are identical; please provide distinct labels.")
+    if normalize_group_value(group_con) == normalize_group_value(group_test):
+        raise ValueError(
+            f"Control ({group_con!r}) and test ({group_test!r}) labels are identical "
+            f"after normalization; please provide distinct labels."
+        )
     group_vals = [(row.get("primary_group") or "").strip().lower() for row in rows]
     if any(g == "" for g in group_vals):
         raise ValueError("primary_group column contains missing/empty values. Please fill before analysis.")
@@ -1159,6 +1175,15 @@ def ensure_r_dependencies():
             log(f"[*] Optional R packages missing (features will be skipped): {', '.join(missing_optional_after)}")
             if any(pkg in EPICV2_R_PACKAGES for pkg in missing_optional_after):
                 log("[*] EPIC v2 support is not installed. Use R 4.4+ and set ILLUMETA_REQUIRE_EPICV2=1 to require it.")
+    except subprocess.TimeoutExpired:
+        log_err("[!] R dependency setup timed out after 2 hours.")
+        log_err("    Try running manually: Rscript r_scripts/setup_env.R")
+        if os.path.exists(SETUP_MARKER):
+            try:
+                os.remove(SETUP_MARKER)
+            except OSError:
+                pass
+        sys.exit(1)
     except subprocess.CalledProcessError as e:
         log_err(f"[!] Error while installing R dependencies: {e}")
         log_err("    Hint: If you see 'library path not writable', set a user library first:")
@@ -1651,8 +1676,14 @@ def run_analysis(args):
         output_dir = os.path.join(dir_base, safe_folder)
     
     # Ensure output directory exists
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    if os.path.isfile(output_dir):
+        log_err(f"[!] --output path is a file, not a directory: {output_dir}")
+        sys.exit(1)
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+    except OSError as e:
+        log_err(f"[!] Cannot create output directory: {output_dir} ({e})")
+        sys.exit(1)
 
     # Snapshot the analysis script into the output directory so long-running runs
     # are not affected by local edits (e.g., while a tmux batch is still running).
@@ -1688,6 +1719,8 @@ def run_analysis(args):
         elif status == "missing_sources":
             log_err("[!] Cross-reactive list auto-download failed (missing sources).")
             log_err(f"    Provide --cross-reactive-list, install maxprobes, or place lists under {cross_dir}.")
+            log_err("    To skip cross-reactive filtering, re-run with --disable-cross-reactive.")
+            sys.exit(1)
     
     cmd = [
         "Rscript", analyze_script,
@@ -1911,12 +1944,15 @@ def safe_int(val):
 def safe_float(val):
     if val is None:
         return None
-    if isinstance(val, str) and val.strip().upper() in {"", "NA", "NAN"}:
+    if isinstance(val, str) and val.strip().upper() in {"", "NA", "NAN", "INF", "-INF"}:
         return None
     try:
-        return float(val)
+        num = float(val)
     except (ValueError, TypeError):
         return None
+    if not math.isfinite(num):
+        return None
+    return num
 
 def _as_bool(val):
     if isinstance(val, bool):
@@ -2253,6 +2289,8 @@ def ensure_cross_reactive_lists(dest_dir, allow_network=True):
 
 def resolve_cross_reactive_dir(config_path, config_yaml_path=None):
     config_dir = os.path.dirname(os.path.abspath(config_path))
+    if config_yaml_path and not os.path.isabs(config_yaml_path):
+        config_yaml_path = os.path.abspath(config_yaml_path)
     yaml_path = config_yaml_path or os.path.join(config_dir, "config.yaml")
     local_dir = _read_cross_reactive_local_dir(yaml_path)
     if not local_dir:
@@ -2605,7 +2643,12 @@ def generate_dashboard(output_dir, group_test, group_con):
         gene_sign = {}
         abs_deltas = []
         max_abs = None
-        with open(path, newline="") as f:
+        try:
+            f = open(path, newline="", encoding="utf-8", errors="replace")
+        except OSError as e:
+            log_err(f"[!] Cannot read consensus file {path}: {e}")
+            return {}
+        with f:
             reader = csv.DictReader(f)
             for row in reader:
                 gene_val = row.get("Gene") or row.get("UCSC_RefGene_Name") or row.get("gene") or ""
@@ -3785,10 +3828,12 @@ def generate_dashboard(output_dir, group_test, group_con):
 
     full_html = "".join(html_parts)
 
-    with open(dashboard_path, "w", encoding="utf-8") as f:
-        f.write(full_html)
-    
-    log(f"[*] Dashboard generated: {dashboard_path}")
+    try:
+        with open(dashboard_path, "w", encoding="utf-8") as f:
+            f.write(full_html)
+        log(f"[*] Dashboard generated: {dashboard_path}")
+    except OSError as e:
+        log_err(f"[!] Failed to write dashboard: {e}")
 
 def main():
     parser = argparse.ArgumentParser(description="IlluMeta: Automated Illumina DNA Methylation Analysis Pipeline")

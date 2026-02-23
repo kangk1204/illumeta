@@ -584,7 +584,10 @@ if (is.null(opt$config) || is.null(opt$group_con) || is.null(opt$group_test)){
 config_file <- normalizePath(opt$config, winslash = "/", mustWork = FALSE)
 project_dir <- dirname(config_file)
 config_yaml_path <- opt$config_yaml
-if (nzchar(config_yaml_path)) {
+if (nzchar(config_yaml_path) && !grepl("^(/|[A-Za-z]:)", config_yaml_path)) {
+  # Relative config_yaml: resolve relative to configure.tsv directory, not CWD
+  config_yaml_path <- normalizePath(file.path(project_dir, config_yaml_path), winslash = "/", mustWork = FALSE)
+} else if (nzchar(config_yaml_path)) {
   config_yaml_path <- normalizePath(config_yaml_path, winslash = "/", mustWork = FALSE)
 }
 if (!nzchar(config_yaml_path)) {
@@ -6589,8 +6592,16 @@ find_basename_for_id <- function(sample_id, basenames) {
   return(NA_character_)
 }
 
+strip_idat_suffix <- function(path) {
+  for (sfx in c("_Grn.idat.gz", "_Red.idat.gz", "_Grn.idat", "_Red.idat")) {
+    if (endsWith(path, sfx)) return(substr(path, 1, nchar(path) - nchar(sfx)))
+  }
+  path
+}
+
 resolve_basename <- function(candidate, sample_id, basenames, project_dir, idat_dir) {
   cand <- candidate
+  if (!is.na(cand) && nzchar(cand)) cand <- strip_idat_suffix(cand)
   if (is.na(cand) || cand == "") {
     cand <- find_basename_for_id(sample_id, basenames)
   } else {

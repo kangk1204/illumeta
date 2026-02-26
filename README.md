@@ -246,7 +246,7 @@ python3 illumeta.py doctor
 - **Consensus calling**: High-confidence results where both methods agree (Fisher's combined P-value)
 - **Adaptive batch correction**: Automatically selects optimal method (SVA/ComBat/limma)
 - **Bonferroni-corrected covariate selection**: PC-association screening with per-variable α/n_tested_PCs correction
-- **CRF robustness framework**: Sample-size-adaptive quality assessment
+- **CRF (Correction Robustness Framework)**: Sample-size-adaptive quality assessment (MMC, NCS, SSS, CVD — see below)
 - **Full reproducibility**: All parameters and decisions logged
 
 <details>
@@ -255,7 +255,7 @@ python3 illumeta.py doctor
 - **Two independent pipelines**: Minfi (Noob) and Sesame run side-by-side; Sesame reports both strict (Minfi-aligned) and native (pOOBAH-preserving) views.
 - **High-confidence consensus**: CpGs significant in BOTH pipelines with the SAME direction; consensus P-values via Fisher's combined probability test (χ², df=4) with genome-wide BH FDR correction.
 - **Batch handling**: Evaluates correction strategies (SVA/ComBat/limma) when a batch factor exists.
-- **CRF**: Sample-size-adaptive robustness report (MMC/NCS/SSS/CVD) with tiered warnings.
+- **CRF**: Correction Robustness Framework — four assessment axes: Multi-Method Concordance (MMC), Negative-Control Stability (NCS), Subsampling Stability Score (SSS), Confounding Variance Decomposition (CVD). Reports tiered warnings adapted to sample size.
 - **Covariate selection**: PC-association screening uses Bonferroni-corrected α per variable (`alpha / n_tested_PCs`) to control false covariate inclusion.
 - **Defensive stats**: Guards against low-variance or single-group covariates; uses `eBayes(robust=TRUE)` with automatic standard-eBayes fallback. `lmFit`, `removeBatchEffect`, and IDAT loading are all wrapped in `tryCatch` for graceful degradation.
 - **Sample-order assertions**: `stopifnot()` checks verify column–sample alignment at every pipeline handoff (Minfi prefilter, Minfi final, SeSAMe).
@@ -1429,7 +1429,7 @@ Outputs:
 - `decision_ledger.tsv`: automated decision log (covariates, batch strategy, consensus branch).
 - `preflight_report.json`: preflight summary (includes auto-group info when used).
 - `Correction_Adequacy_Report.txt`: Correction Adequacy Framework (CAF) report for the primary branch.
-- `Correction_Adequacy_Summary.csv`: CAF component scores for the primary branch (calibration/preservation/batch/NCS) plus overall CAI (`cai`; surfaced as `caf_score` in pipeline metrics) and `lambda_ratio`.
+- `Correction_Adequacy_Summary.csv`: CAF component scores for the primary branch (calibration/preservation/batch/NCS) plus overall CAI (Correction Adequacy Index; surfaced as `caf_score` in pipeline metrics) and `lambda_ratio`.
   `lambda_ratio` is a heuristic observed-vs-null context metric, not a causal confounding classifier by itself.
 
 ### QC
@@ -1626,8 +1626,8 @@ ILLUMETA_SESAME_SINGLE_THREAD=1 python3 illumeta.py analysis ...
 ### Small sample size limitations
 
 IlluMeta implements a sample-size-adaptive Correction Robustness Framework (CRF):
-CRF combines MMC (multi-method concordance), NCS (negative-control stability),
-SSS (subsampling stability), and CVD (PVCA-based confounding variance decomposition).
+CRF combines Multi-Method Concordance (MMC), Negative-Control Stability (NCS),
+Subsampling Stability Score (SSS), and Confounding Variance Decomposition (CVD, PVCA-based).
 
 | Tier | Total n | Per-group min | Key limitations |
 |------|---------|---------------|-----------------|

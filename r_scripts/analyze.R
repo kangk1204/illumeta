@@ -1312,7 +1312,7 @@ run_permutation_uniformity <- function(betas, targets, group_col, covariates, ba
 #'
 #' Evaluates multiple batch correction methods (none, ComBat, limma, SVA) and
 #' covariate combinations to select the optimal strategy based on a weighted
-#' scoring system (Correction Auto-selection Framework, CAF).
+#' scoring system (Correction Adequacy Framework, CAF).
 #'
 #' @param betas Numeric matrix of beta values (CpGs x samples)
 #' @param targets Data frame with sample metadata
@@ -2643,7 +2643,7 @@ build_crf_report_lines <- function(tier_info, mmc_summary, ncs_summary, sss_summ
                                 ncs_score_disp, row$sig_rate, row$n))
     }
   }
-  lines <- c(lines, "", "SECTION 3: SPLIT-SAMPLE STABILITY")
+  lines <- c(lines, "", "SECTION 3: SUBSAMPLING STABILITY (SSS)")
   if (is.null(sss_summary) || nrow(sss_summary) == 0) {
     lines <- c(lines, "  Stability analysis not available.")
   } else {
@@ -2686,7 +2686,7 @@ build_crf_report_lines <- function(tier_info, mmc_summary, ncs_summary, sss_summ
 #' Correction Robustness Framework (CRF) Assessment
 #'
 #' Evaluates batch correction robustness through multiple complementary metrics:
-#' negative control stability, multi-method consistency, signal preservation,
+#' negative control stability, multi-method concordance, subsampling stability,
 #' and PVCA-based confounding variance decomposition.
 #' Produces a comprehensive CRF report with tier-appropriate assessments.
 #'
@@ -2703,15 +2703,15 @@ build_crf_report_lines <- function(tier_info, mmc_summary, ncs_summary, sss_summ
 #' @param lfc_thresh Log-fold change threshold for effect size
 #' @param config_settings Full config list including crf settings
 #' @param rgSet Optional RGChannelSet for SNP probe analysis
-#' @param mmc_res Optional multi-method consistency results
+#' @param mmc_res Optional multi-method concordance results
 #'
 #' @return List containing CRF assessment results and pass/fail status
 #'
 #' @details
 #' CRF includes four assessment axes:
 #' 1. Negative Control Stability (NCS): Lambda on control probes (SNP, OOB)
-#' 2. Multi-Method Consistency (MMC): Agreement across correction methods
-#' 3. Signal Stability Score (SSS): Top-K hit overlap before/after correction
+#' 2. Multi-Method Concordance (MMC): Agreement across correction methods
+#' 3. Subsampling Stability Score (SSS): Top-K hit overlap across split-sample replicates
 #' 4. Confounding Variance Decomposition (CVD): PVCA-derived confounding index
 #'
 #' @seealso get_crf_tier for sample tier classification

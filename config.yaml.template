@@ -55,8 +55,8 @@ caf:
     # - preservation: marker retention + effect concordance
     # - batch: reduction in batch-associated signals
     # - ncs: negative-control stability score (lambda near 1.0 is better)
-    conservative: {calibration: 0.35, preservation: 0.30, batch: 0.25, ncs: 0.10}
-    discovery: {calibration: 0.20, preservation: 0.20, batch: 0.50, ncs: 0.10}
+    conservative: {calibration: 0.40, preservation: 0.35, batch: 0.25, ncs: 0.00}
+    discovery: {calibration: 0.25, preservation: 0.25, batch: 0.50, ncs: 0.00}
 
 crf:
   enabled: true

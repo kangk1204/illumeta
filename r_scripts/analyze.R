@@ -198,16 +198,10 @@ option_list <- list(
               help="Optional cross-reactive probe list (TSV/CSV with CpG column or one CpG per line) for filtering"),
   make_option(c("--unsafe-skip-cross-reactive"), action="store_true", default=FALSE,
               help="UNSAFE: skip mandatory cross-reactive probe filtering (requires explicit flag)."),
-  make_option(c("--disable_cross_reactive"), action="store_true", default=FALSE,
-              help="DEPRECATED: use --unsafe-skip-cross-reactive to skip filtering (not recommended)."),
   make_option(c("--sex-mismatch-action"), type="character", default="",
               help="Sex mismatch check action: stop|drop|ignore (default: stop)."),
-  make_option(c("--sex_check_action"), type="character", default="",
-              help="DEPRECATED alias for --sex-mismatch-action."),
   make_option(c("--sex_check_column"), type="character", default="",
               help="Metadata column to use for sex mismatch check (default: auto-detect)."),
-  make_option(c("--disable_sex_check"), action="store_true", default=FALSE,
-              help="DEPRECATED: use --sex-mismatch-action ignore (not recommended)."),
   make_option(c("--permutations"), type="integer", default=20,
               help="Number of label permutations for null DMP counts (default: 20; set 0 to use config minimum; set calibration.permutations_min=0 to disable)"),
   make_option(c("--vp_top"), type="integer", default=5000,
@@ -666,9 +660,6 @@ unsafe_skip_cross_reactive <- isTRUE(config_settings$unsafe$skip_cross_reactive)
 if (isTRUE(opt$unsafe_skip_cross_reactive)) {
   unsafe_skip_cross_reactive <- TRUE
 }
-if (isTRUE(opt$disable_cross_reactive)) {
-  unsafe_skip_cross_reactive <- TRUE
-}
 if (!cross_reactive_enabled && !unsafe_skip_cross_reactive) {
   message("  Cross-reactive filtering is mandatory; overriding config to enable it (use --unsafe-skip-cross-reactive to bypass).")
   cross_reactive_enabled <- TRUE
@@ -677,9 +668,7 @@ if (nzchar(cross_reactive_path)) cross_reactive_enabled <- TRUE
 
 sex_check_enabled <- isTRUE(config_settings$sex_check$enabled)
 unsafe_skip_sex_check <- isTRUE(config_settings$unsafe$skip_sex_check)
-if (isTRUE(opt$disable_sex_check)) unsafe_skip_sex_check <- TRUE
 sex_check_action <- opt$sex_mismatch_action
-if (is.null(sex_check_action) || !nzchar(sex_check_action)) sex_check_action <- opt$sex_check_action
 if (!nzchar(sex_check_action) && !is.null(config_settings$sex_check$action)) {
   sex_check_action <- as.character(config_settings$sex_check$action)
 }

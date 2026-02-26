@@ -92,6 +92,38 @@ class PreflightTests(unittest.TestCase):
             self.assertEqual(result["group_con"], 1)
             self.assertEqual(result["group_test"], 1)
 
+    def test_preflight_filters_non_target_groups(self):
+        """Samples with labels outside control/test are excluded and config rewritten."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            idat_dir = os.path.join(tmpdir, "idat")
+            os.makedirs(idat_dir, exist_ok=True)
+            for sample in ("S1_R01C01", "S2_R01C01", "S3_R01C01"):
+                open(os.path.join(idat_dir, f"{sample}_Grn.idat"), "wb").close()
+                open(os.path.join(idat_dir, f"{sample}_Red.idat"), "wb").close()
+
+            config_path = os.path.join(tmpdir, "configure.tsv")
+            headers = ["Basename", "primary_group"]
+            rows = [
+                {"Basename": "S1_R01C01", "primary_group": "control"},
+                {"Basename": "S2_R01C01", "primary_group": "test"},
+                {"Basename": "S3_R01C01", "primary_group": "other"},
+            ]
+            write_config(config_path, headers, rows)
+
+            result = preflight_analysis(
+                config_path=config_path,
+                idat_dir=idat_dir,
+                group_con="control",
+                group_test="test",
+                min_total_size=2,
+                id_column=None,
+            )
+            self.assertEqual(result["group_con"], 1)
+            self.assertEqual(result["group_test"], 1)
+            self.assertEqual(result["sample_count"], 2)
+            self.assertTrue(result["config_path"].endswith("_groupfiltered.tsv"))
+            self.assertTrue(any("Excluded 1 sample" in w for w in result["warnings"]))
+
     def test_strip_idat_suffix(self):
         """Verify strip_idat_suffix removes all IDAT suffix variants."""
         from illumeta import strip_idat_suffix

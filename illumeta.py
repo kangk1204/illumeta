@@ -598,13 +598,13 @@ def auto_group_config(
         preview = ", ".join(str(i + 1) for i in still_missing[:5])
         raise ValueError(f"Auto-group left {len(still_missing)} rows empty (rows: {preview}).")
 
-    # Auto-group should only populate explicit control/test labels. Any other label
-    # indicates an ambiguous mapping that would otherwise be silently ignored later.
+    # Validate ALL rows (not just pending_idx) — pre-existing non-target labels must
+    # also be caught, otherwise they silently pass through to R and get dropped.
     con_norm = normalize_group_value(group_con)
     test_norm = normalize_group_value(group_test)
     invalid_rows = []
-    for idx in pending_idx:
-        label = (rows[idx].get("primary_group") or "").strip()
+    for idx, row in enumerate(rows):
+        label = (row.get("primary_group") or "").strip()
         label_norm = normalize_group_value(label)
         if label_norm == con_norm:
             rows[idx]["primary_group"] = group_con
@@ -668,7 +668,7 @@ def find_basename_for_id(sample_id: str, basename_index):
     if not entries:
         return None
     start = bisect_left(names, sample_id)
-    for idx in range(start, min(start + 20, len(entries))):
+    for idx in range(start, len(entries)):
         bname, bn = entries[idx]
         if not bname.startswith(sample_id):
             break
@@ -803,10 +803,23 @@ def preflight_analysis(config_path: str, idat_dir: str, group_con: str, group_te
 
     other_groups = sorted(set(g for g in group_vals if g and g not in {con_lower, test_lower}))
     if other_groups:
-        preview = ", ".join(other_groups[:5])
+        # Filter out non-target samples (same pattern as drop_missing_idat above)
+        excluded_ids = [
+            (row.get(id_col) or "").strip()
+            for row, g in zip(rows, group_vals)
+            if g not in {con_lower, test_lower}
+        ]
+        rows = [row for row, g in zip(rows, group_vals) if g in {con_lower, test_lower}]
+        root, ext = os.path.splitext(filtered_config_path)
+        filtered_config_path = f"{root}_groupfiltered{ext or '.tsv'}"
+        write_config_rows(filtered_config_path, headers, rows)
+        preview_labels = ", ".join(other_groups[:5])
+        preview_ids = ", ".join(excluded_ids[:5])
         warnings.append(
-            f"Found {len(other_groups)} additional group label(s) that will be ignored "
-            f"({preview}{'...' if len(other_groups) > 5 else ''})."
+            f"Excluded {len(excluded_ids)} sample(s) with non-target group label(s) "
+            f"({preview_labels}{'...' if len(other_groups) > 5 else ''}); "
+            f"e.g. {preview_ids}{'...' if len(excluded_ids) > 5 else ''}. "
+            f"Using filtered config: {filtered_config_path}"
         )
     batch_patterns = r"(sentrix|slide|array|plate|chip|batch)"
     batch_candidates = [h for h in headers if re.search(batch_patterns, h, flags=re.IGNORECASE)]
@@ -1701,7 +1714,6 @@ def run_analysis(args):
 
     should_prepare_cross = (
         not args.cross_reactive_list
-        and not args.disable_cross_reactive
         and not getattr(args, "unsafe_skip_cross_reactive", False)
     )
     if should_prepare_cross:
@@ -1720,7 +1732,7 @@ def run_analysis(args):
         elif status == "missing_sources":
             log_err("[!] Cross-reactive list auto-download failed (missing sources).")
             log_err(f"    Provide --cross-reactive-list, install maxprobes, or place lists under {cross_dir}.")
-            log_err("    To skip cross-reactive filtering, re-run with --disable-cross-reactive.")
+            log_err("    To skip cross-reactive filtering, re-run with --unsafe-skip-cross-reactive.")
             sys.exit(1)
     
     cmd = [
@@ -1745,16 +1757,10 @@ def run_analysis(args):
         cmd.extend(["--cross_reactive_list", args.cross_reactive_list])
     if getattr(args, "unsafe_skip_cross_reactive", False):
         cmd.append("--unsafe-skip-cross-reactive")
-    if args.disable_cross_reactive:
-        cmd.append("--unsafe-skip-cross-reactive")
     if getattr(args, "sex_mismatch_action", None):
         cmd.extend(["--sex-mismatch-action", args.sex_mismatch_action])
-    elif args.sex_check_action:
-        cmd.extend(["--sex-mismatch-action", args.sex_check_action])
     if args.sex_check_column:
         cmd.extend(["--sex_check_column", args.sex_check_column])
-    if args.disable_sex_check:
-        cmd.append("--disable_sex_check")
     if args.batch_column:
         cmd.extend(["--batch_column", args.batch_column])
     if args.batch_method:
@@ -1794,7 +1800,7 @@ def run_analysis(args):
             group_test=args.group_test,
             min_total_size=args.min_total_size,
             id_column=args.id_column,
-            drop_missing_idat=not (args.fail_on_missing_idat or args.keep_missing_idat),
+            drop_missing_idat=not args.fail_on_missing_idat,
         )
         if preflight.get("config_path") and preflight["config_path"] != config_path:
             config_path = preflight["config_path"]
@@ -4006,10 +4012,8 @@ def main():
     parser_search.add_argument("-o", "--output", default="geo_idat_methylation.tsv", help="Output TSV path")
     parser_search.add_argument("--email", default=None, help="Your email (NCBI etiquette; optional)")
     parser_search.add_argument("--retmax", type=int, default=500, help="Maximum records to fetch (default: 500)")
-    parser_search.add_argument("--check-suppl", dest="check_suppl", action="store_true", default=True,
-                               help="Check GEO supplementary listings for .idat/.idat.gz/RAW.tar (default: on)")
-    parser_search.add_argument("--no-check-suppl", dest="check_suppl", action="store_false",
-                               help="Disable supplementary listing check to speed up")
+    parser_search.add_argument("--no-check-suppl", dest="check_suppl", action="store_false", default=True,
+                               help="Disable supplementary listing check (default: on)")
     parser_search.add_argument("--sleep", type=float, default=0.5,
                                help="Sleep seconds between E-utility requests (default: 0.5)")
     
@@ -4037,8 +4041,6 @@ def main():
                                  help="Allow technical/batch columns if no biological candidate exists (not recommended)")
     parser_analysis.add_argument("--fail-on-missing-idat", action="store_true",
                                  help="Fail if any samples have missing IDAT pairs instead of auto-filtering them (default: auto-filter)")
-    parser_analysis.add_argument("--keep-missing-idat", action="store_true",
-                                 help="[Deprecated] Misleading name retained for back-compat; equivalent to --fail-on-missing-idat (aborts on missing IDATs instead of auto-filtering)")
     parser_analysis.add_argument("--max_plots", type=int, default=10000, help="Max points for interactive plots (default: 10000)")
     parser_analysis.add_argument("--pval", type=float, default=0.05, help="Adjusted P-value threshold (default: 0.05)")
     parser_analysis.add_argument("--lfc", type=float, default=0.5, help="Log2 Fold Change threshold (default: 0.5)")
@@ -4060,16 +4062,10 @@ def main():
                                  help="Optional cross-reactive probe list (TSV/CSV with CpG column or one CpG per line)")
     parser_analysis.add_argument("--unsafe-skip-cross-reactive", action="store_true",
                                  help="UNSAFE: skip mandatory cross-reactive probe filtering")
-    parser_analysis.add_argument("--disable-cross-reactive", action="store_true",
-                                 help="DEPRECATED: use --unsafe-skip-cross-reactive")
     parser_analysis.add_argument("--sex-mismatch-action", type=str, choices=["stop", "drop", "ignore"],
                                  help="Sex mismatch check action (stop|drop|ignore)")
-    parser_analysis.add_argument("--sex-check-action", type=str, choices=["stop", "drop", "ignore"],
-                                 help="DEPRECATED: use --sex-mismatch-action")
     parser_analysis.add_argument("--sex-check-column", type=str,
                                  help="Metadata column to use for sex mismatch check")
-    parser_analysis.add_argument("--disable-sex-check", action="store_true",
-                                 help="DEPRECATED: use --sex-mismatch-action ignore (unsafe)")
     parser_analysis.add_argument("--batch-column", type=str,
                                  help="Override batch column name for correction")
     parser_analysis.add_argument("--batch-method", type=str, choices=["none", "combat", "limma", "sva"],

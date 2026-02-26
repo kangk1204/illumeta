@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import base64
 import subprocess
 import os
 import sys
@@ -2308,6 +2309,44 @@ def _h(val):
     """HTML-escape a value for safe interpolation into dashboard HTML."""
     return html.escape(str(val)) if val is not None else "N/A"
 
+def _fmt(val, kind="auto"):
+    """Format a numeric value for dashboard display, then HTML-escape.
+
+    *kind* controls formatting:
+      - "lambda" / "prop" → 3 decimal places
+      - "pval"  → scientific (≤0.001) or 4 decimal places
+      - "int"   → rounded integer
+      - "auto"  → pass-through via _h()
+    Non-numeric or None values fall back to _h().
+    """
+    if val is None or str(val).strip().upper() in ("N/A", "NA", "NONE", ""):
+        return "N/A"
+    v = safe_float(val)
+    if v is None:
+        return _h(val)
+    if kind in ("lambda", "prop"):
+        return _h(f"{v:.3f}")
+    if kind == "pval":
+        return _h(f"{v:.2e}") if abs(v) < 0.001 else _h(f"{v:.4f}")
+    if kind == "int":
+        return _h(str(int(round(v))))
+    return _h(val)
+
+def _thumb(png_path, max_width=260):
+    """Return an inline <img> tag with base64-encoded PNG, or empty string if file missing."""
+    if not os.path.exists(png_path):
+        return ""
+    try:
+        with open(png_path, "rb") as f:
+            data = base64.b64encode(f.read()).decode("ascii")
+        return (
+            f'<img src="data:image/png;base64,{data}" '
+            f'style="width:100%;max-width:{max_width}px;border-radius:8px;margin-bottom:0.8rem;" '
+            f'alt="Plot preview" loading="lazy">'
+        )
+    except OSError:
+        return ""
+
 def generate_dashboard(output_dir, group_test, group_con):
     """Generates a beautiful HTML dashboard to navigate results."""
     # Escape user-supplied group names to prevent XSS in generated HTML
@@ -3035,12 +3074,79 @@ def generate_dashboard(output_dir, group_test, group_con):
             --rose: #e07a5f;
             --bg: #f6f1e8;
             --card: #ffffff;
+            --card-alt: #f7f2ea;
             --line: #e4ddd2;
             --muted: #6f7a76;
             --shadow: 0 12px 30px rgba(27, 38, 40, 0.12);
+            --callout-bg: #fdf9f2;
+            --pill-bg: #eef4f2;
+            --pill-muted-bg: #f1f0ed;
+            --pill-muted-color: #9aa4a1;
+            --nav-tab-bg: #eef4f2;
+            --jump-bg: #f2eee6;
+            --jump-hover: #e7dfd2;
+            --kpi-bg: #f7f2ea;
+            --progress-track: #e6dfd4;
+            --metrics-border: #eee4d8;
             --warning-bg: #fff3d6;
             --warning-border: #f0c36a;
             --warning-text: #7a4c14;
+            --warn-info-bg: #dbeafe;
+            --warn-info-color: #1d4ed8;
+            --warn-imp-bg: #fef3c7;
+            --warn-imp-color: #92400e;
+            --warn-crit-bg: #fde2e2;
+            --warn-crit-color: #b91c1c;
+            --header-grad-start: #1f3f3c;
+            --header-grad-mid: #2f6b64;
+            --header-grad-end: #3d8b7d;
+            --hero-glass: rgba(255, 255, 255, 0.12);
+            --hero-glass-border: rgba(255, 255, 255, 0.2);
+            --bg-grad-a: rgba(242, 180, 93, 0.12);
+            --bg-grad-b: rgba(47, 122, 123, 0.12);
+            --bg-grad-c: rgba(224, 122, 95, 0.08);
+            --btn-hover: #256a6b;
+        }
+        html.dark {
+            --ink: #e2e8ec;
+            --primary: #5ec4b8;
+            --accent: #4db8b0;
+            --accent-2: #e8a940;
+            --rose: #d97758;
+            --bg: #13191c;
+            --card: #1c2528;
+            --card-alt: #232d31;
+            --line: #2e3a3e;
+            --muted: #8fa3a0;
+            --shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+            --callout-bg: #1a2226;
+            --pill-bg: #1a2e2c;
+            --pill-muted-bg: #222a2d;
+            --pill-muted-color: #6b7d7a;
+            --nav-tab-bg: #1a2e2c;
+            --jump-bg: #232d31;
+            --jump-hover: #2e3a3e;
+            --kpi-bg: #232d31;
+            --progress-track: #2e3a3e;
+            --metrics-border: #2e3a3e;
+            --warning-bg: #302818;
+            --warning-border: #7a5c20;
+            --warning-text: #e8c36a;
+            --warn-info-bg: #172440;
+            --warn-info-color: #60a5fa;
+            --warn-imp-bg: #302818;
+            --warn-imp-color: #fbbf24;
+            --warn-crit-bg: #301414;
+            --warn-crit-color: #f87171;
+            --header-grad-start: #0e1e1c;
+            --header-grad-mid: #17403c;
+            --header-grad-end: #1e564e;
+            --hero-glass: rgba(255, 255, 255, 0.06);
+            --hero-glass-border: rgba(255, 255, 255, 0.10);
+            --bg-grad-a: rgba(242, 180, 93, 0.06);
+            --bg-grad-b: rgba(47, 122, 123, 0.06);
+            --bg-grad-c: rgba(224, 122, 95, 0.04);
+            --btn-hover: #3a9490;
         }
         html { scroll-behavior: smooth; }
         body {
@@ -3049,13 +3155,13 @@ def generate_dashboard(output_dir, group_test, group_con):
             color: var(--ink);
             background-color: var(--bg);
             background-image:
-                radial-gradient(circle at 10% 10%, rgba(242, 180, 93, 0.12), transparent 45%),
-                radial-gradient(circle at 90% 20%, rgba(47, 122, 123, 0.12), transparent 40%),
-                radial-gradient(circle at 50% 85%, rgba(224, 122, 95, 0.08), transparent 45%);
+                radial-gradient(circle at 10% 10%, var(--bg-grad-a), transparent 45%),
+                radial-gradient(circle at 90% 20%, var(--bg-grad-b), transparent 40%),
+                radial-gradient(circle at 50% 85%, var(--bg-grad-c), transparent 45%);
         }
         h1, h2, h3 { font-family: "Space Grotesk", "Manrope", sans-serif; margin: 0; }
         header {
-            background: linear-gradient(120deg, #1f3f3c, #2f6b64 55%, #3d8b7d);
+            background: linear-gradient(120deg, var(--header-grad-start), var(--header-grad-mid) 55%, var(--header-grad-end));
             color: #f7f5f0;
             padding: 3.2rem 1.5rem 3.5rem;
         }
@@ -3122,15 +3228,15 @@ def generate_dashboard(output_dir, group_test, group_con):
         .hero-sub { margin-top: 0.6rem; font-size: 1rem; opacity: 0.85; }
         .hero-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1.2rem; }
         .tag {
-            background: rgba(255, 255, 255, 0.12);
+            background: var(--hero-glass);
             padding: 0.35rem 0.75rem;
             border-radius: 999px;
             font-size: 0.85rem;
         }
         .hero-grid { display: grid; gap: 12px; }
         .hero-card {
-            background: rgba(255, 255, 255, 0.12);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: var(--hero-glass);
+            border: 1px solid var(--hero-glass-border);
             border-radius: 14px;
             padding: 1rem 1.2rem;
             backdrop-filter: blur(8px);
@@ -3159,9 +3265,9 @@ def generate_dashboard(output_dir, group_test, group_con):
             font-size: 0.9rem;
             padding: 0.35rem 0.75rem;
             border-radius: 999px;
-            background: #f2eee6;
+            background: var(--jump-bg);
         }
-        .jump-bar a:hover { background: #e7dfd2; }
+        .jump-bar a:hover { background: var(--jump-hover); }
 
         .section-title {
             font-size: 1.3rem;
@@ -3176,7 +3282,7 @@ def generate_dashboard(output_dir, group_test, group_con):
         }
         .section-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; margin-bottom: 20px; }
         .callout {
-            background: #fdf9f2;
+            background: var(--callout-bg);
             border: 1px solid var(--line);
             border-radius: 14px;
             padding: 1rem 1.2rem;
@@ -3233,7 +3339,7 @@ def generate_dashboard(output_dir, group_test, group_con):
         .verdict-exploratory { background: #EF4444; color: #fff; }
         .summary-meta { margin-top: 0.6rem; color: var(--muted); font-size: 0.95rem; }
         .summary-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-top: 1rem; }
-        .kpi-card { background: #f7f2ea; border-radius: 12px; padding: 0.7rem 0.9rem; }
+        .kpi-card { background: var(--kpi-bg); border-radius: 12px; padding: 0.7rem 0.9rem; }
         .kpi-label { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
         .kpi-value { font-weight: 700; margin-top: 0.2rem; }
         .summary-list { margin: 0.4rem 0 0; padding-left: 1.2rem; color: var(--ink); }
@@ -3242,7 +3348,7 @@ def generate_dashboard(output_dir, group_test, group_con):
         .stat-row { display: grid; grid-template-columns: minmax(140px, 0.6fr) minmax(140px, 1.4fr); gap: 10px; align-items: center; }
         .stat-label { font-weight: 600; color: var(--muted); font-size: 0.9rem; }
         .stat-value { font-weight: 700; }
-        .progress-bar { width: 100%; height: 8px; border-radius: 999px; background: #e6dfd4; overflow: hidden; }
+        .progress-bar { width: 100%; height: 8px; border-radius: 999px; background: var(--progress-track); overflow: hidden; }
         .progress-bar span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
         .progress-bar.warn span { background: var(--accent-2); }
         .progress-bar.danger span { background: var(--rose); }
@@ -3250,10 +3356,10 @@ def generate_dashboard(output_dir, group_test, group_con):
         .warn-summary { margin-top: 1.2rem; }
         .warn-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0.6rem 0; }
         .warn-chip { padding: 0.35rem 0.7rem; border-radius: 999px; font-size: 0.85rem; font-weight: 700; }
-        .warn-critical { background: #fde2e2; color: #b91c1c; }
-        .warn-important { background: #fef3c7; color: #92400e; }
-        .warn-info { background: #dbeafe; color: #1d4ed8; }
-        .warn-details { background: #fdf9f2; border: 1px dashed var(--line); border-radius: 12px; padding: 0.8rem 1rem; }
+        .warn-critical { background: var(--warn-crit-bg); color: var(--warn-crit-color); }
+        .warn-important { background: var(--warn-imp-bg); color: var(--warn-imp-color); }
+        .warn-info { background: var(--warn-info-bg); color: var(--warn-info-color); }
+        .warn-details { background: var(--callout-bg); border: 1px dashed var(--line); border-radius: 12px; padding: 0.8rem 1rem; }
         .warn-details summary { cursor: pointer; font-weight: 700; }
 
         .step-card {
@@ -3278,13 +3384,13 @@ def generate_dashboard(output_dir, group_test, group_con):
             gap: 6px;
             padding: 0.35rem 0.7rem;
             border-radius: 999px;
-            background: #eef4f2;
+            background: var(--pill-bg);
             color: var(--primary);
             text-decoration: none;
             font-size: 0.85rem;
             font-weight: 600;
         }
-        .pill.muted { background: #f1f0ed; color: #9aa4a1; }
+        .pill.muted { background: var(--pill-muted-bg); color: var(--pill-muted-color); }
 
         .nav-tabs { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 1.5rem; }
         .nav-tab {
@@ -3293,7 +3399,7 @@ def generate_dashboard(output_dir, group_test, group_con):
             font-weight: 700;
             color: var(--primary);
             border-radius: 999px;
-            background: #eef4f2;
+            background: var(--nav-tab-bg);
             transition: all 0.2s ease;
         }
         .nav-tab.active { background: var(--accent); color: #fff; }
@@ -3321,7 +3427,7 @@ def generate_dashboard(output_dir, group_test, group_con):
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background: #f7f2ea;
+            background: var(--card-alt);
         }
         .card-badge {
             font-size: 0.7rem;
@@ -3349,12 +3455,12 @@ def generate_dashboard(output_dir, group_test, group_con):
             font-weight: 700;
             transition: all 0.2s ease;
         }
-        .btn:hover { background: #256a6b; transform: translateY(-1px); }
+        .btn:hover { background: var(--btn-hover); transform: translateY(-1px); }
 
         .empty-msg { text-align: center; padding: 2rem; color: var(--muted); font-style: italic; }
         .metrics-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 1rem 1.2rem; box-shadow: 0 8px 18px rgba(27, 38, 40, 0.06); }
         .metrics-title { font-weight: 700; margin-bottom: 0.6rem; color: var(--primary); }
-        .metrics-row { display: flex; justify-content: space-between; gap: 12px; font-size: 0.95rem; padding: 6px 0; border-bottom: 1px dashed #eee4d8; }
+        .metrics-row { display: flex; justify-content: space-between; gap: 12px; font-size: 0.95rem; padding: 6px 0; border-bottom: 1px dashed var(--metrics-border); }
         .metrics-row:last-child { border-bottom: none; }
 
         @keyframes riseIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
@@ -3397,6 +3503,14 @@ def generate_dashboard(output_dir, group_test, group_con):
                     <button class="icon-btn" type="button" onclick="copyResultsPath()" title="Copy results path to clipboard">
                         <svg viewBox="0 0 24 24" aria-hidden="true">
                             <path d="M16 1H6a2 2 0 00-2 2v12h2V3h10V1zm3 4H10a2 2 0 00-2 2v14a2 2 0 002 2h9a2 2 0 002-2V7a2 2 0 00-2-2zm0 16h-9V7h9v14z"></path>
+                        </svg>
+                    </button>
+                    <button class="icon-btn" type="button" id="darkToggle" onclick="toggleDark()" title="Toggle dark mode">
+                        <svg id="iconSun" viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M12 7a5 5 0 100 10 5 5 0 000-10zm0-3a1 1 0 001-1V1a1 1 0 00-2 0v2a1 1 0 001 1zm0 16a1 1 0 00-1 1v2a1 1 0 002 0v-2a1 1 0 00-1-1zm9-9h-2a1 1 0 000 2h2a1 1 0 000-2zM6 12a1 1 0 00-1-1H3a1 1 0 000 2h2a1 1 0 001-1zm12.36-5.64a1 1 0 00.71-.29l1.41-1.41a1 1 0 10-1.41-1.41l-1.42 1.41a1 1 0 00.71 1.7zM5.64 17.64a1 1 0 00-.71.29l-1.41 1.41a1 1 0 101.41 1.41l1.41-1.41a1 1 0 00-.7-1.7zm12.72 0a1 1 0 00-.7 1.7l1.41 1.42a1 1 0 101.41-1.42l-1.41-1.41a1 1 0 00-.71-.29zM5.64 6.36a1 1 0 00.7-.3L7.76 4.65a1 1 0 00-1.41-1.41L4.93 4.65a1 1 0 00.71 1.71z"></path>
+                        </svg>
+                        <svg id="iconMoon" viewBox="0 0 24 24" aria-hidden="true" style="display:none;">
+                            <path d="M21.64 13a1 1 0 00-1.05-.14 8.05 8.05 0 01-3.37.73A8.15 8.15 0 019.08 5.49a8.59 8.59 0 01.25-2 1 1 0 00-1.28-1.18A10 10 0 1021.78 14a1 1 0 00-.14-1z"></path>
                         </svg>
                     </button>
                 </div>
@@ -3677,20 +3791,20 @@ def generate_dashboard(output_dir, group_test, group_con):
         if metrics:
             html_parts.append('        <div class="metrics-card">\n')
             html_parts.append('            <div class="metrics-title">Model & Batch Summary</div>\n')
-            html_parts.append(f'            <div class="metrics-row" title="Genomic inflation factor. Ideal: 0.9-1.1. Values >1.2 suggest p-value inflation (possible batch effects or widespread signal). Values <0.9 suggest over-correction."><span>λ (inflation)</span><span>{_h(metrics.get("lambda", "N/A"))}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row" title="Genomic inflation factor. Ideal: 0.9-1.1. Values >1.2 suggest p-value inflation (possible batch effects or widespread signal). Values <0.9 suggest over-correction."><span>λ (inflation)</span><span>{_fmt(metrics.get("lambda"), "lambda")}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Batch method</span><span>{_h(metrics.get("batch_method_applied", "N/A"))}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Samples / CpGs</span><span>{_h(metrics.get("n_samples", "N/A"))} / {_h(metrics.get("n_cpgs", "N/A"))}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Covariates used (n)</span><span>{_h(metrics.get("n_covariates_used", "N/A"))}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Covariates used</span><span>{_h(metrics.get("covariates_used", "None") or "None")}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>SVs used</span><span>{_h(metrics.get("n_sv_used", "0"))}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Batch p&lt;0.05 (Before→After)</span><span>{_h(metrics.get("batch_sig_p_lt_0.05_before", "N/A"))} → {_h(metrics.get("batch_sig_p_lt_0.05_after", "N/A"))}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>Min batch p (Before→After)</span><span>{_h(metrics.get("batch_min_p_before", "N/A"))} → {_h(metrics.get("batch_min_p_after", "N/A"))}</span></div>\n')
-            html_parts.append(f'            <div class="metrics-row"><span>Group min p (Before→After)</span><span>{_h(metrics.get("group_min_p_before", "N/A"))} → {_h(metrics.get("group_min_p_after", "N/A"))}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Min batch p (Before→After)</span><span>{_fmt(metrics.get("batch_min_p_before"), "pval")} → {_fmt(metrics.get("batch_min_p_after"), "pval")}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row"><span>Group min p (Before→After)</span><span>{_fmt(metrics.get("group_min_p_before"), "pval")} → {_fmt(metrics.get("group_min_p_after"), "pval")}</span></div>\n')
             guidance = build_correction_guidance(metrics)
             if guidance:
                 html_parts.append(f'            <div class="metrics-row"><span>Correction guide</span><span>{_h(guidance)}</span></div>\n')
             if metrics.get("perm_mean_sig") is not None:
-                html_parts.append(f'            <div class="metrics-row"><span>Perm mean/max sig (null)</span><span>{_h(metrics.get("perm_mean_sig", "N/A"))} / {_h(metrics.get("perm_max_sig", "N/A"))}</span></div>\n')
+                html_parts.append(f'            <div class="metrics-row"><span>Perm mean/max sig (null)</span><span>{_fmt(metrics.get("perm_mean_sig"), "int")} / {_fmt(metrics.get("perm_max_sig"), "int")}</span></div>\n')
             lam_ratio = safe_float(metrics.get("lambda_ratio"))
             if lam_ratio is not None:
                 if lam_ratio > 2:
@@ -3706,7 +3820,7 @@ def generate_dashboard(output_dir, group_test, group_con):
                     f'<span>λ ratio (obs/null)</span><span>{lam_ratio:.2f} [{ratio_hint}]</span></div>\n'
                 )
             if metrics.get("vp_primary_group_mean") is not None:
-                html_parts.append(f'            <div class="metrics-row"><span>VarPart primary_group</span><span>{_h(metrics.get("vp_primary_group_mean", "N/A"))}</span></div>\n')
+                html_parts.append(f'            <div class="metrics-row"><span>VarPart primary_group</span><span>{_fmt(metrics.get("vp_primary_group_mean"), "prop")}</span></div>\n')
             if metrics.get("dropped_covariates"):
                 html_parts.append(f'            <div class="metrics-row"><span>Dropped covariates</span><span>{_h(metrics.get("dropped_covariates"))}</span></div>\n')
             drop_reasons = load_drop_reasons(pipe_id)
@@ -3727,13 +3841,18 @@ def generate_dashboard(output_dir, group_test, group_con):
                 if os.path.exists(file_path):
                     card_index += 1
                     badge_class = f"badge-{badge.lower()}"
+                    # Inline thumbnail for Volcano / QQ Plot cards
+                    thumb_html = ""
+                    if suffix in ("_Volcano.html", "_QQPlot.html"):
+                        png_name = filename.replace(".html", ".png")
+                        thumb_html = _thumb(os.path.join(output_dir, png_name))
                     card_html = f"""            <div class="card" style="--i:{card_index};">
                 <div class="card-header">
                     {title}
                     <span class="card-badge {badge_class}">{badge}</span>
                 </div>
                 <div class="card-body">
-                    <p class="card-desc">{desc}</p>
+                    {thumb_html}<p class="card-desc">{desc}</p>
                     <a href="{rel_path}" target="_blank" class="btn">Open Result</a>
                 </div>
             </div>
@@ -3825,6 +3944,34 @@ def generate_dashboard(output_dir, group_test, group_con):
         const match = Array.from(document.querySelectorAll('.nav-tab')).find(el => el.dataset.tab === tabName);
         if (match) match.classList.add('active');
     }
+
+    function applyDarkIcons(dark) {
+        const sun = document.getElementById('iconSun');
+        const moon = document.getElementById('iconMoon');
+        if (sun && moon) {
+            sun.style.display = dark ? 'none' : '';
+            moon.style.display = dark ? '' : 'none';
+        }
+    }
+
+    function toggleDark() {
+        const isDark = document.documentElement.classList.toggle('dark');
+        try { localStorage.setItem('illumeta-dark', isDark ? '1' : '0'); } catch(e) {}
+        applyDarkIcons(isDark);
+    }
+
+    (function initDark() {
+        let dark = false;
+        try {
+            const stored = localStorage.getItem('illumeta-dark');
+            if (stored !== null) { dark = stored === '1'; }
+            else { dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches; }
+        } catch(e) {
+            dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        }
+        if (dark) document.documentElement.classList.add('dark');
+        applyDarkIcons(dark);
+    })();
 </script>
 
 </body>

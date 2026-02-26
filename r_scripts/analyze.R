@@ -141,7 +141,7 @@ if (!exists("findbars")) {
 #   - Batch effect correction: Leek et al. (2012) Nat Rev Genet - SVA
 #   - DMR analysis: Suderman et al. (2018) bioRxiv doi:10.1101/508556 - dmrff
 #   - Multiple testing: Benjamini & Hochberg (1995) JRSS-B - FDR
-#   - Cell deconvolution: Teschendorff et al. (2017) Genome Biol - EpiDISH
+#   - Cell deconvolution: Teschendorff et al. (2017) BMC Bioinformatics - EpiDISH
 #   - Variance partition: Hoffman & Schadt (2016) BMC Bioinformatics
 #
 # KNOWN LIMITATIONS:

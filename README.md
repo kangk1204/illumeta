@@ -242,7 +242,7 @@ python3 illumeta.py doctor
 - 📝 **Auto-generated methods**: Ready-to-use text for your paper
 
 ### For Experts
-- **Dual-pipeline design**: Runs **Minfi** and **SeSAMe** preprocessing in parallel with strict/native SeSAMe views
+- **Dual-pipeline design**: Runs **Minfi** and **SeSAMe** preprocessing independently with strict/native SeSAMe views
 - **Consensus calling**: High-confidence results where both methods agree (Fisher's combined P-value)
 - **Adaptive batch correction**: Automatically selects optimal method (SVA/ComBat/limma)
 - **Bonferroni-corrected covariate selection**: PC-association screening with per-variable α/n_tested_PCs correction
@@ -1631,10 +1631,12 @@ SSS (subsampling stability), and CVD (PVCA-based confounding variance decomposit
 
 | Tier | Total n | Per-group min | Key limitations |
 |------|---------|---------------|-----------------|
-| **Minimal** | < 12 | 3 | Exploratory only; severe power limitation; SVA disabled |
-| **Small** | 12-23 | 6 | Independent validation required; SVA disabled |
-| **Moderate** | 24-49 | 12 | Full pipeline available; moderate power |
-| **Large** | >= 50 | 25 | All robustness checks fully powered |
+| **Minimal** | < 12 OR min_per_group < 6 | 3 | Exploratory only; severe power limitation; SVA disabled |
+| **Small** | < 24 OR min_per_group < 12 | 6 | Independent validation required; SVA disabled |
+| **Moderate** | < 50 OR min_per_group < 25 | 12 | Full pipeline available; moderate power |
+| **Large** | >= 50 AND min_per_group >= 25 | 25 | All robustness checks fully powered |
+
+Tier assignment uses a **dual-condition** (OR) rule: a dataset enters a lower tier if *either* total n or per-group minimum falls below the threshold.
 
 For minimal/small tiers, interpret results cautiously and plan for replication in independent cohorts.
 

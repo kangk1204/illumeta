@@ -139,7 +139,7 @@ if (!exists("findbars")) {
 #   - M-value transformation: Du et al. (2010) BMC Bioinformatics
 #   - Differential methylation: Ritchie et al. (2015) Nucleic Acids Res - limma
 #   - Batch effect correction: Leek et al. (2012) Nat Rev Genet - SVA
-#   - DMR analysis: Suderman et al. (2018) Bioinformatics - dmrff
+#   - DMR analysis: Suderman et al. (2018) bioRxiv doi:10.1101/508556 - dmrff
 #   - Multiple testing: Benjamini & Hochberg (1995) JRSS-B - FDR
 #   - Cell deconvolution: Teschendorff et al. (2017) Genome Biol - EpiDISH
 #   - Variance partition: Hoffman & Schadt (2016) BMC Bioinformatics
@@ -7613,7 +7613,7 @@ if (is.null(targets_sesame) && !is.null(beta_sesame_native)) {
 #' 4. DMP analysis with limma (eBayes/robust)
 #' 5. Lambda inflation guard check
 #' 6. CRF robustness assessment
-#' 7. DMR analysis (DMRcate or dmrff)
+#' 7. DMR analysis (dmrff)
 #' 8. Epigenetic clock estimation (if enabled)
 #' 9. HTML/CSV output generation
 #'

@@ -346,7 +346,7 @@ CONFIG_DEFAULTS <- list(
   crf = list(
     enabled = TRUE,
     max_probes_mmc = 20000,
-    max_probes_sss = 20000,
+    max_probes_rss = 20000,
     housekeeping_path = "",
     ncs_lambda_ci = list(
       enabled = TRUE,
@@ -359,7 +359,7 @@ CONFIG_DEFAULTS <- list(
         min_per_group = 3,
         mmc = list(methods = c("none", "limma"), concordance_levels = c("core", "discordant")),
         ncs = list(types = c("snp"), lambda_range = c(0.7, 1.3), interpret = "reference_only"),
-        sss = list(mode = "bootstrap", n_iterations = 100, top_k = c(20, 50), overlap_threshold = 0.20),
+        rss = list(mode = "bootstrap", n_iterations = 100, top_k = c(20, 50), overlap_threshold = 0.20),
         warnings = c("Very small sample size: interpret all results with extreme caution.",
                      "Statistical power severely limited.",
                      "Consider this analysis exploratory only.")
@@ -369,7 +369,7 @@ CONFIG_DEFAULTS <- list(
         min_per_group = 6,
         mmc = list(methods = c("none", "combat_np", "limma"), concordance_levels = c("core", "consensus", "weak")),
         ncs = list(types = c("snp"), lambda_range = c(0.8, 1.2), interpret = "cautious"),
-        sss = list(mode = "leave_pair_out", n_iterations = 50, top_k = c(30, 100, 200), overlap_threshold = 0.30),
+        rss = list(mode = "leave_pair_out", n_iterations = 50, top_k = c(30, 100, 200), overlap_threshold = 0.30),
         warnings = c("Small sample size: results should be validated independently.",
                      "SVA excluded due to instability.")
       ),
@@ -379,7 +379,7 @@ CONFIG_DEFAULTS <- list(
         mmc = list(methods = c("none", "combat", "limma", "sva"), concordance_levels = c("core", "consensus", "weak"),
                    sva_note = "SVA may be slightly unstable."),
         ncs = list(types = c("snp", "housekeeping"), lambda_range = c(0.9, 1.1), interpret = "standard"),
-        sss = list(mode = "split", n_iterations = 10, top_k = c(50, 200, 500), overlap_threshold = 0.40),
+        rss = list(mode = "split", n_iterations = 10, top_k = c(50, 200, 500), overlap_threshold = 0.40),
         warnings = character(0)
       ),
       large = list(
@@ -387,7 +387,7 @@ CONFIG_DEFAULTS <- list(
         min_per_group = 25,
         mmc = list(methods = c("none", "combat", "limma", "sva"), concordance_levels = c("core", "consensus", "weak")),
         ncs = list(types = c("snp", "housekeeping"), lambda_range = c(0.9, 1.1), interpret = "standard"),
-        sss = list(mode = "split", n_iterations = 10, top_k = c(100, 500, 1000), overlap_threshold = 0.50),
+        rss = list(mode = "split", n_iterations = 10, top_k = c(100, 500, 1000), overlap_threshold = 0.50),
         warnings = character(0)
       )
     )
@@ -2185,26 +2185,26 @@ resolve_crf_tier <- function(n_con, n_test, crf_cfg) {
   minimal_def <- list(threshold = 12, min_per_group = 3,
                       mmc = list(methods = c("none", "limma"), concordance_levels = c("core", "discordant")),
                       ncs = list(types = c("snp"), lambda_range = c(0.7, 1.3), interpret = "reference_only"),
-                      sss = list(mode = "bootstrap", n_iterations = 100, top_k = c(20, 50), overlap_threshold = 0.20),
+                      rss = list(mode = "bootstrap", n_iterations = 100, top_k = c(20, 50), overlap_threshold = 0.20),
                       warnings = c("CAUTION: Very small sample size (n<12). Statistical power is severely limited.",
                                    "Treat all results as exploratory hypotheses requiring independent validation.",
                                    "False discovery rate control may be unreliable at this sample size."))
   small_def <- list(threshold = 24, min_per_group = 6,
                     mmc = list(methods = c("none", "combat_np", "limma"), concordance_levels = c("core", "consensus", "weak")),
                     ncs = list(types = c("snp"), lambda_range = c(0.8, 1.2), interpret = "cautious"),
-                    sss = list(mode = "leave_pair_out", n_iterations = 50, top_k = c(30, 100, 200), overlap_threshold = 0.30),
+                    rss = list(mode = "leave_pair_out", n_iterations = 50, top_k = c(30, 100, 200), overlap_threshold = 0.30),
                     warnings = c("NOTE: Small sample size (n<24). Results should be validated in an independent cohort.",
                                  "SVA is excluded due to instability at this sample size.",
                                  "Effect size estimates may be imprecise; focus on direction rather than magnitude."))
   moderate_def <- list(threshold = 50, min_per_group = 12,
                        mmc = list(methods = c("none", "combat", "limma", "sva"), concordance_levels = c("core", "consensus", "weak")),
                        ncs = list(types = c("snp", "housekeeping"), lambda_range = c(0.9, 1.1), interpret = "standard"),
-                       sss = list(mode = "split", n_iterations = 10, top_k = c(50, 200, 500), overlap_threshold = 0.40),
+                       rss = list(mode = "split", n_iterations = 10, top_k = c(50, 200, 500), overlap_threshold = 0.40),
                        warnings = character(0))
   large_def <- list(threshold = NA, min_per_group = 25,
                     mmc = list(methods = c("none", "combat", "limma", "sva"), concordance_levels = c("core", "consensus", "weak")),
                     ncs = list(types = c("snp", "housekeeping"), lambda_range = c(0.9, 1.1), interpret = "standard"),
-                    sss = list(mode = "split", n_iterations = 10, top_k = c(100, 500, 1000), overlap_threshold = 0.50),
+                    rss = list(mode = "split", n_iterations = 10, top_k = c(100, 500, 1000), overlap_threshold = 0.50),
                     warnings = character(0))
 
   minimal_def <- get_tier("minimal", minimal_def)
@@ -2275,10 +2275,10 @@ resolve_crf_tier <- function(n_con, n_test, crf_cfg) {
     ncs_types = tier_def$ncs$types,
     ncs_lambda_range = tier_def$ncs$lambda_range,
     ncs_interpret = tier_def$ncs$interpret,
-    sss_mode = tier_def$sss$mode,
-    sss_iterations = tier_def$sss$n_iterations,
-    sss_top_k = tier_def$sss$top_k,
-    sss_overlap_threshold = tier_def$sss$overlap_threshold,
+    rss_mode = tier_def$rss$mode,
+    rss_iterations = tier_def$rss$n_iterations,
+    rss_top_k = tier_def$rss$top_k,
+    rss_overlap_threshold = tier_def$rss$overlap_threshold,
     warnings = warnings
   )
 }
@@ -2429,7 +2429,7 @@ compute_negative_control_stats <- function(betas_nc, design, group_cols,
        lambda_ci_low = ci_low, lambda_ci_high = ci_high, lambda_boot_n = boot_n)
 }
 
-compute_sss_overlap <- function(betas, targets, group_col, covariates, mode, n_iter, top_k, max_probes = 0) {
+compute_rss_overlap <- function(betas, targets, group_col, covariates, mode, n_iter, top_k, max_probes = 0) {
   if (is.null(betas) || nrow(betas) == 0) return(NULL)
   betas_use <- subset_top_variable(betas, max_probes)
   covariates <- covariates[covariates %in% colnames(targets)]
@@ -2477,8 +2477,8 @@ compute_sss_overlap <- function(betas, targets, group_col, covariates, mode, n_i
   names(iter_jaccards) <- as.character(top_k)
   iter_rbos <- lapply(top_k, function(k) numeric(0))
   names(iter_rbos) <- as.character(top_k)
-  iter_sss <- lapply(top_k, function(k) numeric(0))
-  names(iter_sss) <- as.character(top_k)
+  iter_rss <- lapply(top_k, function(k) numeric(0))
+  names(iter_rss) <- as.character(top_k)
   iter_signs <- lapply(top_k, function(k) numeric(0))
   names(iter_signs) <- as.character(top_k)
 
@@ -2541,18 +2541,18 @@ compute_sss_overlap <- function(betas, targets, group_col, covariates, mode, n_i
       overlap <- inter_n / max(1, k)
       jaccard <- if (union_n > 0) inter_n / union_n else NA_real_
       rbo <- rbo_score(ref_set, iter_set, p = rbo_p)
-      sss_val <- NA_real_
+      rss_val <- NA_real_
       if (is.finite(jaccard) && is.finite(rbo)) {
-        sss_val <- 0.5 * jaccard + 0.5 * rbo
+        rss_val <- 0.5 * jaccard + 0.5 * rbo
       } else if (is.finite(jaccard)) {
-        sss_val <- jaccard
+        rss_val <- jaccard
       } else if (is.finite(rbo)) {
-        sss_val <- rbo
+        rss_val <- rbo
       }
       iter_overlaps[[as.character(k)]] <- c(iter_overlaps[[as.character(k)]], overlap)
       iter_jaccards[[as.character(k)]] <- c(iter_jaccards[[as.character(k)]], jaccard)
       iter_rbos[[as.character(k)]] <- c(iter_rbos[[as.character(k)]], rbo)
-      iter_sss[[as.character(k)]] <- c(iter_sss[[as.character(k)]], sss_val)
+      iter_rss[[as.character(k)]] <- c(iter_rss[[as.character(k)]], rss_val)
       if (!is.null(ref_effect) && !is.null(iter_effect)) {
         common_ids <- intersect(ref_set, iter_set)
         if (length(common_ids) >= 3) {
@@ -2572,7 +2572,7 @@ compute_sss_overlap <- function(betas, targets, group_col, covariates, mode, n_i
     vals <- iter_overlaps[[as.character(k)]]
     j_vals <- iter_jaccards[[as.character(k)]]
     rbo_vals <- iter_rbos[[as.character(k)]]
-    sss_vals <- iter_sss[[as.character(k)]]
+    rss_vals <- iter_rss[[as.character(k)]]
     sign_vals <- iter_signs[[as.character(k)]]
     out <- rbind(out, data.frame(top_k = k,
                                  overlap_mean = if (length(vals) > 0) mean(vals, na.rm = TRUE) else NA_real_,
@@ -2581,8 +2581,8 @@ compute_sss_overlap <- function(betas, targets, group_col, covariates, mode, n_i
                                  jaccard_sd = if (length(j_vals) > 1) sd(j_vals, na.rm = TRUE) else NA_real_,
                                  rbo_mean = if (length(rbo_vals) > 0) mean(rbo_vals, na.rm = TRUE) else NA_real_,
                                  rbo_sd = if (length(rbo_vals) > 1) sd(rbo_vals, na.rm = TRUE) else NA_real_,
-                                 sss_mean = if (length(sss_vals) > 0) mean(sss_vals, na.rm = TRUE) else NA_real_,
-                                 sss_sd = if (length(sss_vals) > 1) sd(sss_vals, na.rm = TRUE) else NA_real_,
+                                 rss_mean = if (length(rss_vals) > 0) mean(rss_vals, na.rm = TRUE) else NA_real_,
+                                 rss_sd = if (length(rss_vals) > 1) sd(rss_vals, na.rm = TRUE) else NA_real_,
                                  rbo_p = rbo_p,
                                  sign_mean = if (length(sign_vals) > 0) mean(sign_vals, na.rm = TRUE) else NA_real_,
                                  sign_sd = if (length(sign_vals) > 1) sd(sign_vals, na.rm = TRUE) else NA_real_,
@@ -2591,7 +2591,7 @@ compute_sss_overlap <- function(betas, targets, group_col, covariates, mode, n_i
   out
 }
 
-build_crf_report_lines <- function(tier_info, mmc_summary, ncs_summary, sss_summary, prefix,
+build_crf_report_lines <- function(tier_info, mmc_summary, ncs_summary, rss_summary, prefix,
                                    pvca_ci_before = NA_real_, pvca_ci_after = NA_real_) {
   tier_name <- toupper(tier_info$tier)
   lines <- c(
@@ -2643,27 +2643,27 @@ build_crf_report_lines <- function(tier_info, mmc_summary, ncs_summary, sss_summ
                                 ncs_score_disp, row$sig_rate, row$n))
     }
   }
-  lines <- c(lines, "", "SECTION 3: SUBSAMPLING STABILITY (SSS)")
-  if (is.null(sss_summary) || nrow(sss_summary) == 0) {
+  lines <- c(lines, "", "SECTION 3: RESAMPLING STABILITY (RSS)")
+  if (is.null(rss_summary) || nrow(rss_summary) == 0) {
     lines <- c(lines, "  Stability analysis not available.")
   } else {
-    for (i in seq_len(nrow(sss_summary))) {
-      row <- sss_summary[i, ]
+    for (i in seq_len(nrow(rss_summary))) {
+      row <- rss_summary[i, ]
       sign_disp <- ""
       if (!is.null(row$sign_mean_raw) && is.finite(row$sign_mean_raw) &&
           !is.null(row$sign_mean_corr) && is.finite(row$sign_mean_corr)) {
         sign_disp <- sprintf(", sign(before)=%.3f, sign(after)=%.3f", row$sign_mean_raw, row$sign_mean_corr)
       }
-      sss_disp <- ""
-      if (!is.null(row$sss_mean_corr) && is.finite(row$sss_mean_corr)) {
+      rss_disp <- ""
+      if (!is.null(row$rss_mean_corr) && is.finite(row$rss_mean_corr)) {
         j <- if (!is.null(row$jaccard_mean_corr) && is.finite(row$jaccard_mean_corr)) sprintf("%.3f", row$jaccard_mean_corr) else "NA"
         r <- if (!is.null(row$rbo_mean_corr) && is.finite(row$rbo_mean_corr)) sprintf("%.3f", row$rbo_mean_corr) else "NA"
         p <- if (!is.null(row$rbo_p) && is.finite(row$rbo_p)) sprintf("%.2f", row$rbo_p) else "NA"
-        sss_disp <- sprintf(", SSS(after)=%.3f (J=%s, RBO=%s, p=%s)", row$sss_mean_corr, j, r, p)
+        rss_disp <- sprintf(", RSS(after)=%.3f (J=%s, RBO=%s, p=%s)", row$rss_mean_corr, j, r, p)
       }
       lines <- c(lines, sprintf("  Top K=%d: overlap before=%.3f (sd=%.3f), after=%.3f (sd=%.3f)%s%s",
                                 row$top_k, row$overlap_mean_raw, row$overlap_sd_raw,
-                                row$overlap_mean_corr, row$overlap_sd_corr, sign_disp, sss_disp))
+                                row$overlap_mean_corr, row$overlap_sd_corr, sign_disp, rss_disp))
     }
   }
 
@@ -2686,7 +2686,7 @@ build_crf_report_lines <- function(tier_info, mmc_summary, ncs_summary, sss_summ
 #' Correction Robustness Framework (CRF) Assessment
 #'
 #' Evaluates batch correction robustness through multiple complementary metrics:
-#' negative control stability, multi-method concordance, subsampling stability,
+#' negative control stability, multi-method concordance, resampling stability,
 #' and PVCA-based confounding variance decomposition.
 #' Produces a comprehensive CRF report with tier-appropriate assessments.
 #'
@@ -2711,7 +2711,7 @@ build_crf_report_lines <- function(tier_info, mmc_summary, ncs_summary, sss_summ
 #' CRF includes four assessment axes:
 #' 1. Negative Control Stability (NCS): Lambda on control probes (SNP, OOB)
 #' 2. Multi-Method Concordance (MMC): Agreement across correction methods
-#' 3. Subsampling Stability Score (SSS): Top-K hit overlap across split-sample replicates
+#' 3. Resampling Stability Score (RSS): Top-K hit overlap across resampled replicates
 #' 4. Confounding Variance Decomposition (CVD): PVCA-derived confounding index
 #'
 #' @seealso get_crf_tier for sample tier classification
@@ -2736,7 +2736,7 @@ run_crf_assessment <- function(betas_raw, betas_corr, targets, covariates, tier_
   mmc_summary <- NULL
   if (!is.null(mmc_res) && !is.null(mmc_res$res_list) && length(mmc_res$res_list) >= 2) {
     mmc_summary <- compute_mmc_summary(mmc_res$res_list,
-                                       top_k = tier_info$sss_top_k,
+                                       top_k = tier_info$rss_top_k,
                                        levels = tier_info$mmc_levels,
                                        pval_thresh = pval_thresh,
                                        lfc_thresh = lfc_thresh)
@@ -2857,46 +2857,46 @@ run_crf_assessment <- function(betas_raw, betas_corr, targets, covariates, tier_
     write.csv(ncs_summary, file.path(out_dir, paste0(prefix, "_CRF_NCS_Summary.csv")), row.names = FALSE)
   }
 
-  sss_summary <- data.frame()
+  rss_summary <- data.frame()
   if (!is.null(betas_raw) && !is.null(betas_corr)) {
-    top_k <- tier_info$sss_top_k
-    mode <- tier_info$sss_mode
-    n_iter <- tier_info$sss_iterations
-    max_probes <- suppressWarnings(as.integer(crf_cfg$max_probes_sss))
+    top_k <- tier_info$rss_top_k
+    mode <- tier_info$rss_mode
+    n_iter <- tier_info$rss_iterations
+    max_probes <- suppressWarnings(as.integer(crf_cfg$max_probes_rss))
     if (!is.finite(max_probes)) max_probes <- 0
     covariates_use <- covariates
-    sss_raw <- compute_sss_overlap(betas_raw, targets, "primary_group", covariates_use,
+    rss_raw <- compute_rss_overlap(betas_raw, targets, "primary_group", covariates_use,
                                    mode = mode, n_iter = n_iter, top_k = top_k, max_probes = max_probes)
-    sss_corr <- compute_sss_overlap(betas_corr, targets, "primary_group", covariates_use,
+    rss_corr <- compute_rss_overlap(betas_corr, targets, "primary_group", covariates_use,
                                     mode = mode, n_iter = n_iter, top_k = top_k, max_probes = max_probes)
-    if (!is.null(sss_raw) || !is.null(sss_corr)) {
-      sss_summary <- data.frame(top_k = top_k,
-                                overlap_mean_raw = if (!is.null(sss_raw)) sss_raw$overlap_mean else NA_real_,
-                                overlap_sd_raw = if (!is.null(sss_raw)) sss_raw$overlap_sd else NA_real_,
-                                jaccard_mean_raw = if (!is.null(sss_raw)) sss_raw$jaccard_mean else NA_real_,
-                                jaccard_sd_raw = if (!is.null(sss_raw)) sss_raw$jaccard_sd else NA_real_,
-                                rbo_mean_raw = if (!is.null(sss_raw)) sss_raw$rbo_mean else NA_real_,
-                                rbo_sd_raw = if (!is.null(sss_raw)) sss_raw$rbo_sd else NA_real_,
-                                sss_mean_raw = if (!is.null(sss_raw)) sss_raw$sss_mean else NA_real_,
-                                sss_sd_raw = if (!is.null(sss_raw)) sss_raw$sss_sd else NA_real_,
-                                overlap_mean_corr = if (!is.null(sss_corr)) sss_corr$overlap_mean else NA_real_,
-                                overlap_sd_corr = if (!is.null(sss_corr)) sss_corr$overlap_sd else NA_real_,
-                                jaccard_mean_corr = if (!is.null(sss_corr)) sss_corr$jaccard_mean else NA_real_,
-                                jaccard_sd_corr = if (!is.null(sss_corr)) sss_corr$jaccard_sd else NA_real_,
-                                rbo_mean_corr = if (!is.null(sss_corr)) sss_corr$rbo_mean else NA_real_,
-                                rbo_sd_corr = if (!is.null(sss_corr)) sss_corr$rbo_sd else NA_real_,
-                                sss_mean_corr = if (!is.null(sss_corr)) sss_corr$sss_mean else NA_real_,
-                                sss_sd_corr = if (!is.null(sss_corr)) sss_corr$sss_sd else NA_real_,
-                                rbo_p = if (!is.null(sss_corr)) sss_corr$rbo_p else if (!is.null(sss_raw)) sss_raw$rbo_p else NA_real_,
-                                sign_mean_raw = if (!is.null(sss_raw)) sss_raw$sign_mean else NA_real_,
-                                sign_sd_raw = if (!is.null(sss_raw)) sss_raw$sign_sd else NA_real_,
-                                sign_mean_corr = if (!is.null(sss_corr)) sss_corr$sign_mean else NA_real_,
-                                sign_sd_corr = if (!is.null(sss_corr)) sss_corr$sign_sd else NA_real_)
-      write.csv(sss_summary, file.path(out_dir, paste0(prefix, "_CRF_SSS_Summary.csv")), row.names = FALSE)
+    if (!is.null(rss_raw) || !is.null(rss_corr)) {
+      rss_summary <- data.frame(top_k = top_k,
+                                overlap_mean_raw = if (!is.null(rss_raw)) rss_raw$overlap_mean else NA_real_,
+                                overlap_sd_raw = if (!is.null(rss_raw)) rss_raw$overlap_sd else NA_real_,
+                                jaccard_mean_raw = if (!is.null(rss_raw)) rss_raw$jaccard_mean else NA_real_,
+                                jaccard_sd_raw = if (!is.null(rss_raw)) rss_raw$jaccard_sd else NA_real_,
+                                rbo_mean_raw = if (!is.null(rss_raw)) rss_raw$rbo_mean else NA_real_,
+                                rbo_sd_raw = if (!is.null(rss_raw)) rss_raw$rbo_sd else NA_real_,
+                                rss_mean_raw = if (!is.null(rss_raw)) rss_raw$rss_mean else NA_real_,
+                                rss_sd_raw = if (!is.null(rss_raw)) rss_raw$rss_sd else NA_real_,
+                                overlap_mean_corr = if (!is.null(rss_corr)) rss_corr$overlap_mean else NA_real_,
+                                overlap_sd_corr = if (!is.null(rss_corr)) rss_corr$overlap_sd else NA_real_,
+                                jaccard_mean_corr = if (!is.null(rss_corr)) rss_corr$jaccard_mean else NA_real_,
+                                jaccard_sd_corr = if (!is.null(rss_corr)) rss_corr$jaccard_sd else NA_real_,
+                                rbo_mean_corr = if (!is.null(rss_corr)) rss_corr$rbo_mean else NA_real_,
+                                rbo_sd_corr = if (!is.null(rss_corr)) rss_corr$rbo_sd else NA_real_,
+                                rss_mean_corr = if (!is.null(rss_corr)) rss_corr$rss_mean else NA_real_,
+                                rss_sd_corr = if (!is.null(rss_corr)) rss_corr$rss_sd else NA_real_,
+                                rbo_p = if (!is.null(rss_corr)) rss_corr$rbo_p else if (!is.null(rss_raw)) rss_raw$rbo_p else NA_real_,
+                                sign_mean_raw = if (!is.null(rss_raw)) rss_raw$sign_mean else NA_real_,
+                                sign_sd_raw = if (!is.null(rss_raw)) rss_raw$sign_sd else NA_real_,
+                                sign_mean_corr = if (!is.null(rss_corr)) rss_corr$sign_mean else NA_real_,
+                                sign_sd_corr = if (!is.null(rss_corr)) rss_corr$sign_sd else NA_real_)
+      write.csv(rss_summary, file.path(out_dir, paste0(prefix, "_CRF_RSS_Summary.csv")), row.names = FALSE)
     }
   }
 
-  report_lines <- build_crf_report_lines(tier_info, mmc_summary, ncs_summary, sss_summary, prefix,
+  report_lines <- build_crf_report_lines(tier_info, mmc_summary, ncs_summary, rss_summary, prefix,
                                          pvca_ci_before = pvca_ci_before,
                                          pvca_ci_after = pvca_ci_after)
   report_path <- file.path(out_dir, paste0(prefix, "_CRF_Report.txt"))
@@ -2923,7 +2923,7 @@ run_crf_assessment <- function(betas_raw, betas_corr, targets, covariates, tier_
     report_path = report_path,
     mmc_summary = mmc_summary,
     ncs_summary = ncs_summary,
-    sss_summary = sss_summary,
+    rss_summary = rss_summary,
     ncs_best_score = ncs_best_score,
     pvca_ci_before = pvca_ci_before,
     pvca_ci_after = pvca_ci_after
@@ -9794,7 +9794,7 @@ tryCatch({
     file.copy(crf_report_src, crf_report_dest, overwrite = TRUE)
     file.copy(crf_report_dest, results_dirs$reports, overwrite = TRUE)
   }
-  for (crf_name in c("CRF_MMC_Summary.csv", "CRF_NCS_Summary.csv", "CRF_SSS_Summary.csv")) {
+  for (crf_name in c("CRF_MMC_Summary.csv", "CRF_NCS_Summary.csv", "CRF_RSS_Summary.csv")) {
     src <- file.path(out_dir, paste0(primary_branch, "_", crf_name))
     if (file.exists(src)) {
       dest <- file.path(out_dir, crf_name)
@@ -9868,11 +9868,11 @@ tryCatch({
     combat_par_prior = combat_par_prior,
     combat_allowed = combat_allowed,
     crf_ncs_types = if (!is.null(crf_tier_info$ncs_types)) paste(crf_tier_info$ncs_types, collapse = ",") else "",
-    crf_sss_mode = if (!is.null(crf_tier_info$sss_mode)) crf_tier_info$sss_mode else "",
-    crf_sss_iterations = if (!is.null(crf_tier_info$sss_iterations)) crf_tier_info$sss_iterations else NA,
-    crf_sss_top_k = if (!is.null(crf_tier_info$sss_top_k)) paste(crf_tier_info$sss_top_k, collapse = ",") else "",
+    crf_rss_mode = if (!is.null(crf_tier_info$rss_mode)) crf_tier_info$rss_mode else "",
+    crf_rss_iterations = if (!is.null(crf_tier_info$rss_iterations)) crf_tier_info$rss_iterations else NA,
+    crf_rss_top_k = if (!is.null(crf_tier_info$rss_top_k)) paste(crf_tier_info$rss_top_k, collapse = ",") else "",
     crf_max_probes_mmc = if (!is.null(config_settings$crf$max_probes_mmc)) config_settings$crf$max_probes_mmc else NA,
-    crf_max_probes_sss = if (!is.null(config_settings$crf$max_probes_sss)) config_settings$crf$max_probes_sss else NA,
+    crf_max_probes_rss = if (!is.null(config_settings$crf$max_probes_rss)) config_settings$crf$max_probes_rss else NA,
     crf_housekeeping_path = if (!is.null(config_settings$crf$housekeeping_path)) config_settings$crf$housekeeping_path else "",
     vp_top = vp_top,
     dmr_maxgap = DMR_MAXGAP,

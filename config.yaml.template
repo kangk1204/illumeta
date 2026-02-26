@@ -61,7 +61,7 @@ caf:
 crf:
   enabled: true
   max_probes_mmc: 20000
-  max_probes_sss: 20000
+  max_probes_rss: 20000
   housekeeping_path: ""  # Optional CpG list for housekeeping negative controls
   ncs_lambda_ci:
     enabled: true
@@ -78,7 +78,7 @@ crf:
         types: ["snp"]
         lambda_range: [0.7, 1.3]
         interpret: reference_only
-      sss:
+      rss:
         mode: bootstrap
         n_iterations: 100
         top_k: [20, 50]
@@ -97,7 +97,7 @@ crf:
         types: ["snp"]
         lambda_range: [0.8, 1.2]
         interpret: cautious
-      sss:
+      rss:
         mode: leave_pair_out
         n_iterations: 50
         top_k: [30, 100, 200]
@@ -116,7 +116,7 @@ crf:
         types: ["snp", "housekeeping"]
         lambda_range: [0.9, 1.1]
         interpret: standard
-      sss:
+      rss:
         mode: split
         n_iterations: 10
         top_k: [50, 200, 500]
@@ -131,7 +131,7 @@ crf:
         types: ["snp", "housekeeping"]
         lambda_range: [0.9, 1.1]
         interpret: standard
-      sss:
+      rss:
         mode: split
         n_iterations: 10
         top_k: [100, 500, 1000]

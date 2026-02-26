@@ -2611,7 +2611,7 @@ def generate_dashboard(output_dir, group_test, group_con):
             "methods": safe_int(row.get("methods")),
         }
 
-    def summarize_sss(rows):
+    def summarize_rss(rows):
         if not rows:
             return {}
         def _top_k(row):
@@ -2620,9 +2620,9 @@ def generate_dashboard(output_dir, group_test, group_con):
         overlap = safe_float(row.get("overlap_mean_corr"))
         if overlap is None:
             overlap = safe_float(row.get("overlap_mean_raw"))
-        sss_score = safe_float(row.get("sss_mean_corr"))
-        if sss_score is None:
-            sss_score = safe_float(row.get("sss_mean_raw"))
+        rss_score = safe_float(row.get("rss_mean_corr"))
+        if rss_score is None:
+            rss_score = safe_float(row.get("rss_mean_raw"))
         jaccard = safe_float(row.get("jaccard_mean_corr"))
         if jaccard is None:
             jaccard = safe_float(row.get("jaccard_mean_raw"))
@@ -2635,7 +2635,7 @@ def generate_dashboard(output_dir, group_test, group_con):
             sign = safe_float(row.get("sign_mean_raw"))
         return {
             "overlap": overlap,
-            "sss": sss_score,
+            "rss": rss_score,
             "jaccard": jaccard,
             "rbo": rbo,
             "rbo_p": rbo_p,
@@ -2747,8 +2747,8 @@ def generate_dashboard(output_dir, group_test, group_con):
         tier,
         min_per_group,
         mmc_score,
-        sss_score,
-        sss_is_composite,
+        rss_score,
+        rss_is_composite,
         ncs_score,
         pvca_ci_after,
         warn_count,
@@ -2762,41 +2762,41 @@ def generate_dashboard(output_dir, group_test, group_con):
         can_high = tier in ("moderate", "large", "ample", "high")
         verdict = "MODERATE"
         mmc_score = safe_float(mmc_score)
-        sss_score = safe_float(sss_score)
+        rss_score = safe_float(rss_score)
         pvca_ci_after = safe_float(pvca_ci_after)
 
-        # Thresholds depend on which SSS metric is available:
+        # Thresholds depend on which RSS metric is available:
         # - overlap_mean_corr: intersection/k (legacy; tends to be higher)
-        # - sss_mean_corr: 0.5*Jaccard + 0.5*RBO (more conservative composite)
-        if sss_is_composite:
-            sss_high = 0.30
-            sss_moderate = 0.20
-            sss_low = 0.20
+        # - rss_mean_corr: 0.5*Jaccard + 0.5*RBO (more conservative composite)
+        if rss_is_composite:
+            rss_high = 0.30
+            rss_moderate = 0.20
+            rss_low = 0.20
         else:
-            sss_high = 0.40
-            sss_moderate = 0.25
-            sss_low = 0.25
+            rss_high = 0.40
+            rss_moderate = 0.25
+            rss_low = 0.25
 
         if (
             can_high
             and mmc_score is not None
-            and sss_score is not None
+            and rss_score is not None
             and mmc_score >= 0.60
-            and sss_score >= sss_high
+            and rss_score >= rss_high
             and warn_count == 0
         ):
             verdict = "HIGH"
         elif (
             tier == "small"
             or (mmc_score is not None and 0.40 <= mmc_score < 0.60)
-            or (sss_score is not None and sss_moderate <= sss_score < sss_high)
+            or (rss_score is not None and rss_moderate <= rss_score < rss_high)
             or warn_count in (1, 2)
         ):
             verdict = "MODERATE"
         elif (
             tier == "minimal"
             or (mmc_score is not None and mmc_score < 0.40)
-            or (sss_score is not None and sss_score < sss_low)
+            or (rss_score is not None and rss_score < rss_low)
             or warn_count >= 3
         ):
             verdict = "LOW"
@@ -2906,10 +2906,10 @@ def generate_dashboard(output_dir, group_test, group_con):
 
     mmc_rows = load_crf_summary_file("CRF_MMC_Summary.csv", primary_branch)
     ncs_rows = load_crf_summary_file("CRF_NCS_Summary.csv", primary_branch)
-    sss_rows = load_crf_summary_file("CRF_SSS_Summary.csv", primary_branch)
+    rss_rows = load_crf_summary_file("CRF_RSS_Summary.csv", primary_branch)
     mmc_summary = summarize_mmc(mmc_rows)
     ncs_summary = summarize_ncs(ncs_rows)
-    sss_summary = summarize_sss(sss_rows)
+    rss_summary = summarize_rss(rss_rows)
 
     warnings_by_level = classify_warnings(warnings)
     warn_critical = warnings_by_level["critical"]
@@ -2920,18 +2920,18 @@ def generate_dashboard(output_dir, group_test, group_con):
     if mmc_score_for_verdict is None:
         mmc_score_for_verdict = mmc_summary.get("core_pct")
 
-    sss_score_for_verdict = sss_summary.get("sss")
-    sss_is_composite = True
-    if sss_score_for_verdict is None:
-        sss_score_for_verdict = sss_summary.get("overlap")
-        sss_is_composite = False
+    rss_score_for_verdict = rss_summary.get("rss")
+    rss_is_composite = True
+    if rss_score_for_verdict is None:
+        rss_score_for_verdict = rss_summary.get("overlap")
+        rss_is_composite = False
 
     verdict = compute_verdict(
         tier_label,
         min_per_group,
         mmc_score_for_verdict,
-        sss_score_for_verdict,
-        sss_is_composite,
+        rss_score_for_verdict,
+        rss_is_composite,
         ncs_summary.get("score") if ncs_summary else None,
         pvca_ci_after,
         warn_count,
@@ -3013,18 +3013,18 @@ def generate_dashboard(output_dir, group_test, group_con):
     mmc_composite_display = f"{mmc_composite:.2f}" if mmc_composite is not None else "N/A"
     mmc_bar = min(max(mmc_core_pct * 100, 0), 100) if mmc_core_pct is not None else 0
 
-    sss_overlap = sss_summary.get("overlap")
-    sss_overlap_display = f"{sss_overlap:.2f}" if sss_overlap is not None else "N/A"
-    sss_score = sss_summary.get("sss")
-    sss_score_display = f"{sss_score:.2f}" if sss_score is not None else "N/A"
-    sss_jaccard = sss_summary.get("jaccard")
-    sss_jaccard_display = f"{sss_jaccard:.2f}" if sss_jaccard is not None else "N/A"
-    sss_rbo = sss_summary.get("rbo")
-    sss_rbo_display = f"{sss_rbo:.2f}" if sss_rbo is not None else "N/A"
-    sss_rbo_p = sss_summary.get("rbo_p")
-    sss_sign = sss_summary.get("sign")
-    sss_sign_display = f"{sss_sign * 100:.0f}%" if sss_sign is not None else "N/A"
-    sss_bar = min(max(sss_overlap * 100, 0), 100) if sss_overlap is not None else 0
+    rss_overlap = rss_summary.get("overlap")
+    rss_overlap_display = f"{rss_overlap:.2f}" if rss_overlap is not None else "N/A"
+    rss_score = rss_summary.get("rss")
+    rss_score_display = f"{rss_score:.2f}" if rss_score is not None else "N/A"
+    rss_jaccard = rss_summary.get("jaccard")
+    rss_jaccard_display = f"{rss_jaccard:.2f}" if rss_jaccard is not None else "N/A"
+    rss_rbo = rss_summary.get("rbo")
+    rss_rbo_display = f"{rss_rbo:.2f}" if rss_rbo is not None else "N/A"
+    rss_rbo_p = rss_summary.get("rbo_p")
+    rss_sign = rss_summary.get("sign")
+    rss_sign_display = f"{rss_sign * 100:.0f}%" if rss_sign is not None else "N/A"
+    rss_bar = min(max(rss_overlap * 100, 0), 100) if rss_overlap is not None else 0
 
     ncs_lambda = ncs_summary.get("lambda") if ncs_summary else None
     if ncs_lambda is None:
@@ -3051,7 +3051,7 @@ def generate_dashboard(output_dir, group_test, group_con):
         return "danger"
 
     mmc_progress_class = _progress_class(mmc_core_pct * 100 if mmc_core_pct is not None else None)
-    sss_progress_class = _progress_class(sss_overlap * 100 if sss_overlap is not None else None)
+    rss_progress_class = _progress_class(rss_overlap * 100 if rss_overlap is not None else None)
 
     warn_detail_blocks = []
     if warn_critical:
@@ -3601,11 +3601,11 @@ def generate_dashboard(output_dir, group_test, group_con):
                     <div class="progress-bar {mmc_progress_class}"><span style="width:{mmc_bar:.0f}%"></span></div>
                 </div>
             </div>
-            <div class="stat-row" title="Signal Stability Score (SSS) assesses reproducibility under subsampling. Overlap = intersection rate of top hits. SSS = 0.5×Jaccard + 0.5×RBO (rank-biased overlap, p={sss_rbo_p if sss_rbo_p is not None else 'NA'}). Sign = effect direction consistency among shared hits.">
-                <div class="stat-label">Stability (SSS)</div>
+            <div class="stat-row" title="Resampling Stability Score (RSS) assesses reproducibility under resampling (bootstrap, leave-pair-out, or split-half). Overlap = intersection rate of top hits. RSS = 0.5×Jaccard + 0.5×RBO (rank-biased overlap, p={rss_rbo_p if rss_rbo_p is not None else 'NA'}). Sign = effect direction consistency among shared hits.">
+                <div class="stat-label">Stability (RSS)</div>
                 <div>
-                    <div class="stat-value">SSS {sss_score_display} · Overlap {sss_overlap_display} · Sign {sss_sign_display}</div>
-                    <div class="progress-bar {sss_progress_class}"><span style="width:{sss_bar:.0f}%"></span></div>
+                    <div class="stat-value">RSS {rss_score_display} · Overlap {rss_overlap_display} · Sign {rss_sign_display}</div>
+                    <div class="progress-bar {rss_progress_class}"><span style="width:{rss_bar:.0f}%"></span></div>
                 </div>
             </div>
             <div class="stat-row" title="Negative Control Stability (NCS) measures genomic inflation (lambda) on negative-control probes (e.g., SNP probes). Values near 1.0 and higher NCS score indicate lower confounding. The score is tier-adaptive and heuristic.">
@@ -3711,7 +3711,7 @@ def generate_dashboard(output_dir, group_test, group_con):
         ("Correction_Robustness_Report.txt", "Correction Robustness Report", "CRF sample-size adaptive report.", "DOC"),
         ("CRF_MMC_Summary.csv", "CRF MMC Summary (CSV)", "Multi-method concordance summary for the primary branch.", "CSV"),
         ("CRF_NCS_Summary.csv", "CRF NCS Summary (CSV)", "Negative control stability summary for the primary branch.", "CSV"),
-        ("CRF_SSS_Summary.csv", "CRF SSS Summary (CSV)", "Split-sample stability summary for the primary branch.", "CSV"),
+        ("CRF_RSS_Summary.csv", "CRF RSS Summary (CSV)", "Resampling stability summary for the primary branch.", "CSV"),
         ("CRF_Sample_Tier.csv", "CRF Sample Tier (CSV)", "Sample size tiering and warnings.", "CSV"),
         ("Preflight_Summary.csv", "Preflight Summary (CSV)", "Preflight checks and group counts.", "CSV"),
         ("Preflight_IDAT_Pairs.csv", "Preflight IDAT Pairs (CSV)", "IDAT pair existence per sample.", "CSV"),

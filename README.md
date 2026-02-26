@@ -246,7 +246,7 @@ python3 illumeta.py doctor
 - **Consensus calling**: High-confidence results where both methods agree (Fisher's combined P-value)
 - **Adaptive batch correction**: Automatically selects optimal method (SVA/ComBat/limma)
 - **Bonferroni-corrected covariate selection**: PC-association screening with per-variable α/n_tested_PCs correction
-- **CRF (Correction Robustness Framework)**: Sample-size-adaptive quality assessment (MMC, NCS, SSS, CVD — see below)
+- **CRF (Correction Robustness Framework)**: Sample-size-adaptive quality assessment (MMC, NCS, RSS, CVD — see below)
 - **Full reproducibility**: All parameters and decisions logged
 
 <details>
@@ -255,7 +255,7 @@ python3 illumeta.py doctor
 - **Two independent pipelines**: Minfi (Noob) and Sesame run side-by-side; Sesame reports both strict (Minfi-aligned) and native (pOOBAH-preserving) views.
 - **High-confidence consensus**: CpGs significant in BOTH pipelines with the SAME direction; consensus P-values via Fisher's combined probability test (χ², df=4) with genome-wide BH FDR correction.
 - **Batch handling**: Evaluates correction strategies (SVA/ComBat/limma) when a batch factor exists.
-- **CRF**: Correction Robustness Framework — four assessment axes: Multi-Method Concordance (MMC), Negative-Control Stability (NCS), Subsampling Stability Score (SSS), Confounding Variance Decomposition (CVD). Reports tiered warnings adapted to sample size.
+- **CRF**: Correction Robustness Framework — four assessment axes: Multi-Method Concordance (MMC), Negative-Control Stability (NCS), Resampling Stability Score (RSS), Confounding Variance Decomposition (CVD). Reports tiered warnings adapted to sample size.
 - **Covariate selection**: PC-association screening uses Bonferroni-corrected α per variable (`alpha / n_tested_PCs`) to control false covariate inclusion.
 - **Defensive stats**: Guards against low-variance or single-group covariates; uses `eBayes(robust=TRUE)` with automatic standard-eBayes fallback. `lmFit`, `removeBatchEffect`, and IDAT loading are all wrapped in `tryCatch` for graceful degradation.
 - **Sample-order assertions**: `stopifnot()` checks verify column–sample alignment at every pipeline handoff (Minfi prefilter, Minfi final, SeSAMe).
@@ -1627,7 +1627,7 @@ ILLUMETA_SESAME_SINGLE_THREAD=1 python3 illumeta.py analysis ...
 
 IlluMeta implements a sample-size-adaptive Correction Robustness Framework (CRF):
 CRF combines Multi-Method Concordance (MMC), Negative-Control Stability (NCS),
-Subsampling Stability Score (SSS), and Confounding Variance Decomposition (CVD, PVCA-based).
+Resampling Stability Score (RSS), and Confounding Variance Decomposition (CVD, PVCA-based).
 
 | Tier | Total n | Per-group min | Key limitations |
 |------|---------|---------------|-----------------|

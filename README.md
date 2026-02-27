@@ -1445,7 +1445,7 @@ For each pipeline (`Minfi`, `Sesame` = strict/Minfi-aligned, `Sesame_Native` = n
 - `*_DMPs_full.csv`: full differential methylation results table.
 - `*_Volcano.html/.png`, `*_Manhattan.html/.png`, `*_QQPlot.html/.png`
 - `*_Top100_Heatmap.html/.png`
-- `*_DMR_Volcano.html/.png`, `*_DMR_Manhattan.html/.png`, `*_Top_DMRs_Heatmap.html/.png`
+- `*_DMR_Volcano.html/.png`, `*_DMR_Manhattan.html/.png`, `*_DMR_Heatmap.html/.png`
 - If Tier3 confounding is detected, DMRs are emitted from the stratified/meta primary results as `*_Tier3_Primary_DMRs.*`.
 
 ### Consensus (intersection) call set

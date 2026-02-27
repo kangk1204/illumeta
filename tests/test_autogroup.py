@@ -102,5 +102,26 @@ class AutoGroupTests(unittest.TestCase):
             self.assertIn("--group-map", str(cm.exception))
 
 
+    def test_auto_group_validates_preexisting_labels_on_early_return(self):
+        """When all rows already have primary_group, validation must still run."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = os.path.join(tmpdir, "configure.tsv")
+            headers = ["primary_group", "Basename"]
+            rows = [
+                {"primary_group": "Control", "Basename": "S1"},
+                {"primary_group": "BadLabel", "Basename": "S2"},
+                {"primary_group": "Case", "Basename": "S3"},
+            ]
+            write_config(config_path, headers, rows)
+
+            with self.assertRaises(ValueError) as cm:
+                auto_group_config(
+                    config_path=config_path,
+                    group_con="Control",
+                    group_test="Case",
+                )
+            self.assertIn("outside control/test", str(cm.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

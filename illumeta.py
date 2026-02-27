@@ -535,6 +535,23 @@ def auto_group_config(
         if overwrite or not cur:
             pending_idx.append(idx)
     if not pending_idx:
+        # Still validate ALL pre-existing labels before returning.
+        con_norm = normalize_group_value(group_con)
+        test_norm = normalize_group_value(group_test)
+        invalid_rows = []
+        for idx, row in enumerate(rows):
+            label = (row.get("primary_group") or "").strip()
+            label_norm = normalize_group_value(label)
+            if label_norm not in (con_norm, test_norm):
+                invalid_rows.append((idx + 1, label))
+        if invalid_rows:
+            preview = ", ".join(f"{row}:{label}" for row, label in invalid_rows[:5])
+            raise ValueError(
+                "Pre-existing label(s) outside control/test groups. "
+                f"Expected only '{group_con}' or '{group_test}'. "
+                f"Invalid rows: {preview}. "
+                "Use --group-map to map raw labels explicitly."
+            )
         return config_path, {"updated": False, "source": "primary_group"}
 
     mapping = parse_group_map(group_map, group_con, group_test)

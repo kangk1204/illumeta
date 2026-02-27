@@ -10070,7 +10070,7 @@ tryCatch({
     sig_line,
     "",
     "## Overview",
-    "IlluMeta performs an end-to-end DNA methylation analysis from raw Illumina IDAT files, running minfi and sesame in parallel and reporting Sesame in both strict (Minfi-aligned) and native (pOOBAH-preserving) views, plus consensus (intersection) call sets.",
+    "IlluMeta performs an end-to-end DNA methylation analysis from raw Illumina IDAT files, running minfi and sesame independently and reporting Sesame in both strict (Minfi-aligned) and native (pOOBAH-preserving) views, plus consensus (intersection) call sets.",
     "",
     "## Data input",
     "- Raw IDATs are read from the project `idat/` directory.",

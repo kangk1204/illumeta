@@ -5,7 +5,7 @@ suppressPackageStartupMessages(library(GEOquery))
 suppressPackageStartupMessages(library(dplyr))
 suppressPackageStartupMessages(library(stringr))
 
-options(timeout = max(600, getOption("timeout", 60)))
+options(timeout = max(3600, getOption("timeout", 60)))
 options(download.file.method = "libcurl")
 
 option_list <- list(

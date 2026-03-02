@@ -189,6 +189,7 @@ python3 illumeta.py analysis -i projects/GSE66313 \
 
 Open the dashboard:
 `projects/GSE66313/Case_vs_Control_results_index.html`
+If you set `-o/--output`, the dashboard path becomes `<output>_index.html`.
 
 ---
 
@@ -1048,6 +1049,7 @@ This generates `*_Signal_Preservation.csv` and (if provided) `*_Known_Marker_Sum
 ### 4) Open the dashboard
 Open the generated HTML:
 `projects/GSE66313/Case_vs_Control_results_index.html`
+If you used `-o/--output <OUT_DIR>`, open `<OUT_DIR>_index.html` instead.
 
 ### 5) Interpret results (beginner checklist)
 
@@ -1108,7 +1110,7 @@ python3 illumeta.py doctor
 ```
 How to read the output:
 - **Core R packages: OK** = ready to run analysis.
-- **Optional R packages missing** = some optional features (e.g., clocks) are disabled; this is safe for most users.
+- **Optional R packages missing** = optional features only are disabled; core analysis still runs. Typical examples are tissue-specific references such as `FlowSorted.CordBlood.EPIC` or `FlowSorted.Saliva.450k`.
 Note: For EPIC v2 (~936k) datasets, IlluMeta requires EPICv2 manifest/annotation packages and will stop if they are missing. If you plan to run EPIC v2, set `ILLUMETA_REQUIRE_EPICV2=1` before running setup.
 
 
@@ -1565,6 +1567,9 @@ Zero DMPs doesn't mean your experiment failed - it might mean no large methylati
 - `QC_Summary.csv` - Quality control summary
 - `*_Metrics.csv` - Lambda, batch correction details
 - `Intersection_Consensus_DMPs.csv` - Full consensus results
+
+Reproducibility note:
+- Most result files should match across reruns with the same inputs/parameters, but `decision_ledger.tsv` and `methods.md` can differ in timestamps and output-path text even when statistical results are identical.
 
 </details>
 

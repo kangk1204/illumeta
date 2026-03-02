@@ -1014,29 +1014,44 @@ ensure_min_version("reformulas", "0.3.0", function(p, lib) install.packages(p, r
 ensure_min_version("lme4", "1.1-35", function(p, lib) install.packages(p, repos = cran_repo, lib = lib))
 ensure_min_version("variancePartition", "1.30.0", function(p, lib) BiocManager::install(p, update = TRUE, ask = FALSE, lib = lib))
 
-# Install dmrff from GitHub
+# Install dmrff (prefer auth-free tarball path to avoid stale credential 401s)
 if (!requireNamespace("dmrff", quietly = TRUE)) {
-    message("Installing dmrff from GitHub...")
-    tryCatch({
-        remotes::install_github("perishky/dmrff", upgrade = "never", lib = .libPaths()[1])
+    dmrff_lib <- .libPaths()[1]
+    dmrff_tarball_url <- Sys.getenv(
+        "ILLUMETA_DMRFF_TARBALL_URL",
+        unset = "https://codeload.github.com/perishky/dmrff/tar.gz/refs/heads/master"
+    )
+
+    message("Installing dmrff from GitHub tarball (no auth required)...")
+    tarball_ok <- tryCatch({
+        install.packages(dmrff_tarball_url, repos = NULL, type = "source", lib = dmrff_lib)
+        TRUE
     }, error = function(e) {
-        msg <- conditionMessage(e)
-        if (grepl("HTTP error 401|Bad credentials", msg, ignore.case = TRUE)) {
-            message("Retrying dmrff install without GITHUB_PAT (public repo)...")
-            old_pat <- Sys.getenv("GITHUB_PAT", unset = NA_character_)
-            Sys.unsetenv("GITHUB_PAT")
-            tryCatch({
-                remotes::install_github("perishky/dmrff", upgrade = "never", lib = .libPaths()[1])
-            }, error = function(e2) {
-                message("Warning: Failed to install dmrff from GitHub.")
-                message(paste("Error details:", e2$message))
-            })
-            if (!is.na(old_pat)) Sys.setenv(GITHUB_PAT = old_pat)
-            return(invisible(FALSE))
-        }
-        message("Warning: Failed to install dmrff from GitHub.")
-        message(paste("Error details:", msg))
+        message("Warning: Failed to install dmrff from tarball.")
+        message(paste("Error details:", conditionMessage(e)))
+        FALSE
     })
+
+    if (!tarball_ok || !requireNamespace("dmrff", quietly = TRUE)) {
+        message("Retrying dmrff via remotes::install_github (fallback)...")
+        old_pat <- Sys.getenv("GITHUB_PAT", unset = NA_character_)
+        old_prompt <- Sys.getenv("GIT_TERMINAL_PROMPT", unset = NA_character_)
+        Sys.unsetenv("GITHUB_PAT")
+        Sys.setenv(GIT_TERMINAL_PROMPT = "0")
+        tryCatch({
+            remotes::install_github(
+                "perishky/dmrff",
+                upgrade = "never",
+                auth_token = "",
+                lib = dmrff_lib
+            )
+        }, error = function(e) {
+            message("Warning: Failed to install dmrff from GitHub fallback.")
+            message(paste("Error details:", conditionMessage(e)))
+        })
+        if (!is.na(old_pat)) Sys.setenv(GITHUB_PAT = old_pat) else Sys.unsetenv("GITHUB_PAT")
+        if (!is.na(old_prompt)) Sys.setenv(GIT_TERMINAL_PROMPT = old_prompt) else Sys.unsetenv("GIT_TERMINAL_PROMPT")
+    }
 }
 
 # Install RefFreeEWAS from CRAN Archive (version 2.2)

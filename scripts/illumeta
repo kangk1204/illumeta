@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE="${ROOT_DIR}/environment.yml"
+ENV_NAME="${ILLUMETA_ENV_NAME:-}"
+
+if [[ -z "${ENV_NAME}" && -f "${ENV_FILE}" ]]; then
+  ENV_NAME="$(awk -F: '/^name:/ {gsub(/ /,"",$2); print $2; exit}' "${ENV_FILE}")"
+fi
+ENV_NAME="${ENV_NAME:-illumeta}"
+
+CONDA_BIN=""
+if command -v conda >/dev/null 2>&1; then
+  CONDA_BIN="conda"
+elif [[ -x "${HOME}/miniforge3/bin/conda" ]]; then
+  CONDA_BIN="${HOME}/miniforge3/bin/conda"
+elif [[ -x "${HOME}/mambaforge/bin/conda" ]]; then
+  CONDA_BIN="${HOME}/mambaforge/bin/conda"
+elif [[ -x "${HOME}/anaconda3/bin/conda" ]]; then
+  CONDA_BIN="${HOME}/anaconda3/bin/conda"
+fi
+
+if [[ -z "${CONDA_BIN}" ]]; then
+  echo "[!] conda not found. Install Miniforge/Conda, then rerun."
+  echo "    https://github.com/conda-forge/miniforge"
+  exit 1
+fi
+
+if ! "${CONDA_BIN}" env list | awk '{print $1}' | grep -qx "${ENV_NAME}"; then
+  echo "[!] Conda environment '${ENV_NAME}' not found."
+  echo "    Run: ./scripts/install_full.sh"
+  exit 1
+fi
+
+exec "${CONDA_BIN}" run -n "${ENV_NAME}" python "${ROOT_DIR}/illumeta.py" "$@"

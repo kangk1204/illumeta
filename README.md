@@ -138,6 +138,10 @@ This takes **30-60 minutes** (downloads R packages). Grab a coffee! ☕
 For a fresh machine, use this path first (do not run Option B in parallel).
 If `conda` is installed but your shell is not reloaded yet, the installer will also auto-detect
 `$HOME/miniforge3/bin/conda`.
+After install, run IlluMeta via the wrapper below to avoid Python/R path mix-ups:
+```bash
+./scripts/illumeta doctor
+```
 
 Faster core-only install (skips optional cell references/RefFreeEWAS/planet; some features disabled):
 ```bash
@@ -154,9 +158,10 @@ conda activate illumeta
 
 # Sanity check (should point inside your conda env)
 which python
-which python3
+python --version
 which Rscript
 # If you see /usr/bin/... here, your conda env is NOT active (restart your shell after `conda init`).
+# Use `python` (not `python3`) for IlluMeta commands to respect the active environment.
 
 # (macOS only — REQUIRED) Pre-install R packages that fail to compile from source on Apple Silicon:
 # conda install -c conda-forge r-stringi r-stringr r-tidyr r-plotly r-selectr r-rvest r-textshaping r-ragg r-systemfonts
@@ -167,7 +172,7 @@ Rscript r_scripts/setup_env.R
 # ILLUMETA_INSTALL_MINIMAL=1 Rscript r_scripts/setup_env.R
 
 # 3) Verify installation
-python3 illumeta.py doctor
+python illumeta.py doctor
 ```
 
 ### Run an example
@@ -177,10 +182,10 @@ python3 illumeta.py doctor
 
 ```bash
 # Download a GEO dataset (DCIS vs Adjacent Normal breast tissue, 450K)
-python3 illumeta.py download GSE66313 -o projects/GSE66313
+./scripts/illumeta download GSE66313 -o projects/GSE66313
 
 # Run analysis with auto-grouping
-python3 illumeta.py analysis -i projects/GSE66313 \
+./scripts/illumeta analysis -i projects/GSE66313 \
   --group_con Control --group_test Case \
   --auto-group --group-column source_name_ch1 \
   --group-map "Adjacent-Normal=Control,DCIS=Case" \
@@ -204,7 +209,7 @@ If you set `-o/--output`, the dashboard path becomes `<output>_index.html`.
 Run the self-check doctor:
 
 ```bash
-python3 illumeta.py doctor
+./scripts/illumeta doctor
 ```
 
 ---
@@ -458,6 +463,7 @@ Logs are saved to `projects/illumeta_install_full_*.log`.
 
 - **Pick one environment**: conda **or** system R. Do **not** mix them.
 - If using conda, always run `conda activate illumeta` before `Rscript`.
+- If using conda, prefer `./scripts/illumeta ...` for IlluMeta commands (it pins the conda env automatically).
 - Quick check (should point inside your chosen environment):
 ```bash
 which R
@@ -619,7 +625,7 @@ Then rerun the setup command.
 
 #### 4) Check your environment (recommended)
 ```bash
-python3 illumeta.py doctor
+python illumeta.py doctor
 ```
 
 </details>
@@ -788,7 +794,7 @@ Then rerun the setup command.
 
 #### 4) Check your environment (recommended)
 ```bash
-python3 illumeta.py doctor
+python illumeta.py doctor
 ```
 
 </details>
@@ -950,7 +956,7 @@ Then rerun the setup command.
 
 #### 4) Check your environment (recommended)
 ```bash
-python3 illumeta.py doctor
+python illumeta.py doctor
 ```
 
 </details>
@@ -997,10 +1003,11 @@ docker run --rm -it -v "$PWD":/app illumeta analysis \
 # Activate your environment (choose one)
 # - Conda: conda activate illumeta
 # - venv:  source .venv/bin/activate
+# - Conda beginner shortcut: ./scripts/illumeta <subcommand> ...
 
-python3 illumeta.py download GSE66313 -o projects/GSE66313
+python illumeta.py download GSE66313 -o projects/GSE66313
 # If a GEO series has multiple platforms, force one by GPL ID:
-python3 illumeta.py download GSE66313 -o projects/GSE66313 --platform GPL13534
+python illumeta.py download GSE66313 -o projects/GSE66313 --platform GPL13534
 ```
 
 ### 2) Assign groups (manual or auto)
@@ -1011,7 +1018,7 @@ Edit `projects/GSE66313/configure.tsv` and fill in `primary_group` (e.g., `Contr
 Option B (auto-group on analysis):
 If your dataset's `primary_group` is empty, IlluMeta can populate it from metadata:
 ```bash
-python3 illumeta.py analysis \
+python illumeta.py analysis \
   -i projects/GSE12345 \
   --group_con Control \
   --group_test Case \
@@ -1022,7 +1029,7 @@ If your grouping is encoded in GEO characteristics, you can use `--group-key` (e
 
 ### 3) Run analysis
 ```bash
-python3 illumeta.py analysis \
+python illumeta.py analysis \
   -i projects/GSE66313 \
   --group_con Control \
   --group_test Case \
@@ -1035,7 +1042,7 @@ Note: the default output folder name is derived from the group labels. If it con
 Optional (signal preservation checks):
 ```bash
 # Provide a CpG marker list (TSV/CSV with CpG column or one CpG per line)
-python3 illumeta.py analysis \
+python illumeta.py analysis \
   -i projects/GSE66313 \
   --group_con Control \
   --group_test Case \
@@ -1089,10 +1096,10 @@ Beginner-friendly flow:
 
 ```bash
 # Required: --keywords (use quotes for multi-word queries)
-python3 illumeta.py search --keywords "breast cancer" --email your_email@example.com -o search_results.tsv
+python illumeta.py search --keywords "breast cancer" --email your_email@example.com -o search_results.tsv
 
 # Faster (skip FTP supplement checks)
-python3 illumeta.py search --keywords "breast cancer" --no-check-suppl -o search_results.tsv
+python illumeta.py search --keywords "breast cancer" --no-check-suppl -o search_results.tsv
 ```
 Output columns:
 - `gse_id`: GEO Series ID to use with `illumeta.py download`
@@ -1106,7 +1113,7 @@ If you see `Error: Python package 'requests' is missing`, install it via:
 ### Check installation (illumeta doctor)
 Use this before a first run or when something looks wrong. It does not install anything.
 ```bash
-python3 illumeta.py doctor
+python illumeta.py doctor
 ```
 How to read the output:
 - **Core R packages: OK** = ready to run analysis.
@@ -1130,20 +1137,20 @@ Note: For EPIC v2 (~936k) datasets, IlluMeta requires EPICv2 manifest/annotation
    - If you prefer auto-grouping, you may leave `primary_group` empty and pass `--auto-group` with `--group-column` when running analysis.
 3. Run:
 ```bash
-python3 illumeta.py analysis -i my_project --group_con Untreated --group_test Treated
+python illumeta.py analysis -i my_project --group_con Untreated --group_test Treated
 ```
 
 ### Auto-grouping (optional)
 If your metadata already contains a reliable group column, IlluMeta can populate `primary_group` automatically:
 ```bash
-python3 illumeta.py analysis -i projects/GSE12345 \
+python illumeta.py analysis -i projects/GSE12345 \
   --group_con Control --group_test Case \
   --auto-group --group-column disease_state \
   --group-map "normal=Control,tumor=Case"
 ```
 For GEO characteristics, use a key (parsed from `key: value` patterns):
 ```bash
-python3 illumeta.py analysis -i projects/GSE12345 \
+python illumeta.py analysis -i projects/GSE12345 \
   --group_con Control --group_test Case \
   --auto-group --group-key disease
 ```
@@ -1156,50 +1163,50 @@ Auto-group prioritizes columns with high coverage and low category counts; numer
 ### Common analysis options
 ```bash
 # Auto-group from a metadata column
-python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case \
+python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case \
   --auto-group --group-column disease_state --group-map "normal=Control,tumor=Case"
 
 # Tighten thresholds
-python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --pval 0.01 --lfc 1.0
+python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --pval 0.01 --lfc 1.0
 
 # Add an absolute Delta Beta filter
-python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --delta-beta 0.05
+python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --delta-beta 0.05
 
 # Beginner-safe mode (stricter group checks + conservative thresholds)
-python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --beginner-safe
+python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --beginner-safe
 
 # Disable SVA (very small n)
-python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --disable-sva
+python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --disable-sva
 
 # Provide covariates to always try (if present in configure.tsv)
-python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --include-covariates age,sex
+python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --include-covariates age,sex
 
 # Use epigenetic clocks as candidate covariates (auto-selected if relevant)
-python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --include-clock-covariates
+python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --include-clock-covariates
 
 # Placenta reference cell composition + clocks (planet)
-python3 illumeta.py analysis -i projects/GSE307314 --group_con control --group_test test --tissue Placenta
+python illumeta.py analysis -i projects/GSE307314 --group_con control --group_test test --tissue Placenta
 
 # Auto tissue inference from configure.tsv (falls back to RefFreeEWAS)
-python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --tissue Auto
+python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --tissue Auto
 
 # Custom cell reference (package, package::object, or .rds/.rda)
-python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case \
+python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case \
   --tissue Blood --cell-reference FlowSorted.Blood.EPIC
 
 # Custom cell reference with explicit platform string
-python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case \
+python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case \
   --tissue Blood --cell-reference refs/blood_ref.rds --cell-reference-platform IlluminaHumanMethylationEPIC
 
 # Enable sesame dyeBiasCorrTypeINorm (disabled by default for stability)
-python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --sesame-typeinorm
+python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --sesame-typeinorm
 
 # Mixed-array safeguard override (only if you know what you're doing)
-python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --force-idat
+python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --force-idat
 
 # Permutation-based null test ("perm")
 # Note: there is no `illumeta perm` command; use --permutations with analysis.
-python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --permutations 50
+python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --permutations 50
 ```
 
 ### Cell Composition Estimation
@@ -1247,13 +1254,13 @@ IlluMeta estimates cell type composition to adjust for cellular heterogeneity, w
 #### Examples
 ```bash
 # Reference-free (works for any tissue)
-python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --tissue Auto
+python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --tissue Auto
 
 # Blood samples with reference-based deconvolution
-python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --tissue Blood
+python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --tissue Blood
 
 # Placenta samples
-python3 illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --tissue Placenta
+python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --tissue Placenta
 ```
 
 ### Permutation test ("perm") for beginners
@@ -1261,7 +1268,7 @@ This checks how many significant DMPs you would get by chance if labels were shu
 
 How to run it:
 ```bash
-python3 illumeta.py analysis \
+python illumeta.py analysis \
   -i projects/GSE12345 \
   --group_con Control \
   --group_test Case \
@@ -1463,7 +1470,7 @@ For each pipeline (`Minfi`, `Sesame` = strict/Minfi-aligned, `Sesame_Native` = n
 
 Start here:
 ```bash
-python3 illumeta.py doctor
+python illumeta.py doctor
 ```
 
 Common issues:
@@ -1484,7 +1491,7 @@ Common issues:
   `ILLUMETA_BIOC_VERSION=3.20 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.
 - **`lzma decoding result 10` / “read error from connection”** (large annotation downloads corrupted): rerun with retries:
   `ILLUMETA_DOWNLOAD_RETRIES=3 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.
-- **GEO download warnings** (`getGEOSuppFiles` returned NULL / 404 for `*_RAW.tar.gz`): some GEO series no longer host `.tar.gz` on FTP. IlluMeta retries and falls back to a direct HTTPS `.tar` download. If it still fails, manually download `GSE*_RAW.tar` from GEO and place it under `projects/<GSE>/<GSE>/`, then rerun `python3 illumeta.py download <GSE> -o projects/<GSE>`.
+- **GEO download warnings** (`getGEOSuppFiles` returned NULL / 404 for `*_RAW.tar.gz`): some GEO series no longer host `.tar.gz` on FTP. IlluMeta retries and falls back to a direct HTTPS `.tar` download. If it still fails, manually download `GSE*_RAW.tar` from GEO and place it under `projects/<GSE>/<GSE>/`, then rerun `python illumeta.py download <GSE> -o projects/<GSE>`.
 - **Segfaults or “package built under R x.y” warnings**: you likely switched R versions. Rerun setup and, if needed, clean mismatched packages:
   `ILLUMETA_CLEAN_MISMATCHED_RLIB=1 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.
 - **`pandoc: command not found`**: install `pandoc` (Ubuntu: `sudo apt-get install pandoc`, macOS: `brew install pandoc`).
@@ -1597,13 +1604,13 @@ Yes! Just specify a different output folder:
 
 ```bash
 # Stricter thresholds
-python3 illumeta.py analysis -i projects/GSE12345 \
+python illumeta.py analysis -i projects/GSE12345 \
   --group_con Control --group_test Case \
   --pval 0.01 --lfc 1.0 \
   --output projects/GSE12345/strict_results
 
 # Different batch correction
-python3 illumeta.py analysis -i projects/GSE12345 \
+python illumeta.py analysis -i projects/GSE12345 \
   --group_con Control --group_test Case \
   --disable-sva \
   --output projects/GSE12345/no_sva_results
@@ -1625,7 +1632,7 @@ On certain R installations (particularly with OpenBLAS or non-standard threading
 If you see warnings like `"pthread_create: Resource temporarily unavailable"` or `"caught segfault"`, IlluMeta handles these gracefully. To force single-threaded mode from the start:
 
 ```bash
-ILLUMETA_SESAME_SINGLE_THREAD=1 python3 illumeta.py analysis ...
+ILLUMETA_SESAME_SINGLE_THREAD=1 python illumeta.py analysis ...
 ```
 
 ### Small sample size limitations

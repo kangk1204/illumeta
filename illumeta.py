@@ -115,7 +115,6 @@ GROUP_COLUMN_HINTS = (
     "diagnosis",
 )
 EXCLUDE_GROUP_HINTS = (
-    "id",
     "gsm",
     "geo_accession",
     "sample",
@@ -136,6 +135,29 @@ EXCLUDE_GROUP_HINTS = (
     "file",
     "url",
 )
+
+ID_LIKE_PATTERNS = (
+    r"(?:^|[_\W])geo_?accession(?:$|[_\W])",
+    r"(?:^|[_\W])sample_?id(?:$|[_\W])",
+    r"(?:^|[_\W])subject_?id(?:$|[_\W])",
+    r"(?:^|[_\W])patient_?id(?:$|[_\W])",
+    r"(?:^|[_\W])sentrix_?id(?:$|[_\W])",
+    r"(?:^|[_\W])sentrix_?position(?:$|[_\W])",
+    r"(?:^|[_\W])array_?id(?:$|[_\W])",
+    r"(?:^|[_\W])slide_?id(?:$|[_\W])",
+    r"(?:^|[_\W])chip_?id(?:$|[_\W])",
+    r"(?:^|[_\W])plate_?id(?:$|[_\W])",
+    r"(?:^|[_\W])run_?id(?:$|[_\W])",
+    r"(?:^|[_\W])barcode(?:$|[_\W])",
+)
+ID_LIKE_EXACT = {
+    "id",
+    "sampleid",
+    "subjectid",
+    "patientid",
+    "basename",
+    "geoaccession",
+}
 
 TIER1_KEYWORDS = {
     "diagnosis", "disease", "cancer", "tumor", "subtype", "response", "treatment",
@@ -185,6 +207,30 @@ TEST_SYNONYMS = {
     "knockout",
 }
 
+
+def is_identifier_column(name: str) -> bool:
+    """Return True for metadata identifier columns that should not drive grouping."""
+    if not name:
+        return False
+    name_lower = name.lower()
+    norm = re.sub(r"[^a-z0-9]+", "", name_lower)
+    if norm in ID_LIKE_EXACT:
+        return True
+    if re.fullmatch(r"gsm\d+", norm):
+        return True
+    return any(re.search(pat, name_lower) for pat in ID_LIKE_PATTERNS)
+
+
+def candidate_rank_key(cand: dict):
+    """Stable ranking key for auto-group source selection."""
+    return (
+        cand.get("score", 0),
+        cand.get("coverage", 0),
+        cand.get("balance_ratio", 0),
+        -cand.get("missing_frac", 0),
+        -cand.get("unique_count", 0),
+    )
+
 def normalize_group_value(value: str) -> str:
     if value is None:
         return ""
@@ -212,11 +258,24 @@ def parse_group_map(map_str: str, group_con: str, group_test: str) -> dict:
             mapped = group_con
         elif mapped_norm in {"test", "case"}:
             mapped = group_test
-        for raw_item in re.split(r"[|/]", raw):
+        # Raw aliases are split only on "|" to avoid breaking labels like "ER+/HER2-".
+        for raw_item in raw.split("|"):
             raw_item = raw_item.strip()
             if not raw_item:
                 continue
-            mapping[normalize_group_value(raw_item)] = mapped
+            raw_norm = normalize_group_value(raw_item)
+            if not raw_norm:
+                continue
+            if raw_norm in mapping:
+                prev = normalize_group_value(mapping[raw_norm])
+                now = normalize_group_value(mapped)
+                if prev != now:
+                    raise ValueError(
+                        "Conflicting --group-map entries after normalization: "
+                        f"'{raw_item}' maps to both '{mapping[raw_norm]}' and '{mapped}'."
+                    )
+                continue
+            mapping[raw_norm] = mapped
     return mapping
 
 
@@ -360,10 +419,13 @@ def score_group_candidate(name: str, values):
     prof = profile_values(values)
     unique_count = prof["unique_count"]
     name_lower = name.lower()
-    if any(h in name_lower for h in EXCLUDE_GROUP_HINTS):
-        if "source_name" not in name_lower:
-            return None
     tier, tier_score = guess_tier(name_lower)
+    if any(h in name_lower for h in EXCLUDE_GROUP_HINTS):
+        if "source_name" not in name_lower and tier != "technical":
+            return None
+    # Avoid identifier columns unless technical fallback is explicitly needed.
+    if is_identifier_column(name_lower) and tier != "technical":
+        return None
     keyword_score = 2 if any(k in name_lower for k in GROUP_COLUMN_HINTS) else 0
     value_norms = {normalize_group_value(v) for v in prof["unique_values"]}
     synonym_score = 0
@@ -459,8 +521,16 @@ def extract_characteristics_keys(rows, headers):
             key_norm = normalize_group_value(key)
             if not key_norm:
                 continue
-            entry = key_map.setdefault(key_norm, {"label": key, "values": [""] * len(rows)})
-            entry["values"][idx] = value
+            entry = key_map.setdefault(
+                key_norm,
+                {"label": key, "values": [""] * len(rows), "conflicts": []},
+            )
+            existing = (entry["values"][idx] or "").strip()
+            if existing and value and normalize_group_value(existing) != normalize_group_value(value):
+                entry["conflicts"].append((idx + 1, existing, value, col))
+                continue
+            if not existing:
+                entry["values"][idx] = value
     return key_map
 
 def collect_group_candidates(rows, headers, id_column=None):
@@ -475,6 +545,8 @@ def collect_group_candidates(rows, headers, id_column=None):
             cand["source"] = f"column:{col}"
             candidates.append(cand)
     for entry in extract_characteristics_keys(rows, headers).values():
+        if entry.get("conflicts"):
+            continue
         cand = score_group_candidate(entry["label"], entry["values"])
         if cand:
             cand["source"] = f"characteristics:{entry['label']}"
@@ -530,16 +602,18 @@ def infer_group_source(rows, headers, id_column=None, allow_technical=False):
     if not preferred:
         return None
 
-    preferred.sort(
-        key=lambda c: (
-            c["score"],
-            c.get("coverage", 0),
-            c.get("balance_ratio", 0),
-            -c.get("missing_frac", 0),
-            -c.get("unique_count", 0),
-        ),
-        reverse=True,
-    )
+    preferred.sort(key=candidate_rank_key, reverse=True)
+    top_key = candidate_rank_key(preferred[0])
+    tied = [c for c in preferred if candidate_rank_key(c) == top_key]
+    if len(tied) > 1:
+        preview = ", ".join(
+            f"{c.get('name', '?')} [{c.get('source', '?')}]"
+            for c in tied[:4]
+        )
+        raise ValueError(
+            "Auto-group detected multiple equally plausible group sources: "
+            f"{preview}. Provide --group-column or --group-key explicitly."
+        )
     return preferred[0]
 
 def apply_group_mapping(value, mapping, group_con, group_test):
@@ -645,6 +719,15 @@ def auto_group_config(
         entry = key_map.get(key_norm)
         if not entry:
             raise ValueError(f"Auto-group key '{group_key}' not found in characteristics fields.")
+        if entry.get("conflicts"):
+            preview = ", ".join(
+                f"row {r}: '{a}' vs '{b}' ({col})"
+                for r, a, b, col in entry["conflicts"][:5]
+            )
+            raise ValueError(
+                f"Auto-group key '{group_key}' has conflicting values across characteristics columns: "
+                f"{preview}. Resolve metadata ambiguity or use --group-column."
+            )
         source_values = entry["values"]
         source_label = f"characteristics:{entry['label']}"
     elif source_values is None:
@@ -669,16 +752,7 @@ def auto_group_config(
         resolved_id = None
     candidates = collect_group_candidates(rows, headers, id_column=resolved_id)
     if candidates:
-        candidates.sort(
-            key=lambda c: (
-                c.get("score", 0),
-                c.get("coverage", 0),
-                c.get("balance_ratio", 0),
-                -c.get("missing_frac", 0),
-                -c.get("unique_count", 0),
-            ),
-            reverse=True,
-        )
+        candidates.sort(key=candidate_rank_key, reverse=True)
         report_path = os.path.join(os.path.dirname(os.path.abspath(config_path)), "auto_group_candidates.tsv")
         write_group_candidates(report_path, candidates)
         candidates_path = report_path
@@ -1847,6 +1921,25 @@ def run_analysis(args):
             args.min_total_size = 8
         if args.delta_beta <= 0:
             args.delta_beta = 0.05
+
+    if args.disable_auto_covariates and args.auto_covariates_enabled:
+        raw = str(args.auto_covariates_enabled).strip().lower()
+        if raw in {"true", "t", "1", "yes", "y", "on"}:
+            log_err(
+                "[!] Conflicting options: --disable-auto-covariates and "
+                "--auto-covariates-enabled true were both provided."
+            )
+            log_err("    Use only one of these options.")
+            sys.exit(1)
+        if raw in {"false", "f", "0", "no", "n", "off"}:
+            # Keep explicit disable flag and drop redundant opposite override.
+            args.auto_covariates_enabled = None
+            log("[*] Ignoring redundant --auto-covariates-enabled false because --disable-auto-covariates is set.")
+
+    if args.skip_sesame and args.sesame_typeinorm:
+        log("[*] --sesame-typeinorm is ignored because --skip-sesame is set.")
+    if args.beginner_safe_delta_beta is not None and not args.beginner_safe:
+        log("[*] --beginner-safe-delta-beta has effect only with --beginner-safe; ignoring this option.")
 
     auto_group_info = None
     auto_group_requested = args.auto_group or args.group_column or args.group_key or args.group_map

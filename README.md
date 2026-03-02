@@ -7,11 +7,11 @@
 > IlluMeta transforms a GEO accession (or raw IDATs) into reproducible methylation results plus an interactive HTML report.
 
 <p align="center">
-  <a href="docs/assets/readme_dashboard_showcase.png">
-    <img src="docs/assets/readme_dashboard_showcase.png" alt="IlluMeta run example: interactive dashboard preview with workflow, pipeline concordance, and calibration diagnostics." width="980" />
+  <a href="docs/assets/readme_dashboard_gse125605.png">
+    <img src="docs/assets/readme_dashboard_gse125605.png" alt="IlluMeta GSE125605 analysis dashboard preview." width="980" />
   </a>
 </p>
-<p align="center"><em>Run example: IlluMeta output dashboard preview (static image of the interactive HTML report).</em></p>
+<p align="center"><em>Run example: GSE125605 analysis dashboard (static preview of IlluMeta interactive HTML output).</em></p>
 
 ---
 

@@ -181,19 +181,18 @@ python illumeta.py doctor
 > separately (via `Rscript r_scripts/setup_env.R`). This one-time step may take 10-30 minutes.
 
 ```bash
-# Download a GEO dataset (DCIS vs Adjacent Normal breast tissue, 450K)
-./scripts/illumeta download GSE66313 -o projects/GSE66313
+# Download a GEO dataset (Control vs Case, 450K)
+./scripts/illumeta download GSE125605 -o projects/GSE125605
 
 # Run analysis with auto-grouping
-./scripts/illumeta analysis -i projects/GSE66313 \
+./scripts/illumeta analysis -i projects/GSE125605 \
   --group_con Control --group_test Case \
-  --auto-group --group-column source_name_ch1 \
-  --group-map "Adjacent-Normal=Control,DCIS=Case" \
+  --auto-group --group-column description \
   --tier3-on-fail skip  # skip stratified analysis if batch confounding detected
 ```
 
 Open the dashboard:
-`projects/GSE66313/Case_vs_Control_results_index.html`
+`projects/GSE125605/Case_vs_Control_results_index.html`
 If you set `-o/--output`, the dashboard path becomes `<output>_index.html`.
 
 ---
@@ -993,11 +992,10 @@ docker run --rm -it -v "$PWD":/app illumeta doctor
 Run analysis (mount your project directory):
 ```bash
 docker run --rm -it -v "$PWD":/app illumeta analysis \
-  -i projects/GSE66313 \
+  -i projects/GSE125605 \
   --group_con Control \
   --group_test Case \
-  --auto-group --group-column source_name_ch1 \
-  --group-map "Adjacent-Normal=Control,DCIS=Case" \
+  --auto-group --group-column description \
   --tier3-on-fail skip  # skip stratified analysis if batch confounding detected
 ```
 
@@ -1014,14 +1012,14 @@ docker run --rm -it -v "$PWD":/app illumeta analysis \
 # - venv:  source .venv/bin/activate
 # - Conda beginner shortcut: ./scripts/illumeta <subcommand> ...
 
-python illumeta.py download GSE66313 -o projects/GSE66313
+python illumeta.py download GSE125605 -o projects/GSE125605
 # If a GEO series has multiple platforms, force one by GPL ID:
-python illumeta.py download GSE66313 -o projects/GSE66313 --platform GPL13534
+python illumeta.py download GSE125605 -o projects/GSE125605 --platform GPL13534
 ```
 
 ### 2) Assign groups (manual or auto)
 Option A (manual):
-Edit `projects/GSE66313/configure.tsv` and fill in `primary_group` (e.g., `Control` / `Case`).
+Edit `projects/GSE125605/configure.tsv` and fill in `primary_group` (e.g., `Control` / `Case`).
 `configure.tsv` must be **tab-delimited (TSV)**; CSV is not supported.
 
 Option B (auto-group on analysis):
@@ -1039,11 +1037,10 @@ If your grouping is encoded in GEO characteristics, you can use `--group-key` (e
 ### 3) Run analysis
 ```bash
 python illumeta.py analysis \
-  -i projects/GSE66313 \
+  -i projects/GSE125605 \
   --group_con Control \
   --group_test Case \
-  --auto-group --group-column source_name_ch1 \
-  --group-map "Adjacent-Normal=Control,DCIS=Case" \
+  --auto-group --group-column description \
   --tier3-on-fail skip  # skip stratified analysis if batch confounding detected
 ```
 If you filled `primary_group` manually (Option A), you can omit the `--auto-group` flags.
@@ -1052,11 +1049,10 @@ Optional (signal preservation checks):
 ```bash
 # Provide a CpG marker list (TSV/CSV with CpG column or one CpG per line)
 python illumeta.py analysis \
-  -i projects/GSE66313 \
+  -i projects/GSE125605 \
   --group_con Control \
   --group_test Case \
-  --auto-group --group-column source_name_ch1 \
-  --group-map "Adjacent-Normal=Control,DCIS=Case" \
+  --auto-group --group-column description \
   --tier3-on-fail skip \
   --marker-list markers.tsv
 ```
@@ -1064,7 +1060,7 @@ This generates `*_Signal_Preservation.csv` and (if provided) `*_Known_Marker_Sum
 
 ### 4) Open the dashboard
 Open the generated HTML:
-`projects/GSE66313/Case_vs_Control_results_index.html`
+`projects/GSE125605/Case_vs_Control_results_index.html`
 If you used `-o/--output <OUT_DIR>`, open `<OUT_DIR>_index.html` instead.
 
 ### 5) Interpret results (beginner checklist)
@@ -1353,7 +1349,7 @@ Outputs:
 Lambda guard + variancePartition autoscale settings live in `config.yaml`.
 To create one, copy the template into your project directory:
 ```bash
-cp config.yaml.template projects/GSE66313/config.yaml
+cp config.yaml.template projects/GSE125605/config.yaml
 # Edit as needed — IlluMeta looks for config.yaml next to configure.tsv
 ```
 Example settings:
@@ -1522,7 +1518,7 @@ Common issues:
 <summary><strong>🆕 I'm completely new to methylation analysis. Where do I start?</strong></summary>
 
 1. **Install IlluMeta** using the Quick Start section above
-2. **Run the example** with GSE66313 (DCIS vs Normal, 450K, 55 samples)
+2. **Run the example** with GSE125605 (Control vs Case, 450K, 42 samples)
 3. **Open the dashboard** and explore the interactive plots
 4. **Read the methods.md** file - it explains what was done in plain English
 5. **Check QC first** - look at `QC_Summary.csv` to ensure data quality

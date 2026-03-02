@@ -201,13 +201,13 @@ fi
 
 if [[ "${ENV_EXISTS}" -eq 1 ]]; then
   echo "[*] Updating conda env..."
-  "${CONDA_BIN}" env update -f "${ENV_FILE}" --prune
+  "${CONDA_BIN}" env update -n "${ENV_NAME}" -f "${ENV_FILE}" --prune
 else
   echo "[*] Creating conda env..."
-  if ! "${CONDA_BIN}" env create -f "${ENV_FILE}"; then
+  if ! "${CONDA_BIN}" env create -n "${ENV_NAME}" -f "${ENV_FILE}"; then
     if [[ "${CONDA_BIN}" == "conda" ]]; then
       echo "[!] env create failed; retrying with --solver=classic"
-      "${CONDA_BIN}" env create -f "${ENV_FILE}" --solver=classic
+      "${CONDA_BIN}" env create -n "${ENV_NAME}" -f "${ENV_FILE}" --solver=classic
     else
       exit 1
     fi

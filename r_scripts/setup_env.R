@@ -927,7 +927,47 @@ install_archived_safe <- function(pkg, version) {
     }
 }
 
+ensure_ggrepel_compatible <- function() {
+    if (is_loadable("ggrepel")) return(invisible(TRUE))
+
+    if (getRversion() >= "4.5.0") {
+        install_cran_safe("ggrepel")
+        return(invisible(is_loadable("ggrepel")))
+    }
+
+    target_ver <- "0.9.6"
+    attempts <- max(1L, as.integer(download_retries) + 1L)
+    message(
+        "ggrepel is missing and latest CRAN may require R >= 4.5; ",
+        "trying archived ggrepel ", target_ver, " for R ", as.character(getRversion()), "."
+    )
+    for (i in seq_len(attempts)) {
+        clean_downloaded_packages()
+        tryCatch({
+            remotes::install_version(
+                "ggrepel",
+                version = target_ver,
+                repos = cran_repo,
+                dependencies = NA,
+                upgrade = "never",
+                lib = .libPaths()[1]
+            )
+        }, error = function(e) {
+            message(
+                "Warning: archived ggrepel install attempt ",
+                i, "/", attempts, " failed: ", conditionMessage(e)
+            )
+        })
+        if (is_loadable("ggrepel")) return(invisible(TRUE))
+    }
+
+    message("Warning: archived ggrepel install failed; retrying latest CRAN ggrepel.")
+    install_cran_safe("ggrepel")
+    return(invisible(is_loadable("ggrepel")))
+}
+
 install_cran_safe(cran_pkgs)
+ensure_ggrepel_compatible()
 if (install_devtools) {
     install_archived_safe("devtools", "2.4.3")
     install_archived_safe("tidyverse", "1.3.2")

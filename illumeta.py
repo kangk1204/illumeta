@@ -798,35 +798,37 @@ def preflight_analysis(config_path: str, idat_dir: str, group_con: str, group_te
             f"using {filtered_config_path}"
         )
 
-    con_lower = (group_con or "").strip().lower()
-    test_lower = (group_test or "").strip().lower()
-    if con_lower == test_lower:
-        raise ValueError("Control and test group labels are identical; please provide distinct labels.")
-    if normalize_group_value(group_con) == normalize_group_value(group_test):
+    con_norm = normalize_group_value(group_con)
+    test_norm = normalize_group_value(group_test)
+    if con_norm == test_norm:
         raise ValueError(
             f"Control ({group_con!r}) and test ({group_test!r}) labels are identical "
             f"after normalization; please provide distinct labels."
         )
-    group_vals = [(row.get("primary_group") or "").strip().lower() for row in rows]
-    if any(g == "" for g in group_vals):
+    group_norms = [normalize_group_value(row.get("primary_group") or "") for row in rows]
+    if any(g == "" for g in group_norms):
         raise ValueError("primary_group column contains missing/empty values. Please fill before analysis.")
-    n_con = sum(1 for g in group_vals if g == con_lower)
-    n_test = sum(1 for g in group_vals if g == test_lower)
+    n_con = sum(1 for g in group_norms if g == con_norm)
+    n_test = sum(1 for g in group_norms if g == test_norm)
     n_total = n_con + n_test
     if n_total == 0:
         raise ValueError(f"No samples found matching groups: {group_con} or {group_test}.")
     if min_total_size and n_total < min_total_size:
         raise ValueError(f"Too few samples after group selection: {n_total} < min_total_size ({min_total_size}).")
 
-    other_groups = sorted(set(g for g in group_vals if g and g not in {con_lower, test_lower}))
+    other_groups = sorted(set(
+        (row.get("primary_group") or "").strip()
+        for row, g in zip(rows, group_norms)
+        if g and g not in {con_norm, test_norm}
+    ))
     if other_groups:
         # Filter out non-target samples (same pattern as drop_missing_idat above)
         excluded_ids = [
             (row.get(id_col) or "").strip()
-            for row, g in zip(rows, group_vals)
-            if g not in {con_lower, test_lower}
+            for row, g in zip(rows, group_norms)
+            if g not in {con_norm, test_norm}
         ]
-        rows = [row for row, g in zip(rows, group_vals) if g in {con_lower, test_lower}]
+        rows = [row for row, g in zip(rows, group_norms) if g in {con_norm, test_norm}]
         root, ext = os.path.splitext(filtered_config_path)
         filtered_config_path = f"{root}_groupfiltered{ext or '.tsv'}"
         write_config_rows(filtered_config_path, headers, rows)

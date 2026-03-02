@@ -437,6 +437,15 @@ python -m pip install -r requirements-paper.txt
 
 # Note: manuscript builder/generator scripts are intentionally not included in this repository.
 # Contact the authors for the full reproducible paper build pipeline.
+
+# Figure 1C/1D benchmark cohort set used in current submission build
+# (benchmarks/application_note_submission_results symlinks)
+# - GSE121633
+# - GSE125605
+# - GSE286028
+# - GSE289196
+# - GSE299721
+# - GSE208529
 ```
 
 <details>

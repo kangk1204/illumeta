@@ -499,6 +499,9 @@ def apply_group_mapping(value, mapping, group_con, group_test):
     return raw
 
 def write_config_rows(path, headers, rows):
+    parent = os.path.dirname(os.path.abspath(path))
+    if parent and not os.path.isdir(parent):
+        os.makedirs(parent, exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=headers, delimiter="\t", extrasaction="ignore")
         writer.writeheader()
@@ -534,35 +537,41 @@ def auto_group_config(
         cur = (row.get("primary_group") or "").strip()
         if overwrite or not cur:
             pending_idx.append(idx)
-    if not pending_idx:
-        # Still validate ALL pre-existing labels before returning.
-        con_norm = normalize_group_value(group_con)
-        test_norm = normalize_group_value(group_test)
-        invalid_rows = []
-        for idx, row in enumerate(rows):
-            label = (row.get("primary_group") or "").strip()
-            label_norm = normalize_group_value(label)
-            if label_norm not in (con_norm, test_norm):
-                invalid_rows.append((idx + 1, label))
-        if invalid_rows:
-            preview = ", ".join(f"{row}:{label}" for row, label in invalid_rows[:5])
-            raise ValueError(
-                "Pre-existing label(s) outside control/test groups. "
-                f"Expected only '{group_con}' or '{group_test}'. "
-                f"Invalid rows: {preview}. "
-                "Use --group-map to map raw labels explicitly."
-            )
-        return config_path, {"updated": False, "source": "primary_group"}
-
     mapping = parse_group_map(group_map, group_con, group_test)
     source_values = None
     source_label = None
-    if group_column:
+    if not pending_idx:
+        if mapping:
+            # Allow --group-map to normalize pre-filled labels even when no rows are pending.
+            pending_idx = list(range(len(rows)))
+            source_values = [(row.get("primary_group") or "") for row in rows]
+            source_label = "primary_group"
+        else:
+            # Still validate ALL pre-existing labels before returning.
+            con_norm = normalize_group_value(group_con)
+            test_norm = normalize_group_value(group_test)
+            invalid_rows = []
+            for idx, row in enumerate(rows):
+                label = (row.get("primary_group") or "").strip()
+                label_norm = normalize_group_value(label)
+                if label_norm not in (con_norm, test_norm):
+                    invalid_rows.append((idx + 1, label))
+            if invalid_rows:
+                preview = ", ".join(f"{row}:{label}" for row, label in invalid_rows[:5])
+                raise ValueError(
+                    "Pre-existing label(s) outside control/test groups. "
+                    f"Expected only '{group_con}' or '{group_test}'. "
+                    f"Invalid rows: {preview}. "
+                    "Use --group-map to map raw labels explicitly."
+                )
+            return config_path, {"updated": False, "source": "primary_group"}
+
+    if source_values is None and group_column:
         if group_column not in headers:
             raise ValueError(f"Auto-group column '{group_column}' not found in configure.tsv.")
         source_values = [row.get(group_column, "") for row in rows]
         source_label = f"column:{group_column}"
-    elif group_key:
+    elif source_values is None and group_key:
         key_map = extract_characteristics_keys(rows, headers)
         key_norm = normalize_group_value(group_key)
         entry = key_map.get(key_norm)
@@ -570,7 +579,7 @@ def auto_group_config(
             raise ValueError(f"Auto-group key '{group_key}' not found in characteristics fields.")
         source_values = entry["values"]
         source_label = f"characteristics:{entry['label']}"
-    else:
+    elif source_values is None:
         try:
             resolved_id = resolve_id_column(headers, override=id_column)
         except ValueError:
@@ -639,7 +648,12 @@ def auto_group_config(
             "Use --group-map to map raw labels explicitly."
         )
 
-    out_path = output_path or os.path.join(os.path.dirname(os.path.abspath(config_path)), "configure_autogroup.tsv")
+    if output_path:
+        out_path = output_path
+        if not os.path.isabs(out_path):
+            out_path = os.path.join(os.path.dirname(os.path.abspath(config_path)), out_path)
+    else:
+        out_path = os.path.join(os.path.dirname(os.path.abspath(config_path)), "configure_autogroup.tsv")
     write_config_rows(out_path, headers, rows)
     counts = Counter((row.get("primary_group") or "").strip() for row in rows if (row.get("primary_group") or "").strip())
     return out_path, {
@@ -811,6 +825,10 @@ def preflight_analysis(config_path: str, idat_dir: str, group_con: str, group_te
     n_con = sum(1 for g in group_norms if g == con_norm)
     n_test = sum(1 for g in group_norms if g == test_norm)
     n_total = n_con + n_test
+    if n_con == 0:
+        raise ValueError(f"No samples found for control group label: {group_con}.")
+    if n_test == 0:
+        raise ValueError(f"No samples found for test group label: {group_test}.")
     if n_total == 0:
         raise ValueError(f"No samples found matching groups: {group_con} or {group_test}.")
     if min_total_size and n_total < min_total_size:
@@ -1590,7 +1608,17 @@ def run_search(args):
 def write_failure_summary(base_dir: str, stage: str, code: str, message: str, details=None):
     if not base_dir:
         base_dir = os.getcwd()
-    os.makedirs(base_dir, exist_ok=True)
+    base_dir = os.path.abspath(base_dir)
+    if os.path.isfile(base_dir):
+        base_dir = os.path.dirname(base_dir) or os.getcwd()
+    try:
+        os.makedirs(base_dir, exist_ok=True)
+    except OSError:
+        base_dir = os.getcwd()
+        try:
+            os.makedirs(base_dir, exist_ok=True)
+        except OSError:
+            pass
     payload = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "stage": stage,
@@ -1660,7 +1688,7 @@ def run_analysis(args):
                 log(f"[*] Auto-group: filled primary_group using {auto_group_info.get('source')} -> {config_path}")
             else:
                 log("[*] Auto-group: primary_group already filled; using existing configure.tsv")
-        except ValueError as e:
+        except (ValueError, OSError) as e:
             log_err(f"[!] Auto-group failed: {e}")
             write_failure_summary(planned_output_dir, "auto_group", "AUTO_GROUP_FAILED", str(e))
             sys.exit(1)
@@ -1749,10 +1777,8 @@ def run_analysis(args):
         elif status == "skip_env":
             log("[!] Cross-reactive list auto-download disabled via ILLUMETA_SKIP_XREACT_DOWNLOAD=1.")
         elif status == "missing_sources":
-            log_err("[!] Cross-reactive list auto-download failed (missing sources).")
-            log_err(f"    Provide --cross-reactive-list, install maxprobes, or place lists under {cross_dir}.")
-            log_err("    To skip cross-reactive filtering, re-run with --unsafe-skip-cross-reactive.")
-            sys.exit(1)
+            log("[!] Cross-reactive list auto-download failed (missing sources). Proceeding and delegating to R fallback logic (maxprobes/local).")
+            log(f"    If needed, provide --cross-reactive-list or place lists under {cross_dir}.")
     
     cmd = [
         "Rscript", analyze_script,
@@ -1859,7 +1885,7 @@ def run_analysis(args):
                 indent=2,
                 ensure_ascii=True,
             )
-    except ValueError as e:
+    except (ValueError, OSError) as e:
         log_err(f"[!] Preflight check failed: {e}")
         write_failure_summary(output_dir, "preflight", "PREFLIGHT_FAILED", str(e))
         sys.exit(1)
@@ -1905,7 +1931,7 @@ def run_analysis(args):
         cmd.extend(["--beginner_safe_delta_beta", str(args.beginner_safe_delta_beta)])
     if args.logit_offset is not None:
         cmd.extend(["--logit_offset", str(args.logit_offset)])
-    if args.vp_top:
+    if args.vp_top is not None:
         cmd.extend(["--vp_top", str(args.vp_top)])
     if args.id_column:
         cmd.extend(["--id_column", args.id_column])
@@ -4111,8 +4137,8 @@ def main():
     parser_analysis.add_argument("--permutations", type=int, default=20,
                                  help="Number of label permutations for null DMP counts (set 0 to use config minimum; set calibration.permutations_min=0 to disable)")
     parser_analysis.add_argument("--config-yaml", type=str, help="Optional YAML config (default: config.yaml next to configure.tsv)")
-    parser_analysis.add_argument("--preset", type=str, default="conservative", choices=["conservative", "aggressive"],
-                                 help="Optimization preset (conservative or aggressive)")
+    parser_analysis.add_argument("--preset", type=str, default=None, choices=["conservative", "aggressive"],
+                                 help="Optional optimization preset override (conservative or aggressive)")
     parser_analysis.add_argument("--vp-top", type=int, default=5000, help="Top-variable CpGs for variancePartition (default: 5000)")
     parser_analysis.add_argument("--id-column", type=str, help="Column in configure.tsv to treat as sample ID (useful for non-GEO datasets)")
     parser_analysis.add_argument("--min-total-size", type=int, default=6, help="Minimum total sample size required to proceed (default: 6)")

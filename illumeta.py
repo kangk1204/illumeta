@@ -973,6 +973,7 @@ ANALYZE_SCRIPT = os.path.join(R_SCRIPTS_DIR, "analyze.R")
 SETUP_MARKER = os.path.join(BASE_DIR, ".r_setup_done")
 SETUP_SCRIPT = os.path.join(R_SCRIPTS_DIR, "setup_env.R")
 DEFAULT_CONDA_PREFIX = os.environ.get("CONDA_PREFIX")
+DEFAULT_CONDA_ENV_NAME = os.environ.get("ILLUMETA_ENV_NAME", "").strip() or "illumeta"
 CORE_R_PACKAGES = [
     "xml2",
     "XML",
@@ -1023,6 +1024,111 @@ OPTIONAL_R_PACKAGES = [
     "methylclock",
     "methylclockData",
 ]
+
+def path_is_within(child: str, parent: str) -> bool:
+    if not child or not parent:
+        return False
+    try:
+        child_real = os.path.realpath(child)
+        parent_real = os.path.realpath(parent)
+        return os.path.commonpath([child_real, parent_real]) == parent_real
+    except (ValueError, OSError):
+        return False
+
+def detect_conda_env_name(default_name: str = DEFAULT_CONDA_ENV_NAME) -> str:
+    env_name = (os.environ.get("ILLUMETA_ENV_NAME") or "").strip()
+    if env_name:
+        return env_name
+    env_file = os.path.join(BASE_DIR, "environment.yml")
+    if os.path.isfile(env_file):
+        try:
+            with open(env_file, "r", encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    if line.startswith("name:"):
+                        parsed = line.split(":", 1)[1].strip()
+                        if parsed:
+                            return parsed
+                        break
+        except OSError:
+            pass
+    return default_name
+
+def find_conda_bin() -> str:
+    conda_bin = shutil.which("conda")
+    if conda_bin:
+        return conda_bin
+    for candidate in (
+        os.path.join(os.path.expanduser("~"), "miniforge3", "bin", "conda"),
+        os.path.join(os.path.expanduser("~"), "mambaforge", "bin", "conda"),
+        os.path.join(os.path.expanduser("~"), "anaconda3", "bin", "conda"),
+    ):
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return ""
+
+def resolve_conda_env_path(conda_bin: str, env_name: str) -> str:
+    if not conda_bin or not env_name:
+        return ""
+    try:
+        result = subprocess.run(
+            [conda_bin, "env", "list", "--json"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if result.returncode != 0:
+        return ""
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError:
+        return ""
+    for env_path in payload.get("envs", []):
+        if os.path.basename(env_path.rstrip(os.sep)) == env_name:
+            return env_path
+    return ""
+
+def ensure_runtime_environment(command: str):
+    # Allow advanced users to bypass this guard explicitly.
+    if os.environ.get("ILLUMETA_ALLOW_NON_CONDA") == "1":
+        return
+    if command not in {"doctor", "download", "analysis"}:
+        return
+
+    current_python = os.path.realpath(sys.executable or "")
+    virtual_env = (os.environ.get("VIRTUAL_ENV") or "").strip()
+    if virtual_env and path_is_within(current_python, virtual_env):
+        return
+
+    conda_prefix = (os.environ.get("CONDA_PREFIX") or "").strip()
+    if conda_prefix and path_is_within(current_python, conda_prefix):
+        return
+
+    conda_bin = find_conda_bin()
+    if not conda_bin:
+        return
+
+    env_name = detect_conda_env_name()
+    env_path = resolve_conda_env_path(conda_bin, env_name)
+    if not env_path:
+        return
+
+    if path_is_within(current_python, env_path):
+        return
+
+    log_err(
+        f"[!] Conda env '{env_name}' is installed, but current Python is outside it: {current_python}"
+    )
+    log_err("[!] Use one of the following:")
+    log_err("    ./scripts/illumeta <command> ...")
+    log_err(f"    conda run -n {env_name} python illumeta.py <command> ...")
+    log_err(f"    conda activate {env_name} && python illumeta.py <command> ...")
+    log_err("[!] If you intentionally use another environment, set ILLUMETA_ALLOW_NON_CONDA=1.")
+    sys.exit(1)
+
 def add_conda_paths(env: dict) -> dict:
     """Ensure LD_LIBRARY_PATH/PKG_CONFIG_PATH/PATH include conda libs so xml2/xml load correctly."""
     use_conda_libs = (env.get("ILLUMETA_USE_CONDA_LIBS") == "1") or (
@@ -4174,6 +4280,8 @@ def main():
         parser_download.print_help()
         log("Example: python illumeta.py download GSE12345 -o /path/to/project")
         return
+
+    ensure_runtime_environment(args.command)
 
     if args.command == "doctor":
         run_doctor(args)

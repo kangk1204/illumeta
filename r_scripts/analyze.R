@@ -160,8 +160,8 @@ option_list <- list(
               help="Path to configure.tsv", metavar="character"),
   make_option(c("--config_yaml"), type="character", default="",
               help="Optional YAML config (default: config.yaml next to configure.tsv)", metavar="character"),
-  make_option(c("--preset"), type="character", default="conservative",
-              help="Optimization preset (conservative or aggressive)", metavar="character"),
+  make_option(c("--preset"), type="character", default="",
+              help="Optional optimization preset override (conservative or aggressive)", metavar="character"),
   make_option(c("-o", "--out"), type="character", default=".", 
               help="Output directory for results", metavar="character"),
   make_option(c("--idat_dir"), type="character", default="",
@@ -590,9 +590,8 @@ if (!nzchar(config_yaml_path)) {
 config_raw <- load_yaml_config(config_yaml_path)
 config_settings <- merge_config_defaults(CONFIG_DEFAULTS, config_raw)
 preset_name <- normalize_preset(config_settings$preset)
-cli_preset <- normalize_preset(opt$preset)
-if (!identical(cli_preset, "conservative")) {
-  preset_name <- cli_preset
+if (!is.null(opt$preset) && nzchar(trimws(opt$preset))) {
+  preset_name <- normalize_preset(opt$preset)
 }
 config_settings$preset <- preset_name
 scoring_preset <- config_settings$scoring_presets[[preset_name]]
@@ -623,7 +622,12 @@ if (perm_n == 0) perm_n <- config_settings$calibration$permutations_min
 vp_top <- opt$vp_top
 disable_auto_cov <- opt$disable_auto_covariates
 disable_sva <- opt$disable_sva
-include_cov <- ifelse(opt$include_covariates == "", character(0), trimws(strsplit(opt$include_covariates, ",")[[1]]))
+include_cov <- if (!nzchar(opt$include_covariates)) {
+  character(0)
+} else {
+  trimws(strsplit(opt$include_covariates, ",", fixed = TRUE)[[1]])
+}
+include_cov <- include_cov[nzchar(include_cov)]
 include_clock_covariates <- opt$include_clock_covariates
 marker_list_path <- opt$marker_list
 if (!nzchar(marker_list_path) && !is.null(config_settings$markers$path)) {
@@ -737,9 +741,17 @@ force_idat <- opt$force_idat
 QC_MEDIAN_INTENSITY_THRESHOLD <- ifelse(opt$qc_intensity_threshold <= 0, -Inf, opt$qc_intensity_threshold)
 qc_det_p <- config_settings$qc$detection_p_threshold
 if (!is.na(opt$qc_detection_p_threshold)) qc_det_p <- opt$qc_detection_p_threshold
+if (!is.finite(qc_det_p) || qc_det_p <= 0 || qc_det_p > 1) {
+  warning(sprintf("Invalid qc_detection_p_threshold %.6f; using default %.2f.", qc_det_p, 0.05))
+  qc_det_p <- 0.05
+}
 QC_DETECTION_P_THRESHOLD <- qc_det_p
 qc_fail_frac <- config_settings$qc$sample_fail_frac
 if (!is.na(opt$qc_sample_fail_frac)) qc_fail_frac <- opt$qc_sample_fail_frac
+if (!is.finite(qc_fail_frac) || qc_fail_frac < 0 || qc_fail_frac > 1) {
+  warning(sprintf("Invalid qc_sample_fail_frac %.6f; using default %.2f.", qc_fail_frac, 0.20))
+  qc_fail_frac <- 0.20
+}
 QC_SAMPLE_DET_FAIL_FRAC <- qc_fail_frac
 logit_offset_cfg <- if (!is.null(config_settings$logit_offset)) as.numeric(config_settings$logit_offset) else NA_real_
 if (!is.na(opt$logit_offset)) logit_offset_cfg <- opt$logit_offset
@@ -1415,7 +1427,8 @@ select_batch_strategy <- function(betas, targets, batch_col, batch_tier, covaria
   if (nrow(cand_rows) == 0) {
     return(list(best_method = "none", best_covariates = covariate_sets[[1]], candidates = NULL))
   }
-  top_k <- scoring_preset$top_k
+  top_k <- suppressWarnings(as.integer(scoring_preset$top_k))
+  if (!is.finite(top_k) || top_k < 1) top_k <- 1L
   cand_rows <- cand_rows[order(-cand_rows$total_score), ]
   eval_idx <- seq_len(min(top_k, nrow(cand_rows)))
   for (i in eval_idx) {
@@ -1430,7 +1443,7 @@ select_batch_strategy <- function(betas, targets, batch_col, batch_tier, covaria
     design_ld <- drop_linear_dependencies(design, group_cols = group_cols)
     design <- design_ld$mat
     betas_corr <- betas
-    if (row$method %in% c("combat", "limma")) {
+    if (row$method %in% c("combat", "limma", "sva")) {
       bc_res <- apply_batch_correction(betas, row$method, batch_col, cov_set, targets, design)
       betas_corr <- bc_res$betas
     }
@@ -1464,9 +1477,9 @@ select_batch_strategy <- function(betas, targets, batch_col, batch_tier, covaria
     }
   }
   cand_rows <- cand_rows[order(-cand_rows$total_score), ]
-  best_rows <- cand_rows[!(cand_rows$status %in% c("RED", "FAILED")), , drop = FALSE]
+  best_rows <- cand_rows[!(cand_rows$status %in% c("RED", "FAILED", "PENDING")), , drop = FALSE]
   if (nrow(best_rows) == 0) {
-    best_rows <- cand_rows[cand_rows$status != "FAILED", , drop = FALSE]
+    best_rows <- cand_rows[!(cand_rows$status %in% c("FAILED", "PENDING")), , drop = FALSE]
   }
   if (nrow(best_rows) == 0) {
     return(list(best_method = "none", best_covariates = covariate_sets[[1]], candidates = cand_rows))
@@ -6656,7 +6669,7 @@ if (dup_basename_count > 0) {
               ". Each sample must map to a unique IDAT pair."))
 }
 
-# Drop samples whose IDAT array size deviates from the modal value (prevents mixed-platform parsing errors)
+# Drop samples whose IDAT array size deviates from the modal value unless force_idat is enabled.
 idat_size <- vapply(targets$Basename, function(bn) {
   f <- paste0(bn, "_Grn.idat")
   if (!file.exists(f)) f <- paste0(bn, "_Grn.idat.gz")
@@ -6674,12 +6687,18 @@ if (sum(!is.na(idat_size)) > 0) {
     if (length(mismatch_idx) > 0) {
       bad_ids <- targets[[gsm_col]][mismatch_idx]
       bad_sizes <- idat_size[mismatch_idx]
-      message(sprintf("Dropping %d sample(s) with non-modal IDAT array size (mode=%s): %s",
-                      length(mismatch_idx), format(mode_size, scientific = FALSE),
-                      paste(paste0(bad_ids, " (", bad_sizes, ")"), collapse = ", ")))
-      targets <- targets[-mismatch_idx, , drop = FALSE]
-      idat_size <- idat_size[-mismatch_idx]
-      if (nrow(targets) == 0) stop("All samples were dropped due to IDAT size mismatch.")
+      if (isTRUE(force_idat)) {
+        message(sprintf("Keeping %d sample(s) with non-modal IDAT array size due to --force_idat (mode=%s): %s",
+                        length(mismatch_idx), format(mode_size, scientific = FALSE),
+                        paste(paste0(bad_ids, " (", bad_sizes, ")"), collapse = ", ")))
+      } else {
+        message(sprintf("Dropping %d sample(s) with non-modal IDAT array size (mode=%s): %s",
+                        length(mismatch_idx), format(mode_size, scientific = FALSE),
+                        paste(paste0(bad_ids, " (", bad_sizes, ")"), collapse = ", ")))
+        targets <- targets[-mismatch_idx, , drop = FALSE]
+        idat_size <- idat_size[-mismatch_idx]
+        if (nrow(targets) == 0) stop("All samples were dropped due to IDAT size mismatch.")
+      }
     }
   }
 }
@@ -7966,12 +7985,28 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     if (!(batch_col_override %in% colnames(targets))) {
       stop(sprintf("Batch override column '%s' not found in metadata.", batch_col_override))
     }
+    if (!(batch_col_override %in% conf_df$batch)) {
+      override_conf <- assess_batch_confounding(targets, batch_col_override, "primary_group", config_settings)
+      if (nrow(override_conf) > 0) {
+        conf_df <- rbind(conf_df, override_conf)
+      }
+    }
     batch_col <- batch_col_override
     log_decision("confounding", "batch_candidate_override", batch_col, reason = "manual_override")
   } else if (nrow(eligible_df) > 0) {
     batch_col <- eligible_df$batch[1]
   }
   batch_tier <- if (!is.null(batch_col) && batch_col %in% conf_df$batch) conf_df$tier[match(batch_col, conf_df$batch)] else NA_integer_
+  if (nzchar(batch_col_override) && is.finite(batch_tier) && batch_tier >= 3) {
+    msg <- sprintf("Manual batch override '%s' is non-identifiable with primary_group (tier=%s).", batch_col, batch_tier)
+    if (tier3_on_fail == "stop") {
+      stop(paste0(msg, " Stop for safety."))
+    } else {
+      warning(paste0(msg, " Ignoring override and proceeding without forced batch correction."))
+      batch_col <- NULL
+      batch_tier <- NA_integer_
+    }
+  }
   if (!is.null(batch_col)) {
     message(paste("  Selected batch candidate:", batch_col, "(tier", batch_tier, ")"))
     log_decision("confounding", "batch_candidate", batch_col,
@@ -8515,7 +8550,8 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   lambda_vp_top <- NA_real_
   if (length(top_calib_idx) > 0) {
     top_cpgs <- rownames(betas)[top_calib_idx]
-    p_top <- tryCatch(res[top_cpgs, "P.Value"], error = function(e) NA_real_)
+    top_idx_res <- match(top_cpgs, res$CpG)
+    p_top <- res$P.Value[top_idx_res]
     p_top <- p_top[!is.na(p_top)]
     if (length(p_top) > 0) {
       lambda_vp_top <- compute_genomic_lambda(p_top)
@@ -8985,16 +9021,25 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
 	              message(sprintf("    [perm %d/%d] elapsed: %.1f min, ETA: %.1f min", i, perm_n, elapsed, eta))
 	          }
 	      }
-	      perm_mean_sig <- mean(perm_results$sig_count)
-      perm_summary <- data.frame(
-        stat = c("mean_sig", "median_sig", "max_sig", "min_p_median", "ks_p_median", "lambda_median",
-                 "n_probes", "mean_sig_rate"),
-        value = c(perm_mean_sig, median(perm_results$sig_count),
-                  max(perm_results$sig_count), median(perm_results$min_p),
-                  median(perm_results$ks_p, na.rm = TRUE), median(perm_results$lambda, na.rm = TRUE),
-                  perm_n_probes,
-                  ifelse(is.finite(perm_mean_sig) && perm_n_probes > 0, perm_mean_sig / perm_n_probes, NA))
-      )
+	      if (nrow(perm_results) > 0) {
+	        perm_mean_sig <- mean(perm_results$sig_count)
+        perm_summary <- data.frame(
+          stat = c("mean_sig", "median_sig", "max_sig", "min_p_median", "ks_p_median", "lambda_median",
+                   "n_probes", "mean_sig_rate"),
+          value = c(perm_mean_sig, median(perm_results$sig_count),
+                    max(perm_results$sig_count), median(perm_results$min_p),
+                    median(perm_results$ks_p, na.rm = TRUE), median(perm_results$lambda, na.rm = TRUE),
+                    perm_n_probes,
+                    ifelse(is.finite(perm_mean_sig) && perm_n_probes > 0, perm_mean_sig / perm_n_probes, NA))
+        )
+	      } else {
+	        perm_summary <- data.frame(
+	          stat = c("mean_sig", "median_sig", "max_sig", "min_p_median", "ks_p_median", "lambda_median",
+	                   "n_probes", "mean_sig_rate"),
+	          value = c(NA_real_, NA_real_, NA_real_, NA_real_, NA_real_, NA_real_, perm_n_probes, NA_real_)
+	        )
+	        warning("Permutation runs produced no valid results; summary metrics set to NA.")
+	      }
 	      write.csv(perm_results, file.path(out_dir, paste0(prefix, "_Permutation_Results.csv")), row.names = FALSE)
 	      write.csv(perm_summary, file.path(out_dir, paste0(prefix, "_Permutation_Summary.csv")), row.names = FALSE)
       }
@@ -9061,6 +9106,19 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     if (!is.null(meta_out)) {
       if (!is.null(meta_out$method)) tier3_meta_method <- meta_out$method
       if (!is.null(meta_out$i2_median)) tier3_meta_i2_median <- meta_out$i2_median
+    } else {
+      tier3_ineligible <- TRUE
+      msg <- sprintf(
+        "Tier3 confounding detected for '%s' but stratified/meta analysis could not run (insufficient overlap strata).",
+        tier3_batch
+      )
+      log_decision("tier3", "fallback_failed", tier3_batch, reason = "insufficient_overlap_strata")
+      if (tier3_on_fail == "stop") {
+        stop(paste0(msg, " Stop for safety. Use tier3.on_fail=skip to proceed without Tier3."))
+      } else {
+        warning(paste0(msg, " Proceeding without Tier3 stratified/meta-analysis."))
+        tier3_mode <- FALSE
+      }
     }
     min_total_warn <- suppressWarnings(as.numeric(if (!is.null(config_settings$tier3_meta$min_total_warn))
       config_settings$tier3_meta$min_total_warn else 20))

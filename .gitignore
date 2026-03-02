@@ -62,6 +62,19 @@ scripts/generate_paper_figures.py
 scripts/run_application_note_ablation.py
 scripts/run_application_note_benchmark.py
 scripts/sanitize_publication_assets.py
+scripts/build_autocorrection_report.py
+scripts/build_intersection_report.py
+scripts/build_signal_preservation_report.py
+
+# Publication benchmark/figure generation scripts (local only)
+scripts/benchmark_comparison.R
+scripts/benchmark_comparison_v2.R
+scripts/benchmark_comparison_v3.R
+scripts/build_benchmark_figures.py
+scripts/build_benchmark_table.py
+scripts/build_correction_summary.py
+scripts/subsampling_robustness.py
+tests/test_benchmark_table.py
 
 # Manuscript artifacts (local only)
 benchmarks/application_note/

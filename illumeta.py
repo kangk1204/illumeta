@@ -219,6 +219,72 @@ def parse_group_map(map_str: str, group_con: str, group_test: str) -> dict:
             mapping[normalize_group_value(raw_item)] = mapped
     return mapping
 
+
+def build_group_map_hint(raw_labels, group_con: str, group_test: str, max_labels: int = 6) -> str:
+    labels = []
+    seen = set()
+    for label in raw_labels or []:
+        txt = str(label or "").strip()
+        if not txt:
+            continue
+        if txt in seen:
+            continue
+        seen.add(txt)
+        labels.append(txt)
+    if not labels:
+        return ""
+
+    con_norm = normalize_group_value(group_con)
+    test_norm = normalize_group_value(group_test)
+    unresolved = []
+    parts = []
+    for label in labels[:max_labels]:
+        token = label.replace('"', "'").replace(",", "/").replace(";", "/")
+        norm = normalize_group_value(label)
+        if norm == con_norm or norm in CONTROL_SYNONYMS:
+            target = group_con
+        elif norm == test_norm or norm in TEST_SYNONYMS:
+            target = group_test
+        else:
+            target = f"<{group_con}|{group_test}>"
+            unresolved.append(label)
+        parts.append(f"{token}={target}")
+    if len(labels) > max_labels:
+        parts.append("...")
+
+    hint = f'Example: --group-map "{",".join(parts)}"'
+    if unresolved:
+        hint += f" (set {', '.join(unresolved[:3])} explicitly)"
+    return hint
+
+
+def cleanup_failure_markers(base_dirs):
+    if isinstance(base_dirs, str):
+        base_dirs = [base_dirs]
+    removed = []
+    seen_dirs = set()
+    for base_dir in base_dirs or []:
+        if not base_dir:
+            continue
+        target = os.path.abspath(base_dir)
+        if os.path.isfile(target):
+            target = os.path.dirname(target) or os.getcwd()
+        if target in seen_dirs:
+            continue
+        seen_dirs.add(target)
+        if not os.path.isdir(target):
+            continue
+        for name in ("failure_summary.json", "failure_reason.txt"):
+            path = os.path.join(target, name)
+            if not os.path.isfile(path):
+                continue
+            try:
+                os.remove(path)
+                removed.append(path)
+            except OSError as e:
+                log_err(f"[!] Failed to remove stale failure marker: {path} ({e})")
+    return removed
+
 def profile_values(values):
     cleaned = []
     for v in values:
@@ -558,11 +624,13 @@ def auto_group_config(
                     invalid_rows.append((idx + 1, label))
             if invalid_rows:
                 preview = ", ".join(f"{row}:{label}" for row, label in invalid_rows[:5])
+                hint = build_group_map_hint([label for _, label in invalid_rows], group_con, group_test)
                 raise ValueError(
                     "Pre-existing label(s) outside control/test groups. "
                     f"Expected only '{group_con}' or '{group_test}'. "
                     f"Invalid rows: {preview}. "
-                    "Use --group-map to map raw labels explicitly."
+                    "Use --group-map to map raw labels explicitly. "
+                    + hint
                 )
             return config_path, {"updated": False, "source": "primary_group"}
 
@@ -641,11 +709,13 @@ def auto_group_config(
         invalid_rows.append((idx + 1, label))
     if invalid_rows:
         preview = ", ".join(f"{row}:{label}" for row, label in invalid_rows[:5])
+        hint = build_group_map_hint([label for _, label in invalid_rows], group_con, group_test)
         raise ValueError(
             "Auto-group produced label(s) outside control/test groups. "
             f"Expected only '{group_con}' or '{group_test}'. "
             f"Invalid rows: {preview}. "
-            "Use --group-map to map raw labels explicitly."
+            "Use --group-map to map raw labels explicitly. "
+            + hint
         )
 
     if output_path:
@@ -1756,16 +1826,20 @@ def run_analysis(args):
         sys.exit(1)
 
     log(f"[*] Starting analysis pipeline using configuration: {config_path}...")
+
+    config_base_dir = os.path.dirname(os.path.abspath(config_path))
+    default_dir_base = args.input_dir if args.input_dir else config_base_dir
+    default_folder = safe_path_component(f"{args.group_test}_vs_{args.group_con}_results", fallback="analysis_results")
+    planned_output_dir = args.output or os.path.join(default_dir_base, default_folder)
+    stale_markers = cleanup_failure_markers([planned_output_dir, args.input_dir, config_base_dir])
+    if stale_markers:
+        log(f"[*] Removed stale failure markers: {', '.join(stale_markers)}")
     
     if not os.path.exists(config_path):
         log_err(f"Error: Configuration file {config_path} not found.")
         write_failure_summary(args.input_dir or os.getcwd(), "config", "CONFIG_NOT_FOUND",
                               f"Configuration file not found: {config_path}")
         sys.exit(1)
-    config_base_dir = os.path.dirname(os.path.abspath(config_path))
-    default_dir_base = args.input_dir if args.input_dir else config_base_dir
-    default_folder = safe_path_component(f"{args.group_test}_vs_{args.group_con}_results", fallback="analysis_results")
-    planned_output_dir = args.output or os.path.join(default_dir_base, default_folder)
 
     if args.beginner_safe:
         # Enforce more conservative defaults for novice safety
@@ -1815,10 +1889,18 @@ def run_analysis(args):
             n_con = counts.get(con_norm, 0)
             n_test = counts.get(test_norm, 0)
             if extra:
+                raw_extra = sorted({
+                    (row.get("primary_group") or "").strip()
+                    for row in rows
+                    if (row.get("primary_group") or "").strip()
+                    and normalize_group_value(row.get("primary_group") or "") not in {con_norm, test_norm}
+                })
+                hint = build_group_map_hint(raw_extra, args.group_con, args.group_test)
                 raise ValueError(
                     "Beginner-safe mode requires only two groups (control/test). "
-                    f"Found extra group labels: {', '.join(sorted(extra)[:5])}. "
-                    "Use --group-map to collapse or specify a cleaner group column/key."
+                    f"Found extra group labels: {', '.join(raw_extra[:5])}. "
+                    "Use --group-map to collapse labels or choose a cleaner --group-column/--group-key. "
+                    + hint
                 )
             if n_con < 3 or n_test < 3:
                 raise ValueError(

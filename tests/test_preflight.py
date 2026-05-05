@@ -153,6 +153,34 @@ class PreflightTests(unittest.TestCase):
             self.assertEqual(result["group_con"], 1)
             self.assertEqual(result["group_test"], 1)
 
+    def test_preflight_rejects_normalized_group_collisions(self):
+        """Distinct config labels must not collapse into the same normalized group."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            idat_dir = os.path.join(tmpdir, "idat")
+            os.makedirs(idat_dir, exist_ok=True)
+            for sample in ("S1_R01C01", "S2_R01C01", "S3_R01C01"):
+                open(os.path.join(idat_dir, f"{sample}_Grn.idat"), "wb").close()
+                open(os.path.join(idat_dir, f"{sample}_Red.idat"), "wb").close()
+
+            config_path = os.path.join(tmpdir, "configure.tsv")
+            headers = ["Basename", "primary_group"]
+            rows = [
+                {"Basename": "S1_R01C01", "primary_group": "case-control"},
+                {"Basename": "S2_R01C01", "primary_group": "casecontrol"},
+                {"Basename": "S3_R01C01", "primary_group": "test"},
+            ]
+            write_config(config_path, headers, rows)
+
+            with self.assertRaisesRegex(ValueError, "Ambiguous normalized group labels"):
+                preflight_analysis(
+                    config_path=config_path,
+                    idat_dir=idat_dir,
+                    group_con="case-control",
+                    group_test="test",
+                    min_total_size=2,
+                    id_column=None,
+                )
+
     def test_strip_idat_suffix(self):
         """Verify strip_idat_suffix removes all IDAT suffix variants."""
         from illumeta import strip_idat_suffix
@@ -162,6 +190,53 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(strip_idat_suffix("/path/sample_Red.idat.gz"), "/path/sample")
         self.assertEqual(strip_idat_suffix("/path/sample"), "/path/sample")
         self.assertEqual(strip_idat_suffix(""), "")
+
+    def test_r_analysis_uses_same_group_normalization_contract(self):
+        """R analysis group matching must stay aligned with Python preflight."""
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        analyze_path = os.path.join(base_dir, "r_scripts", "analyze.R")
+        with open(analyze_path, "r", encoding="utf-8") as handle:
+            src = handle.read()
+
+        self.assertIn("normalize_group_label <- function", src)
+        self.assertIn("target_groups_norm <- normalize_group_label(targets$primary_group)", src)
+        self.assertIn("con_norm <- normalize_group_label(group_con_in)", src)
+        self.assertIn("test_norm <- normalize_group_label(group_test_in)", src)
+        self.assertNotIn("target_groups_lower <- tolower(targets$primary_group)", src)
+
+    def test_r_analysis_rejects_group_normalization_collisions(self):
+        """R analysis must reject labels that normalize into ambiguous groups."""
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        analyze_path = os.path.join(base_dir, "r_scripts", "analyze.R")
+        with open(analyze_path, "r", encoding="utf-8") as handle:
+            src = handle.read()
+
+        self.assertIn("Control/test group labels must not normalize to empty values.", src)
+        self.assertIn("identical(con_norm, test_norm)", src)
+        self.assertIn("Ambiguous normalized group labels detected in configuration", src)
+        self.assertIn("target_groups_norm <- normalize_group_label(targets$primary_group)", src)
+
+    def test_r_pipeline_failure_returns_standard_contract(self):
+        """run_pipeline failure branches must keep callers' $res/$summary contract."""
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        analyze_path = os.path.join(base_dir, "r_scripts", "analyze.R")
+        with open(analyze_path, "r", encoding="utf-8") as handle:
+            src = handle.read()
+
+        self.assertNotIn("return(branch_summary)", src)
+        self.assertIn("return(list(res = NULL", src)
+        self.assertIn("summary = branch_summary))", src)
+
+    def test_r_download_validates_direct_gse_argument(self):
+        """Direct R entrypoint must reject malformed GSE IDs before network work."""
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        download_path = os.path.join(base_dir, "r_scripts", "download.R")
+        with open(download_path, "r", encoding="utf-8") as handle:
+            src = handle.read()
+
+        validation_pos = src.index('grepl("^GSE[0-9]+$", gse_id)')
+        network_pos = src.index("getGEO(gse_id")
+        self.assertLess(validation_pos, network_pos)
 
 
 if __name__ == "__main__":

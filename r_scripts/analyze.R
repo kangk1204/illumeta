@@ -516,6 +516,16 @@ parse_bool_flag <- function(x, default = NA) {
   default
 }
 
+normalize_group_label <- function(x) {
+  if (is.null(x)) return("")
+  x <- as.character(x)
+  x[is.na(x)] <- ""
+  x <- tolower(trimws(x))
+  x <- gsub("[[:space:]_/-]+", "", x, perl = TRUE)
+  x <- gsub("[^a-z0-9]+", "", x, perl = TRUE)
+  x
+}
+
 decision_log <- data.frame(
   timestamp = character(0),
   stage = character(0),
@@ -6706,27 +6716,54 @@ if (sum(!is.na(idat_size)) > 0) {
 n_targets_raw <- nrow(targets)
 
 # 1. Filter for specified groups (Case-Insensitive)
-# Standardize to check match
-target_groups_lower <- tolower(targets$primary_group)
-con_lower <- tolower(group_con_in)
-test_lower <- tolower(group_test_in)
+# Standardize to check match. Keep this in sync with illumeta.py normalize_group_value.
+target_groups_norm <- normalize_group_label(targets$primary_group)
+con_norm <- normalize_group_label(group_con_in)
+test_norm <- normalize_group_label(group_test_in)
 
-keep_idx <- which(target_groups_lower %in% c(con_lower, test_lower))
+if (!nzchar(con_norm) || !nzchar(test_norm)) {
+  stop("Control/test group labels must not normalize to empty values.")
+}
+if (identical(con_norm, test_norm)) {
+  stop(sprintf("Control and test groups become identical after normalization: '%s' vs '%s'.",
+               group_con_in, group_test_in))
+}
+group_norm_pairs <- unique(data.frame(
+  raw = trimws(as.character(targets$primary_group)),
+  norm = target_groups_norm,
+  stringsAsFactors = FALSE
+))
+group_norm_pairs <- group_norm_pairs[nzchar(group_norm_pairs$raw) & nzchar(group_norm_pairs$norm), , drop = FALSE]
+if (nrow(group_norm_pairs) > 0) {
+  collapsed_norms <- names(which(tapply(group_norm_pairs$raw, group_norm_pairs$norm,
+                                        function(v) length(unique(v)) > 1)))
+  if (length(collapsed_norms) > 0) {
+    details <- vapply(collapsed_norms, function(norm_value) {
+      raw_values <- unique(group_norm_pairs$raw[group_norm_pairs$norm == norm_value])
+      paste0(norm_value, "={", paste(raw_values, collapse = ", "), "}")
+    }, character(1))
+    stop("Ambiguous normalized group labels detected in configuration: ",
+         paste(details, collapse = "; "))
+  }
+}
+
+keep_idx <- which(target_groups_norm %in% c(con_norm, test_norm))
 targets <- targets[keep_idx, ]
+target_groups_norm <- target_groups_norm[keep_idx]
 
 if (nrow(targets) == 0) stop(paste("No samples found matching groups:", group_con_in, "or", group_test_in))
 
 # Check if both groups exist
-existing_groups <- unique(tolower(targets$primary_group))
-if (!(con_lower %in% existing_groups)) stop(paste("Control group", group_con_in, "not found in configuration file."))
-if (!(test_lower %in% existing_groups)) stop(paste("Test group", group_test_in, "not found in configuration file."))
+existing_groups <- unique(target_groups_norm)
+if (!(con_norm %in% existing_groups)) stop(paste("Control group", group_con_in, "not found in configuration file."))
+if (!(test_norm %in% existing_groups)) stop(paste("Test group", group_test_in, "not found in configuration file."))
 
 # Store counts before any QC filtering
 n_samples_input <- nrow(targets)
 
 # Count samples per group
-n_con <- sum(tolower(targets$primary_group) == con_lower)
-n_test <- sum(tolower(targets$primary_group) == test_lower)
+n_con <- sum(target_groups_norm == con_norm)
+n_test <- sum(target_groups_norm == test_norm)
 
 message(paste("Found", nrow(targets), "samples for analysis."))
 message(paste("  - Control Group:", group_con_in, paste0("(n=", n_con, ")")))
@@ -6800,8 +6837,8 @@ message(paste(preview_out, collapse = "\n"))
 message("------------------------------\n")
 
 # 2. Set Factor Levels for Contrast (Test - Control)
-actual_con <- unique(targets$primary_group[tolower(targets$primary_group) == con_lower])[1]
-actual_test <- unique(targets$primary_group[tolower(targets$primary_group) == test_lower])[1]
+actual_con <- unique(targets$primary_group[target_groups_norm == con_norm])[1]
+actual_test <- unique(targets$primary_group[target_groups_norm == test_norm])[1]
 
 clean_con <- make.names(actual_con)
 clean_test <- make.names(actual_test)
@@ -6816,8 +6853,8 @@ if (!identical(clean_names, c(clean_con, clean_test))) {
   clean_test <- clean_names[2]
 }
 
-targets$primary_group[tolower(targets$primary_group) == con_lower] <- clean_con
-targets$primary_group[tolower(targets$primary_group) == test_lower] <- clean_test
+targets$primary_group[target_groups_norm == con_norm] <- clean_con
+targets$primary_group[target_groups_norm == test_norm] <- clean_test
 
 targets$primary_group <- factor(targets$primary_group, levels = c(clean_con, clean_test))
 
@@ -8449,7 +8486,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
       sv_used = sv_cols,
       permutations = perm_n
     )
-    return(branch_summary)
+    return(list(res = NULL, n_con = n_con_local, n_test = n_test_local, n_samples = nrow(targets), summary = branch_summary))
   }
   fit2 <- contrasts.fit(fit, cm)
   fit2 <- safe_ebayes(fit2, paste(prefix, "primary_model"))

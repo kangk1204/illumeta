@@ -142,6 +142,9 @@ cd illumeta
 ./scripts/install_full.sh
 ```
 This takes **30-60 minutes** (downloads R packages). Grab a coffee! ☕
+`--preflight` only checks prerequisites; it does **not** install the conda
+environment or R packages. The second command must finish before `doctor` is
+expected to pass.
 For a fresh machine, use this path first (do not run Option B in parallel).
 If `conda` is installed but your shell is not reloaded yet, the installer will also auto-detect
 `$HOME/miniforge3/bin/conda`.

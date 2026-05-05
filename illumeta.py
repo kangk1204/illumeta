@@ -966,6 +966,21 @@ def preflight_analysis(config_path: str, idat_dir: str, group_con: str, group_te
     group_norms = [normalize_group_value(row.get("primary_group") or "") for row in rows]
     if any(g == "" for g in group_norms):
         raise ValueError("primary_group column contains missing/empty values. Please fill before analysis.")
+    raw_by_norm = {}
+    for row, norm in zip(rows, group_norms):
+        raw = (row.get("primary_group") or "").strip()
+        raw_by_norm.setdefault(norm, set()).add(raw)
+    ambiguous_groups = {
+        norm: sorted(raw_values)
+        for norm, raw_values in raw_by_norm.items()
+        if norm and len(raw_values) > 1
+    }
+    if ambiguous_groups:
+        details = "; ".join(
+            f"{norm}={{{', '.join(raw_values)}}}"
+            for norm, raw_values in sorted(ambiguous_groups.items())
+        )
+        raise ValueError(f"Ambiguous normalized group labels detected in configuration: {details}")
     n_con = sum(1 for g in group_norms if g == con_norm)
     n_test = sum(1 for g in group_norms if g == test_norm)
     n_total = n_con + n_test

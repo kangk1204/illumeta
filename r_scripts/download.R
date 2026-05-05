@@ -34,6 +34,9 @@ if (is.null(opt$gse)){
 }
 
 gse_id <- opt$gse
+if (!grepl("^GSE[0-9]+$", gse_id)) {
+  stop("Invalid GEO Series ID. Expected format: GSE followed by digits (e.g., GSE12345).", call. = FALSE)
+}
 out_dir <- opt$out
 idat_dir <- file.path(out_dir, "idat")
 

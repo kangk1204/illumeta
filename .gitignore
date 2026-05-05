@@ -83,3 +83,4 @@ benchmarks/subsampling_robustness/
 docs/submission_package/
 *Application_Note*.docx
 *Supplementary_Data*.docx
+.omx/

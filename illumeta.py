@@ -1541,7 +1541,7 @@ def run_doctor(args):
                 log_err(f"  - {pkg}")
         if saw_segfault:
             log_err("    Hint: A package crashed R while loading. Rerun setup with `ILLUMETA_CLEAN_MISMATCHED_RLIB=1`.")
-        log_err("    Fix: run `ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R` (or run any IlluMeta command once).")
+        log_err("    Fix: run `ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R` or rerun `./scripts/install_full.sh`.")
         sys.exit(1)
 
     log("[*] Core R packages: OK")

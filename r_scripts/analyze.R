@@ -1271,8 +1271,11 @@ compute_batch_stability <- function(betas, targets, batch_col, covariates, group
 #' Lambda near 1.0 indicates well-calibrated test statistics.
 run_permutation_uniformity <- function(betas, targets, group_col, covariates, batch_col, perm_n, vp_top) {
   if (perm_n <= 0) return(NULL)
+  if (!is.finite(vp_top) || vp_top <= 0) return(NULL)
   top_perm <- head(order(apply(betas, 1, var), decreasing = TRUE), min(vp_top, nrow(betas)))
+  if (length(top_perm) == 0) return(NULL)
   m_perm <- logit_offset(betas[top_perm, , drop = FALSE])
+  if (nrow(m_perm) == 0) return(NULL)
   perm_results <- data.frame(run = integer(0), ks_p = numeric(0), lambda = numeric(0))
   perm_group_cols <- make.names(levels(targets[[group_col]]))
   for (i in seq_len(perm_n)) {
@@ -8072,48 +8075,68 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   }
 
   if (!is.null(batch_col) && nrow(targets) >= 4) {
-    message(paste("  Evaluating batch correction methods using batch factor:", batch_col))
-    covariates_full <- covariates
-    sel <- select_batch_strategy(
-      betas = betas,
-      targets = targets,
-      batch_col = batch_col,
-      batch_tier = batch_tier,
-      covariate_sets = covariate_sets,
-      group_col = "primary_group",
-      config_settings = config_settings,
-      scoring_preset = scoring_preset,
-      perm_n = perm_n,
-      vp_top = vp_top,
-      prefix = prefix,
-      out_dir = out_dir,
-      method_pool = if (crf_enabled) mmc_methods else NULL
-    )
-    best_method <- sel$best_method
     if (nzchar(batch_method_override)) {
       best_method <- batch_method_override
       log_decision("confounding", "batch_method_override", best_method, reason = "manual_override")
-      message(paste("  Batch method override applied:", best_method))
-    }
-    if (!is.null(sel$candidates)) {
+      message(paste("  Batch method override applied without method comparison:", best_method))
       batch_evaluated <- TRUE
-      batch_candidates_df <- sel$candidates
-      if (nrow(batch_candidates_df) > 0) {
-        best_candidate_score <- batch_candidates_df$total_score[1]
-      }
+      best_candidate_score <- 0.5
+      batch_candidates_df <- data.frame(
+        cov_set = "manual_override",
+        method = best_method,
+        batch_score = NA_real_,
+        batch_reduction = NA_real_,
+        pc_r2_reduction = NA_real_,
+        mix_improve = NA_real_,
+        bio_score = NA_real_,
+        cal_score = NA_real_,
+        stab_score = NA_real_,
+        total_score = best_candidate_score,
+        status = "OVERRIDE",
+        note = "manual batch_method override; method comparison skipped",
+        stringsAsFactors = FALSE
+      )
       out_batch_path <- file.path(out_dir, paste0(prefix, "_BatchMethodComparison.csv"))
-      write.csv(sel$candidates, out_batch_path, row.names = FALSE)
-    }
-    if (length(sel$best_covariates) > 0) {
-      covariates <- sel$best_covariates
-      drop_covs <- setdiff(covariates_full, covariates)
-      if (length(drop_covs) > 0) {
-        drop_log <- rbind(drop_log, data.frame(Variable = drop_covs, Reason = "covariate_set_selection"))
+      write.csv(batch_candidates_df, out_batch_path, row.names = FALSE)
+    } else {
+      covariates_full <- covariates
+      message(paste("  Evaluating batch correction methods using batch factor:", batch_col))
+      sel <- select_batch_strategy(
+        betas = betas,
+        targets = targets,
+        batch_col = batch_col,
+        batch_tier = batch_tier,
+        covariate_sets = covariate_sets,
+        group_col = "primary_group",
+        config_settings = config_settings,
+        scoring_preset = scoring_preset,
+        perm_n = perm_n,
+        vp_top = vp_top,
+        prefix = prefix,
+        out_dir = out_dir,
+        method_pool = if (crf_enabled) mmc_methods else NULL
+      )
+      best_method <- sel$best_method
+      if (!is.null(sel$candidates)) {
+        batch_evaluated <- TRUE
+        batch_candidates_df <- sel$candidates
+        if (nrow(batch_candidates_df) > 0) {
+          best_candidate_score <- batch_candidates_df$total_score[1]
+        }
+        out_batch_path <- file.path(out_dir, paste0(prefix, "_BatchMethodComparison.csv"))
+        write.csv(sel$candidates, out_batch_path, row.names = FALSE)
       }
-      log_decision("covariates", "selected_set", paste(covariates, collapse = ","), reason = "batch_opt")
+      if (length(sel$best_covariates) > 0) {
+        covariates <- sel$best_covariates
+        drop_covs <- setdiff(covariates_full, covariates)
+        if (length(drop_covs) > 0) {
+          drop_log <- rbind(drop_log, data.frame(Variable = drop_covs, Reason = "covariate_set_selection"))
+        }
+        log_decision("covariates", "selected_set", paste(covariates, collapse = ","), reason = "batch_opt")
+      }
     }
     message(paste("  Selected batch method:", best_method))
-    log_decision("batch_opt", "method", best_method, reason = "scored_selection")
+    log_decision("batch_opt", "method", best_method, reason = ifelse(nzchar(batch_method_override), "manual_override", "scored_selection"))
   } else if (!is.null(batch_col)) {
     message("  Skipping batch method comparison (too few samples for stable evaluation).")
   } else {

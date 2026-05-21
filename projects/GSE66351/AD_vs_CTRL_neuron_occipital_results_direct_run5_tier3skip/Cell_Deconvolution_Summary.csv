@@ -1,0 +1,3 @@
+"Pipeline","Method","Tissue","K","Sample_Count","Cell_Types"
+"Minfi","RefFreeEWAS","DLPFC",5,31,5
+"Sesame","RefFreeEWAS (Sesame)","DLPFC",5,31,5

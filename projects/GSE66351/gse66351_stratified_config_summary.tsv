@@ -1,0 +1,5 @@
+stratum	AD	CTRL	n_total	action
+Occipital cortex / Neuron	15	16	31	config_created_highest_value_run_candidate
+Occipital cortex / Glia	15	16	31	config_created_verified_not_run_by_worker2
+Frontal cortex / bulk	37	26	63	documented_bulk_region_count_not_run
+Temporal cortex / bulk	39	26	65	documented_bulk_region_count_not_run

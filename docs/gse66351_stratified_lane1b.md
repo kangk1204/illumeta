@@ -50,3 +50,22 @@ Guardrails:
 - `--batch_method limma` preserves the explicit/manual batch-handling pattern from the latest bulk run.
 - The 450K cross-reactive blacklist is supplied explicitly from the existing GSE66351 reference bundle; the first direct run without this path stopped at the mandatory blacklist guard.
 - Outputs are written under new worker-2 result directories only; existing bulk and Lane 2/3 outputs are not overwritten.
+
+## Late terminal full run
+
+After the initial Task 5 blocker was recorded, a worker-1 direct run finished for the same occipital neuron stratum:
+
+`projects/GSE66351/AD_vs_CTRL_neuron_occipital_results_direct_run5_tier3skip`
+
+The run produced terminal full dual-pipeline evidence: `summary.json`, Minfi/Sesame/Sesame_Native metrics, DMR tables, strict/native intersection files, methods, decision ledger, and QC/preflight summaries. The compact evidence subset is preserved in the main working tree; larger matrix, plot, and full DMP artifacts remained in the team worktree because they are not needed for the manuscript-level claim audit.
+
+Key terminal findings:
+
+- AD/CTRL sample sizes: 15/16.
+- Strict consensus DMPs: 0.
+- Native consensus DMPs: 0.
+- DMR rows: 651 Minfi, 828 Sesame, 807 Sesame_Native.
+- Primary result mode: `tier3_ineligible`.
+- Primary no-signal flag: `true`.
+
+This makes the GSE66351 occipital neuron lane usable as guarded negative/sensitivity evidence, not as a positive AD biomarker discovery lane.

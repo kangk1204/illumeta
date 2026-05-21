@@ -1,0 +1,124 @@
+  [Patch] Set lme4::findbars <- reformulas::findbars to support variancePartition.
+[23:00:11] Setting ExperimentHub/AnnotationHub cache to: /home/keunsoo/Projects/23_illumeta/.omx/team/reframe-the-illumeta-203c3847/worktrees/worker-2/projects/GSE66351/cache
+[23:00:11]   - Cache directory exists; skipping sesameDataCache() to save time.
+[23:00:12] Loading configuration...
+[23:00:12] Warning: constant columns will be ignored: cell_type, brain_region, source_name_ch1, description
+[23:00:15] Found 31 samples for analysis.
+[23:00:15]   - Control Group: CTRL (n=16)
+[23:00:15]   - Test Group:    AD (n=15)
+[23:00:15] 
+--- Sample Preview (Top 5) ---
+[23:00:15]            primary_group   SampleID
+GSM2808876            AD GSM2808876
+GSM2808878            AD GSM2808878
+GSM2808880            AD GSM2808880
+GSM2808882            AD GSM2808882
+GSM2808884            AD GSM2808884
+                                                                                         Basename
+GSM2808876 /home/keunsoo/Projects/23_illumeta/projects/GSE66351/idat/GSM2808876_8918692108_R01C01
+GSM2808878 /home/keunsoo/Projects/23_illumeta/projects/GSE66351/idat/GSM2808878_8918692108_R02C01
+GSM2808880 /home/keunsoo/Projects/23_illumeta/projects/GSE66351/idat/GSM2808880_8918692108_R03C01
+GSM2808882 /home/keunsoo/Projects/23_illumeta/projects/GSE66351/idat/GSM2808882_8918692108_R04C01
+GSM2808884 /home/keunsoo/Projects/23_illumeta/projects/GSE66351/idat/GSM2808884_8918692108_R05C01
+[23:00:15] ------------------------------
+
+[23:00:15] --- Starting Minfi Analysis ---
+[23:00:45] Detected array type: 450k
+[23:00:45] Cross-reactive probe list loaded (38942 probes; source: /home/keunsoo/Projects/23_illumeta/projects/GSE66351/references/probe_blacklists/cross_reactive_450K.tsv).
+[23:00:45] Saving pre-filter processed matrices (all samples, full probe set for GEO)...
+Loading required package: IlluminaHumanMethylation450kmanifest
+Loading required package: IlluminaHumanMethylation450kanno.ilmn12.hg19
+[23:03:49] Performing Sample QC (Illumina recommendation: median M/U signal > 9.0 log2)...
+[23:03:51] Running sex mismatch QC...
+[23:03:51]   Sex check failed: minfi::getSex() error:  object is of class 'RGChannelSet', but needs to be of class 'GenomicMethylSet' or 'GenomicRatioSet'
+[23:03:51] Samples retained after QC - Control: 16, Test: 15 (total: 31)
+[23:03:54] Reference-based cell composition skipped (all references for 'DLPFC' failed or missing).
+[23:03:54]   - Falling back to reference-free (Auto) estimation.
+[23:03:54] Estimating cell composition using Reference-Free method (RefFreeEWAS)...
+[23:04:15]   - Running RefFreeCellMix with K=5 latent components...
+[23:04:19]   - Reference-Free estimation complete.
+[23:04:19]   - Added cell composition covariates: Cell_Latent1, Cell_Latent2, Cell_Latent3, Cell_Latent4, Cell_Latent5
+[23:04:19]   - Cell composition vs Group association checked: No strong confounding detected (all Eta^2 <= 0.50).
+[23:04:19] Preprocessing (Noob)...
+[23:04:33] Performing Probe QC...
+[23:04:35]   - Removed 2374 probes with high detection P-value (threshold: 0.050).
+[23:04:35]   - Removed 38638 cross-reactive probes (source: list).
+[23:04:35]   - SNP filtering applied (MAF threshold: 0.01 ). Current probes: 430262
+[23:04:35]   - Removed Sex Chromosome probes. Final probes: 420309
+[23:04:36] --- Starting Sesame Analysis ---
+[23:04:36] Sesame analysis skipped (--skip-sesame).
+[23:04:36] Intersection (strict): skipped (Sesame not available).
+[23:04:36] Intersection (native): skipped (Sesame native not available).
+[23:04:38] Running pipeline for: Minfi
+[23:04:43]   - Removed 141447 probes with beta range < 0.05
+[23:04:47]   Computing PCA on 278862 probes across 31 samples...
+[23:04:53]   Covariate candidates after filtering: age, Cell_Latent3, sex, Sentrix_ID, Sentrix_Position, Cell_Latent1, Cell_Latent2, Cell_Latent4, Cell_Latent5
+[23:04:53]   Overcorrection guard: capped covariates to 7 ( age, sex, Sentrix_ID, Sentrix_Position, Cell_Latent3, Cell_Latent4, Cell_Latent5 )
+[23:04:53]   PVCA: dropping 'Sentrix_ID' to avoid over-specified crossing of factors.
+[23:04:53]   PVCA: dropping 'Sentrix_Position' to avoid over-specified crossing of factors.
+[23:04:53]   PVCA: dropping 'age' to avoid over-specified crossing of factors.
+[23:04:53]   PVCA: dropping 'Cell_Latent3' to avoid over-specified crossing of factors.
+[23:04:53]   PVCA: dropping 'Cell_Latent5' to avoid over-specified crossing of factors.
+[23:04:57]   PVCA: singular fit warning suppressed; consider reducing covariates.
+[23:04:57]   PVCA saved to projects/GSE66351/AD_vs_CTRL_neuron_occipital_results_worker2_minfi_vp0_limmavp0/Minfi_PVCA.csv
+No methods found in package 'RSQLite' for request: 'dbListFields' when loading 'lumi'
+[23:05:04] WARNING:  Tier3 confounding detected but eligibility failed (total_n=31, min_stratum_n=1).  Proceeding without Tier3 stratified/meta-analysis.
+[23:05:04]   No eligible batch candidate found after confounding checks.
+[23:05:04]   No eligible batch factor found for batch method comparison.
+[23:05:04]   Batch method override requested but no batch column available; ignoring.
+[23:05:04]   Running SVA to detect hidden batch effects...
+Number of significant surrogate variables is:  1 
+Iteration (out of 5 ):1  2  3  4  5  [23:05:13]     - Detected and using 1 SVs.
+[23:05:13]   Overcorrection guard: capping SVs to 0 (dropping SV1 )
+[23:05:13]   Undercorrection guard: dropping covariates to allow SVs: Cell_Latent5
+[23:05:13]   Undercorrection guard: added SVs: SV1
+[23:05:13]   Covariates used in design: age, sex, Sentrix_ID, Sentrix_Position, Cell_Latent3, Cell_Latent4
+Coefficients not estimable: sexM 
+[23:05:21]   PVCA: dropping 'Sentrix_ID' to avoid over-specified crossing of factors.
+[23:05:21]   PVCA: dropping 'Sentrix_Position' to avoid over-specified crossing of factors.
+[23:05:21]   PVCA: dropping 'age' to avoid over-specified crossing of factors.
+[23:05:21]   PVCA: dropping 'Cell_Latent3' to avoid over-specified crossing of factors.
+[23:05:25]   PVCA: singular fit warning suppressed; consider reducing covariates.
+[23:05:25]   PVCA saved to projects/GSE66351/AD_vs_CTRL_neuron_occipital_results_worker2_minfi_vp0_limmavp0/Minfi_AfterCorrection_PVCA.csv
+[23:05:50]   - Contrast: AD-CTRL
+[23:06:42]   Genomic Inflation Factor (Lambda): 0.927
+[23:06:44] Subsampling top 10000 probes for interactive plots...
+[23:06:49]   Generating Top 100 Heatmap...
+[23:07:14]   Running DMR analysis (dmrff)...
+[dmrff.candidates] Thu May 21 23:07:14 2026 Found  10811  candidate regions. 
+[23:07:21]     - Filtered DMRs by min CpGs >= 2 : 12501 -> 865
+[23:07:43]     - Found 865 DMRs.
+Coefficients not estimable: sexM 
+[23:08:08]   Running 20 permutations for null DMP counts (top 0 CpGs)...
+[23:08:08]   Permutation test skipped: vp_top <= 0 or no probes available for calibration.
+[23:08:08]   Tier3 analyses skipped due to ineligible strata.
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR03C02 Sentrix_PositionR04C01 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR01C02 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR06C01 
+Coefficients not estimable: Sentrix_PositionR01C02 
+Coefficients not estimable: Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR01C02 
+Coefficients not estimable: Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR01C02 
+Coefficients not estimable: Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR02C01 Sentrix_PositionR03C02 Sentrix_PositionR05C02 
+Coefficients not estimable: Sentrix_PositionR05C02 
+Coefficients not estimable: Sentrix_PositionR01C02 
+[23:08:26] Sesame strict pipeline skipped (no Sesame betas available).
+[23:08:26] Sesame native pipeline skipped (no Sesame native betas available).
+[23:08:26] Warning: Consensus (Intersection) skipped because one or more pipelines produced no results.
+[23:08:26] Warning: Consensus (Intersection_Native) skipped because one or more pipelines produced no results.
+[23:08:26] Warning: failed to write summary/parameters:  object 'sesame_summary' not found
+[23:08:26] Saving session info...
+[1] FALSE
+[1] TRUE
+[1] TRUE
+[1] TRUE
+[23:08:44] Methods summary saved to methods.md
+[1] TRUE
+[23:08:44] Analysis Complete.

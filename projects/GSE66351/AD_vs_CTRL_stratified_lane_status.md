@@ -1,29 +1,28 @@
 # GSE66351 stratified lane status
 
-Scope: Task 5 lane 1b, occipital neuron/glia stratified AD-vs-CTRL analysis.
+Scope: Task 5 Lane 1b, occipital neuron/glia stratified AD-vs-CTRL analysis.
 
 ## Verified stratified inputs
 
-- Occipital **Neuron**: AD = 15, CTRL = 16
-- Occipital **Glia**: AD = 15, CTRL = 16
+- Occipital **Neuron**: AD = 15, CTRL = 16; config `projects/GSE66351/configure_AD_vs_CTRL_neuron.tsv`.
+- Occipital **Glia**: AD = 15, CTRL = 16; config `projects/GSE66351/configure_AD_vs_CTRL_glia.tsv`.
 
 ## Bulk counts preserved for reference only
 
-- Frontal cortex bulk: AD = 37, CTRL = 26
-- Temporal cortex bulk: AD = 39, CTRL = 26
+- Frontal cortex bulk: AD = 37, CTRL = 26.
+- Temporal cortex bulk: AD = 39, CTRL = 26.
 
-## Configs created
+## Completed feasible run
 
-- `projects/GSE66351/configure_AD_vs_CTRL_neuron.tsv`
-- `projects/GSE66351/configure_AD_vs_CTRL_glia.tsv`
+- Completed highest-value stratum: occipital **Neuron** AD vs CTRL.
+- Result directory: `projects/GSE66351/AD_vs_CTRL_neuron_occipital_results_direct_run5_tier3skip`.
+- Samples retained: CTRL = 16, AD = 15.
+- Consensus DMPs: strict = 0, native = 0.
+- Branch significant DMPs: Minfi = 0, SeSAMe strict = 0, SeSAMe native = 0.
+- DMR rows: Minfi = 651, SeSAMe strict = 828, SeSAMe native = 807.
+- Lambda guard: Minfi ok (0.920), SeSAMe strict ok (1.017), SeSAMe native ok (1.014).
+- Result mode: `tier3_ineligible`; Tier3 confounding was detected for `Sentrix_ID`, but stratum eligibility failed (`min_stratum_n=1`), so the completed run used explicit `--tier3-on-fail skip`.
 
-## Run status
+## Guarded interpretation
 
-- Attempted occipital neuron analysis run(s) did not reach final result artifacts in this environment.
-- The concrete blocker was the repeated first-run R dependency/setup path under `.r-lib/R-4.5`, which consumed the available execution window before `summary.json` or final result tables were written.
-- No existing completed neuron-occipital result tree was found to reuse.
-
-## No-edit note
-
-- Do not overwrite the bulk lane outputs.
-- Keep any further work on the neuron/glia stratified lane separate from the lane 2/3 manuscript surfaces.
+This is negative/guarded cell-type-stratified evidence: the neuron-only occipital AD-vs-CTRL lane completes with QC/lambda guards ok but zero DMP consensus. It should be used to support tissue/cell-type/context heterogeneity and boundary conditions, not universal AD biomarker claims.

@@ -1,0 +1,11 @@
+{
+  "figure_id": "figure3_cell_type_reframe",
+  "generated_at": "2026-05-21T13:33:34.578587+00:00",
+  "source_table": "benchmarks/dementia_special_issue/cell_type_reframe_summary.tsv",
+  "outputs": [
+    "figure3_cell_type_reframe.png",
+    "figure3_cell_type_reframe.pdf",
+    "figure3_cell_type_reframe.svg"
+  ],
+  "claim_guardrail": "GSE306226 is a neural cell-type reference axis with lambda guard triggered; AD cohorts are heterogeneous and not universal biomarker evidence."
+}

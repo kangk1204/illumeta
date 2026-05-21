@@ -1,0 +1,357 @@
+  [Patch] Set lme4::findbars <- reformulas::findbars to support variancePartition.
+[22:58:19] Setting ExperimentHub/AnnotationHub cache to: /home/keunsoo/Projects/23_illumeta/.omx/team/reframe-the-illumeta-203c3847/worktrees/worker-1/projects/GSE66351/cache
+[22:58:19]   - Cache directory exists; skipping sesameDataCache() to save time.
+[22:58:20] Loading configuration...
+[22:58:20] Warning: constant columns will be ignored: cell_type, brain_region, source_name_ch1, description
+[22:58:20] Auto tissue detected from text_heuristic: DLPFC (raw: DLPFC)
+[22:58:23] Found 31 samples for analysis.
+[22:58:23]   - Control Group: CTRL (n=16)
+[22:58:23]   - Test Group:    AD (n=15)
+[22:58:23] 
+--- Sample Preview (Top 5) ---
+[22:58:23]            primary_group   SampleID
+GSM2808876            AD GSM2808876
+GSM2808878            AD GSM2808878
+GSM2808880            AD GSM2808880
+GSM2808882            AD GSM2808882
+GSM2808884            AD GSM2808884
+                                                                                         Basename
+GSM2808876 /home/keunsoo/Projects/23_illumeta/projects/GSE66351/idat/GSM2808876_8918692108_R01C01
+GSM2808878 /home/keunsoo/Projects/23_illumeta/projects/GSE66351/idat/GSM2808878_8918692108_R02C01
+GSM2808880 /home/keunsoo/Projects/23_illumeta/projects/GSE66351/idat/GSM2808880_8918692108_R03C01
+GSM2808882 /home/keunsoo/Projects/23_illumeta/projects/GSE66351/idat/GSM2808882_8918692108_R04C01
+GSM2808884 /home/keunsoo/Projects/23_illumeta/projects/GSE66351/idat/GSM2808884_8918692108_R05C01
+[22:58:23] ------------------------------
+
+[22:58:23] --- Starting Minfi Analysis ---
+[22:58:51] Detected array type: 450k
+[22:58:52] Cross-reactive probe list loaded (38942 probes; source: /home/keunsoo/Projects/23_illumeta/.omx/team/reframe-the-illumeta-203c3847/worktrees/worker-1/projects/GSE66351/references/probe_blacklists/cross_reactive_450K.tsv).
+[22:58:52] Saving pre-filter processed matrices (all samples, full probe set for GEO)...
+Loading required package: IlluminaHumanMethylation450kmanifest
+Loading required package: IlluminaHumanMethylation450kanno.ilmn12.hg19
+[23:01:55] Performing Sample QC (Illumina recommendation: median M/U signal > 9.0 log2)...
+[23:01:56] Running sex mismatch QC...
+[23:01:56]   Sex check failed: minfi::getSex() error:  object is of class 'RGChannelSet', but needs to be of class 'GenomicMethylSet' or 'GenomicRatioSet'
+[23:01:56] Samples retained after QC - Control: 16, Test: 15 (total: 31)
+[23:01:58] Reference-based cell composition skipped (all references for 'DLPFC' failed or missing).
+[23:01:58]   - Falling back to reference-free (Auto) estimation.
+[23:01:58] Estimating cell composition using Reference-Free method (RefFreeEWAS)...
+[23:02:19]   - Running RefFreeCellMix with K=5 latent components...
+[23:02:24]   - Reference-Free estimation complete.
+[23:02:24]   - Added cell composition covariates: Cell_Latent1, Cell_Latent2, Cell_Latent3, Cell_Latent4, Cell_Latent5
+[23:02:24]   - Cell composition vs Group association checked: No strong confounding detected (all Eta^2 <= 0.50).
+[23:02:24] Preprocessing (Noob)...
+[23:02:38] Performing Probe QC...
+[23:02:40]   - Removed 2374 probes with high detection P-value (threshold: 0.050).
+[23:02:40]   - Removed 38638 cross-reactive probes (source: list).
+[23:02:40]   - SNP filtering applied (MAF threshold: 0.01 ). Current probes: 430262
+[23:02:41]   - Removed Sex Chromosome probes. Final probes: 420309
+[23:02:41] --- Starting Sesame Analysis ---
+[23:02:41]   Sesame: TypeINorm disabled by default for stability (use --sesame_typeinorm to enable).
+[23:02:41]   Sesame: forcing single-thread BLAS/OMP to avoid pthread errors.
+[23:04:52]   - Sesame: removed 38941 cross-reactive probes (source: list).
+Cluster size 29858 broken into 13740 16118 
+Cluster size 13740 broken into 3126 10614 
+Cluster size 3126 broken into 1353 1773 
+Done cluster 1353 
+Cluster size 1773 broken into 343 1430 
+Done cluster 343 
+Done cluster 1430 
+Done cluster 1773 
+Done cluster 3126 
+Cluster size 10614 broken into 7010 3604 
+Cluster size 7010 broken into 3448 3562 
+Cluster size 3448 broken into 1 3447 
+Done cluster 1 
+Cluster size 3447 broken into 1788 1659 
+Cluster size 1788 broken into 900 888 
+Done cluster 900 
+Done cluster 888 
+Done cluster 1788 
+Cluster size 1659 broken into 793 866 
+Done cluster 793 
+Done cluster 866 
+Done cluster 1659 
+Done cluster 3447 
+Done cluster 3448 
+Cluster size 3562 broken into 1736 1826 
+Cluster size 1736 broken into 296 1440 
+Done cluster 296 
+Done cluster 1440 
+Done cluster 1736 
+Cluster size 1826 broken into 854 972 
+Done cluster 854 
+Done cluster 972 
+Done cluster 1826 
+Done cluster 3562 
+Done cluster 7010 
+Cluster size 3604 broken into 1150 2454 
+Done cluster 1150 
+Cluster size 2454 broken into 1476 978 
+Done cluster 1476 
+Done cluster 978 
+Done cluster 2454 
+Done cluster 3604 
+Done cluster 10614 
+Done cluster 13740 
+Cluster size 16118 broken into 11892 4226 
+Cluster size 11892 broken into 7454 4438 
+Cluster size 7454 broken into 3585 3869 
+Cluster size 3585 broken into 1587 1998 
+Cluster size 1587 broken into 1320 267 
+Done cluster 1320 
+Done cluster 267 
+Done cluster 1587 
+Cluster size 1998 broken into 1492 506 
+Done cluster 1492 
+Done cluster 506 
+Done cluster 1998 
+Done cluster 3585 
+Cluster size 3869 broken into 1595 2274 
+Cluster size 1595 broken into 394 1201 
+Done cluster 394 
+Done cluster 1201 
+Done cluster 1595 
+Cluster size 2274 broken into 1200 1074 
+Done cluster 1200 
+Done cluster 1074 
+Done cluster 2274 
+Done cluster 3869 
+Done cluster 7454 
+Cluster size 4438 broken into 4233 205 
+Cluster size 4233 broken into 822 3411 
+Done cluster 822 
+Cluster size 3411 broken into 685 2726 
+Done cluster 685 
+Cluster size 2726 broken into 212 2514 
+Done cluster 212 
+Cluster size 2514 broken into 86 2428 
+Done cluster 86 
+Cluster size 2428 broken into 2402 26 
+Cluster size 2402 broken into 1437 965 
+Done cluster 1437 
+Done cluster 965 
+Done cluster 2402 
+Done cluster 26 
+Done cluster 2428 
+Done cluster 2514 
+Done cluster 2726 
+Done cluster 3411 
+Done cluster 4233 
+Done cluster 205 
+Done cluster 4438 
+Done cluster 11892 
+Cluster size 4226 broken into 2104 2122 
+Cluster size 2104 broken into 1406 698 
+Done cluster 1406 
+Done cluster 698 
+Done cluster 2104 
+Cluster size 2122 broken into 1076 1046 
+Done cluster 1076 
+Done cluster 1046 
+Done cluster 2122 
+Done cluster 4226 
+Done cluster 16118 
+[23:05:07]   - Sesame cell composition estimated using  RefFreeEWAS (Sesame)
+[23:05:07] Sesame native: 447486 probes -> 398219 (dropped all-NA: 30835, dropped NA>0.10: 18432, imputed: 15846; method: knn).
+[23:05:07] Sesame strict: 388361 probes (after NA omit) -> 378503 after QC alignment.
+[23:05:09] Intersection (strict): 378503 CpGs common to Minfi and Sesame.
+[23:05:09] Intersection (native): 387361 CpGs common to Minfi and Sesame.
+[23:05:09]   - Sesame cell covariates applied: Cell_Latent1, Cell_Latent2, Cell_Latent3, Cell_Latent4, Cell_Latent5
+[23:05:11] Running pipeline for: Minfi
+[23:05:16]   - Removed 141447 probes with beta range < 0.05
+[23:05:18]   Computing PCA on 278862 probes across 31 samples...
+[23:05:26]   Covariate candidates after filtering: age, Cell_Latent3, sex, Sentrix_ID, Sentrix_Position, Cell_Latent1, Cell_Latent2, Cell_Latent4, Cell_Latent5
+[23:05:26]   Overcorrection guard: capped covariates to 7 ( age, sex, Sentrix_ID, Sentrix_Position, Cell_Latent3, Cell_Latent4, Cell_Latent5 )
+[23:05:26]   PVCA: dropping 'Sentrix_ID' to avoid over-specified crossing of factors.
+[23:05:26]   PVCA: dropping 'Sentrix_Position' to avoid over-specified crossing of factors.
+[23:05:26]   PVCA: dropping 'age' to avoid over-specified crossing of factors.
+[23:05:26]   PVCA: dropping 'Cell_Latent3' to avoid over-specified crossing of factors.
+[23:05:26]   PVCA: dropping 'Cell_Latent4' to avoid over-specified crossing of factors.
+[23:05:30]   PVCA: singular fit warning suppressed; consider reducing covariates.
+[23:05:30]   PVCA saved to projects/GSE66351/AD_vs_CTRL_neuron_occipital_results_direct_run5_tier3skip/Minfi_PVCA.csv
+No methods found in package 'RSQLite' for request: 'dbListFields' when loading 'lumi'
+[23:05:34] WARNING:  Tier3 confounding detected but eligibility failed (total_n=31, min_stratum_n=1).  Proceeding without Tier3 stratified/meta-analysis.
+[23:05:34]   No eligible batch candidate found after confounding checks.
+[23:05:34]   No eligible batch factor found for batch method comparison.
+[23:05:34]   Batch method override requested but no batch column available; ignoring.
+[23:05:34]   Running SVA to detect hidden batch effects...
+Number of significant surrogate variables is:  2 
+Iteration (out of 5 ):1  2  3  4  5  [23:05:41]     - Detected and using 2 SVs.
+[23:05:41]   Overcorrection guard: capping SVs to 0 (dropping SV1, SV2 )
+[23:05:41]   Undercorrection guard: dropping covariates to allow SVs: Cell_Latent5
+[23:05:41]   Undercorrection guard: added SVs: SV1
+[23:05:41]   Covariates used in design: age, sex, Sentrix_ID, Sentrix_Position, Cell_Latent3, Cell_Latent4
+Coefficients not estimable: sexM 
+[23:05:47]   PVCA: dropping 'Sentrix_ID' to avoid over-specified crossing of factors.
+[23:05:47]   PVCA: dropping 'Sentrix_Position' to avoid over-specified crossing of factors.
+[23:05:47]   PVCA: dropping 'age' to avoid over-specified crossing of factors.
+[23:05:47]   PVCA: dropping 'Cell_Latent3' to avoid over-specified crossing of factors.
+[23:05:51]   PVCA: singular fit warning suppressed; consider reducing covariates.
+[23:05:51]   PVCA saved to projects/GSE66351/AD_vs_CTRL_neuron_occipital_results_direct_run5_tier3skip/Minfi_AfterCorrection_PVCA.csv
+[23:06:11]   - Contrast: AD-CTRL
+[23:06:54]   Genomic Inflation Factor (Lambda): 0.92
+[23:06:57] Subsampling top 10000 probes for interactive plots...
+[23:07:02]   Generating Top 100 Heatmap...
+[23:07:13]   Running DMR analysis (dmrff)...
+[dmrff.candidates] Thu May 21 23:07:14 2026 Found  9357  candidate regions. 
+[23:07:20]     - Filtered DMRs by min CpGs >= 2 : 10707 -> 651
+[23:07:37]     - Found 651 DMRs.
+Coefficients not estimable: sexM 
+[23:08:07]   Running 20 permutations for null DMP counts (top 0 CpGs)...
+[23:08:07]   Permutation test skipped: vp_top <= 0 or no probes available for calibration.
+[23:08:07]   Tier3 analyses skipped due to ineligible strata.
+Coefficients not estimable: Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR05C02 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR02C01 Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR03C02 Sentrix_PositionR05C02 
+Coefficients not estimable: Sentrix_PositionR02C01 Sentrix_PositionR03C01 Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR02C01 
+Coefficients not estimable: Sentrix_PositionR01C02 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR03C02 Sentrix_PositionR05C02 Sentrix_PositionR06C01 
+Coefficients not estimable: Sentrix_PositionR01C02 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR03C02 Sentrix_PositionR05C02 
+Coefficients not estimable: Sentrix_PositionR01C02 
+Coefficients not estimable: Sentrix_PositionR01C02 
+[23:08:25] Running pipeline for: Sesame
+[23:08:29]   - Removed 138318 probes with beta range < 0.05
+[23:08:31]   Computing PCA on 240185 probes across 31 samples...
+[23:08:39]   Covariate candidates after filtering: age, Cell_Latent1, Cell_Latent2, Cell_Latent5, sex, Sentrix_ID, Sentrix_Position, Cell_Latent3, Cell_Latent4
+[23:08:39]   Overcorrection guard: capped covariates to 7 ( age, sex, Sentrix_ID, Sentrix_Position, Cell_Latent1, Cell_Latent2, Cell_Latent3 )
+[23:08:39]   PVCA: dropping 'Sentrix_ID' to avoid over-specified crossing of factors.
+[23:08:39]   PVCA: dropping 'Sentrix_Position' to avoid over-specified crossing of factors.
+[23:08:39]   PVCA: dropping 'age' to avoid over-specified crossing of factors.
+[23:08:39]   PVCA: dropping 'Cell_Latent1' to avoid over-specified crossing of factors.
+[23:08:39]   PVCA: dropping 'Cell_Latent2' to avoid over-specified crossing of factors.
+[23:08:42]   PVCA: singular fit warning suppressed; consider reducing covariates.
+[23:08:42]   PVCA saved to projects/GSE66351/AD_vs_CTRL_neuron_occipital_results_direct_run5_tier3skip/Sesame_PVCA.csv
+[23:09:01] WARNING:  Tier3 confounding detected but eligibility failed (total_n=31, min_stratum_n=1).  Proceeding without Tier3 stratified/meta-analysis.
+[23:09:01]   No eligible batch candidate found after confounding checks.
+[23:09:01]   No eligible batch factor found for batch method comparison.
+[23:09:01]   Batch method override requested but no batch column available; ignoring.
+[23:09:01]   Running SVA to detect hidden batch effects...
+Number of significant surrogate variables is:  2 
+Iteration (out of 5 ):1  2  3  4  5  [23:09:09]     - Detected and using 2 SVs.
+[23:09:09]   Overcorrection guard: capping SVs to 0 (dropping SV1, SV2 )
+[23:09:09]   Undercorrection guard: dropping covariates to allow SVs: Cell_Latent3
+[23:09:09]   Undercorrection guard: added SVs: SV1
+[23:09:09]   Covariates used in design: age, sex, Sentrix_ID, Sentrix_Position, Cell_Latent1, Cell_Latent2
+Coefficients not estimable: sexM 
+[23:09:14]   PVCA: dropping 'Sentrix_ID' to avoid over-specified crossing of factors.
+[23:09:14]   PVCA: dropping 'Sentrix_Position' to avoid over-specified crossing of factors.
+[23:09:14]   PVCA: dropping 'age' to avoid over-specified crossing of factors.
+[23:09:14]   PVCA: dropping 'Cell_Latent1' to avoid over-specified crossing of factors.
+[23:09:17]   PVCA: singular fit warning suppressed; consider reducing covariates.
+[23:09:17]   PVCA saved to projects/GSE66351/AD_vs_CTRL_neuron_occipital_results_direct_run5_tier3skip/Sesame_AfterCorrection_PVCA.csv
+[23:09:35]   - Contrast: AD-CTRL
+[23:10:14]   Genomic Inflation Factor (Lambda): 1.017
+[23:10:17] Subsampling top 10000 probes for interactive plots...
+[23:10:23]   Generating Top 100 Heatmap...
+[23:10:28]   Running DMR analysis (dmrff)...
+[dmrff.candidates] Thu May 21 23:10:29 2026 Found  11300  candidate regions. 
+[23:10:36]     - Filtered DMRs by min CpGs >= 2 : 12909 -> 828
+[23:10:50]     - Found 828 DMRs.
+Coefficients not estimable: sexM 
+[23:11:10]   Running 20 permutations for null DMP counts (top 0 CpGs)...
+[23:11:10]   Permutation test skipped: vp_top <= 0 or no probes available for calibration.
+[23:11:10]   Tier3 analyses skipped due to ineligible strata.
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR03C02 Sentrix_PositionR06C01 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR03C02 Sentrix_PositionR05C02 
+Coefficients not estimable: Sentrix_PositionR01C02 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR03C02 Sentrix_PositionR05C02 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR02C01 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR02C01 
+Coefficients not estimable: Sentrix_PositionR01C02 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR01C02 
+Coefficients not estimable: Sentrix_PositionR03C02 Sentrix_PositionR05C02 
+Coefficients not estimable: Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR02C01 Sentrix_PositionR06C01 
+[23:11:26] Running pipeline for: Sesame_Native
+[23:11:30]   - Removed 138602 probes with beta range < 0.05
+[23:11:32]   Computing PCA on 248759 probes across 31 samples...
+[23:11:43]   Covariate candidates after filtering: age, Cell_Latent1, Cell_Latent2, Cell_Latent5, sex, Sentrix_ID, Sentrix_Position, Cell_Latent3, Cell_Latent4
+[23:11:43]   Overcorrection guard: capped covariates to 7 ( age, sex, Sentrix_ID, Sentrix_Position, Cell_Latent1, Cell_Latent2, Cell_Latent3 )
+[23:11:44]   PVCA: dropping 'Sentrix_ID' to avoid over-specified crossing of factors.
+[23:11:44]   PVCA: dropping 'Sentrix_Position' to avoid over-specified crossing of factors.
+[23:11:44]   PVCA: dropping 'age' to avoid over-specified crossing of factors.
+[23:11:44]   PVCA: dropping 'Cell_Latent1' to avoid over-specified crossing of factors.
+[23:11:44]   PVCA: dropping 'Cell_Latent2' to avoid over-specified crossing of factors.
+[23:11:47]   PVCA: singular fit warning suppressed; consider reducing covariates.
+[23:11:47]   PVCA saved to projects/GSE66351/AD_vs_CTRL_neuron_occipital_results_direct_run5_tier3skip/Sesame_Native_PVCA.csv
+[23:11:59] WARNING:  Tier3 confounding detected but eligibility failed (total_n=31, min_stratum_n=1).  Proceeding without Tier3 stratified/meta-analysis.
+[23:11:59]   No eligible batch candidate found after confounding checks.
+[23:11:59]   No eligible batch factor found for batch method comparison.
+[23:11:59]   Batch method override requested but no batch column available; ignoring.
+[23:11:59]   Running SVA to detect hidden batch effects...
+Number of significant surrogate variables is:  2 
+Iteration (out of 5 ):1  2  3  4  5  [23:12:05]     - Detected and using 2 SVs.
+[23:12:05]   Overcorrection guard: capping SVs to 0 (dropping SV1, SV2 )
+[23:12:05]   Undercorrection guard: dropping covariates to allow SVs: Cell_Latent3
+[23:12:05]   Undercorrection guard: added SVs: SV1
+[23:12:05]   Covariates used in design: age, sex, Sentrix_ID, Sentrix_Position, Cell_Latent1, Cell_Latent2
+Coefficients not estimable: sexM 
+[23:12:14]   PVCA: dropping 'Sentrix_ID' to avoid over-specified crossing of factors.
+[23:12:14]   PVCA: dropping 'Sentrix_Position' to avoid over-specified crossing of factors.
+[23:12:14]   PVCA: dropping 'age' to avoid over-specified crossing of factors.
+[23:12:14]   PVCA: dropping 'Cell_Latent1' to avoid over-specified crossing of factors.
+[23:12:17]   PVCA: singular fit warning suppressed; consider reducing covariates.
+[23:12:17]   PVCA saved to projects/GSE66351/AD_vs_CTRL_neuron_occipital_results_direct_run5_tier3skip/Sesame_Native_AfterCorrection_PVCA.csv
+[23:12:35]   - Contrast: AD-CTRL
+[23:13:16]   Genomic Inflation Factor (Lambda): 1.014
+[23:13:19] Subsampling top 10000 probes for interactive plots...
+[23:13:25]   Generating Top 100 Heatmap...
+[23:13:32]   Running DMR analysis (dmrff)...
+[dmrff.candidates] Thu May 21 23:13:33 2026 Found  11358  candidate regions. 
+[23:13:41]     - Filtered DMRs by min CpGs >= 2 : 12936 -> 807
+[23:13:57]     - Found 807 DMRs.
+Coefficients not estimable: sexM 
+[23:14:12]   Running 20 permutations for null DMP counts (top 0 CpGs)...
+[23:14:12]   Permutation test skipped: vp_top <= 0 or no probes available for calibration.
+[23:14:12]   Tier3 analyses skipped due to ineligible strata.
+Coefficients not estimable: Sentrix_PositionR02C01 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR05C02 
+Coefficients not estimable: Sentrix_PositionR03C02 Sentrix_PositionR06C01 
+Coefficients not estimable: Sentrix_PositionR01C02 
+Coefficients not estimable: Sentrix_PositionR05C02 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR03C01 Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR03C02 Sentrix_PositionR05C02 
+Coefficients not estimable: Sentrix_PositionR05C02 Sentrix_PositionR06C01 
+Coefficients not estimable: Sentrix_PositionR03C02 Sentrix_PositionR05C02 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR03C02 Sentrix_PositionR05C02 
+Coefficients not estimable: Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR04C01 
+Coefficients not estimable: Sentrix_PositionR01C02 
+Coefficients not estimable: Sentrix_PositionR03C02 Sentrix_PositionR06C01 
+Coefficients not estimable: Sentrix_PositionR03C02 Sentrix_PositionR05C02 Sentrix_PositionR06C01 
+Coefficients not estimable: Sentrix_PositionR03C02 
+Coefficients not estimable: Sentrix_PositionR01C02 Sentrix_PositionR03C02 
+[23:14:28] Consensus DMPs saved to projects/GSE66351/AD_vs_CTRL_neuron_occipital_results_direct_run5_tier3skip/Intersection_Consensus_DMPs.csv (n= 0 ).
+[23:14:36] Consensus DMPs saved to projects/GSE66351/AD_vs_CTRL_neuron_occipital_results_direct_run5_tier3skip/Intersection_Native_Consensus_DMPs.csv (n= 0 ).
+[23:14:41] Summary statistics saved to summary.json
+[23:14:41] Decision ledger saved to decision_ledger.tsv
+[23:14:41] Analysis parameters saved to analysis_parameters.json
+[23:14:41] Code version saved to code_version.txt
+[23:14:41] Saving session info...
+[1] TRUE
+[1] TRUE
+[1] TRUE
+[1] TRUE
+[23:14:43] Methods summary saved to methods.md
+[1] TRUE
+[23:14:43] Analysis Complete.

@@ -77,6 +77,42 @@ class CliExitCodeTests(unittest.TestCase):
             self.assertEqual(old_summary.read_text(encoding="utf-8"), '{"code":"OLD"}\n')
             self.assertEqual(old_reason.read_text(encoding="utf-8"), "OLD: previous run\n")
 
+    def test_missing_config_fails_before_r_dependency_setup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            work_dir = root / "work"
+            work_dir.mkdir()
+            missing_config = root / "missing_config.tsv"
+            output_dir = root / "out"
+            env = os.environ.copy()
+            env["ILLUMETA_ALLOW_NON_CONDA"] = "1"
+            env["ILLUMETA_FORCE_SETUP"] = "1"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    ILLUMETA,
+                    "analysis",
+                    "--config",
+                    str(missing_config),
+                    "--output",
+                    str(output_dir),
+                    "--group_con",
+                    "control",
+                    "--group_test",
+                    "case",
+                ],
+                capture_output=True,
+                cwd=work_dir,
+                text=True,
+                timeout=5,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("Configuration file", result.stderr)
+            self.assertNotIn("Ensuring R dependencies", result.stdout + result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

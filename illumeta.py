@@ -1923,14 +1923,17 @@ def write_failure_summary(base_dir: str, stage: str, code: str, message: str, de
     except OSError as e:
         log_err(f"[!] Failed to write failure summary: {e}")
 
+def resolve_analysis_config_path(args):
+    if args.config:
+        return args.config
+    if args.input_dir:
+        return os.path.join(args.input_dir, "configure.tsv")
+    return None
+
+
 def run_analysis(args):
     """Executes the analysis step."""
-    # Resolve Config Path
-    config_path = None
-    if args.config:
-        config_path = args.config
-    elif args.input_dir:
-        config_path = os.path.join(args.input_dir, "configure.tsv")
+    config_path = resolve_analysis_config_path(args)
     
     if not config_path:
         log_err("Error: You must provide either --input-dir or --config.")
@@ -4503,6 +4506,11 @@ def main():
         return
     if args.command == "search":
         sys.exit(run_search(args))
+
+    if args.command == "analysis":
+        config_path = resolve_analysis_config_path(args)
+        if not config_path or not os.path.exists(config_path):
+            run_analysis(args)
     
     check_r_installation()
     if args.command in ("download", "analysis"):

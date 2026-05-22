@@ -1,0 +1,20 @@
+Artifact verification: PASS
+- summary.json exists and matches n_con=18, n_test=19.
+- Strict consensus DMP rows: 324706 = intersect_up 203775 + intersect_down 120931.
+- Native consensus DMP rows: 334911 = intersect_native_up 209065 + intersect_native_down 125846.
+- DMR rows: Minfi 49744; Sesame 43448; Sesame_Native 44498.
+- Guards: primary_result_mode=tier3_ineligible; primary_lambda_guard_status=triggered.
+
+R syntax/type check: PASS
+- Rscript -e "parse('r_scripts/analyze.R')" parsed successfully.
+
+Python compile: PASS
+- python -m py_compile illumeta.py scripts/build_gse66351_stratified_configs.py benchmarks/dementia_special_issue/build_cell_type_reframe_outputs.py
+
+Focused tests: PASS
+- python -m pytest -q tests/test_cross_reactive_lists.py tests/test_preflight.py tests/test_cli_exit_codes.py
+- 19 passed in 0.22s
+
+Full tests: PASS
+- python -m pytest -q tests
+- 67 passed in 5.43s

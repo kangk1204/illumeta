@@ -1,0 +1,556 @@
+
+05/22 17:53:40 [[1;32mNOTICE[0m] Downloading 74 item(s)
+[DL:0B][#332eb8 0B/0B][#d9fdf5 0B/0B][#0e676c 0B/0B][#327e6a 0B/0B][#509900 0B/0B](+3)
+[DL:0B][#332eb8 0B/0B][#d9fdf5 0B/0B][#0e676c 0B/6.9MiB(0%)][#327e6a 0B/0B][#509900 0B/6.9MiB(0%)](+3) [FileAlloc:#0e676c 0B/6.9MiB(0%)]
+[DL:1.6KiB][#332eb8 0B/0B][#d9fdf5 0B/0B][#0e676c 0B/6.9MiB(0%)][#327e6a 0B/0B][#509900 0B/6.9MiB(0%)](+3)
+[DL:52KiB][#332eb8 0B/0B][#d9fdf5 0B/0B][#0e676c 144KiB/6.9MiB(2%)][#327e6a 0B/0B][#509900 128KiB/6.9MiB(1%)](+3)
+[DL:70KiB][#332eb8 0B/0B][#d9fdf5 0B/0B][#0e676c 224KiB/6.9MiB(3%)][#327e6a 0B/0B][#509900 224KiB/6.9MiB(3%)](+3)
+[DL:88KiB][#332eb8 0B/0B][#d9fdf5 0B/0B][#0e676c 336KiB/6.9MiB(4%)][#327e6a 0B/0B][#509900 320KiB/6.9MiB(4%)](+3)
+[DL:107KiB][#332eb8 0B/0B][#d9fdf5 0B/0B][#0e676c 464KiB/6.9MiB(6%)][#327e6a 0B/0B][#509900 432KiB/6.9MiB(6%)](+3)
+[DL:137KiB][#332eb8 0B/0B][#d9fdf5 0B/0B][#0e676c 704KiB/6.9MiB(9%)][#327e6a 0B/0B][#509900 592KiB/6.9MiB(8%)](+3)
+[DL:318KiB][#332eb8 0B/0B][#d9fdf5 0B/0B][#0e676c 1.0MiB/6.9MiB(15%)][#327e6a 0B/0B][#509900 816KiB/6.9MiB(11%)](+3)
+[DL:391KiB][#332eb8 0B/0B][#d9fdf5 0B/0B][#0e676c 1.5MiB/6.9MiB(21%)][#327e6a 0B/0B][#509900 1.1MiB/6.9MiB(17%)](+3)
+[DL:264KiB][#332eb8 0B/0B][#d9fdf5 0B/0B][#0e676c 1.5MiB/6.9MiB(22%)][#327e6a 0B/0B][#509900 1.2MiB/6.9MiB(17%)](+3)
+[DL:248KiB][#332eb8 0B/0B][#d9fdf5 0B/0B][#0e676c 1.5MiB/6.9MiB(22%)][#327e6a 0B/6.9MiB(0%)][#509900 1.2MiB/6.9MiB(17%)](+3)
+[DL:901KiB][#332eb8 0B/0B][#d9fdf5 0B/0B][#0e676c 4.5MiB/6.9MiB(65%)][#327e6a 128KiB/6.9MiB(1%)][#509900 4.3MiB/6.9MiB(62%)](+3)
+
+05/22 17:54:02 [[1;31mERROR[0m] CUID#12 - Download aborted. URI=https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195122/suppl/GSM9195122_206154080123_R02C01_Red.idat.gz
+Exception: [HttpSkipResponseCommand.cc:228] errorCode=29 The response status is not successful. status=503
+
+05/22 17:54:02 [[1;32mNOTICE[0m] Download GID#c80ab4ccecbe8b0b not complete: 
+
+05/22 17:54:02 [[1;31mERROR[0m] CUID#8 - Download aborted. URI=https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195116/suppl/GSM9195116_205854150033_R06C01_Red.idat.gz
+Exception: [HttpSkipResponseCommand.cc:228] errorCode=29 The response status is not successful. status=503
+
+05/22 17:54:02 [[1;32mNOTICE[0m] Download GID#d9fdf5ccb71757c2 not complete: 
+
+05/22 17:54:02 [[1;31mERROR[0m] CUID#14 - Download aborted. URI=https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195129/suppl/GSM9195129_206154250078_R03C01_Red.idat.gz
+Exception: [HttpSkipResponseCommand.cc:228] errorCode=29 The response status is not successful. status=503
+
+05/22 17:54:02 [[1;32mNOTICE[0m] Download GID#3109644f5dc9b286 not complete: 
+
+05/22 17:54:02 [[1;31mERROR[0m] CUID#7 - Download aborted. URI=https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195116/suppl/GSM9195116_205854150033_R06C01_Grn.idat.gz
+Exception: [HttpSkipResponseCommand.cc:228] errorCode=29 The response status is not successful. status=503
+
+05/22 17:54:02 [[1;32mNOTICE[0m] Download GID#332eb888ca3cc64b not complete: 
+[DL:1.2MiB][#0e676c 5.7MiB/6.9MiB(82%)][#327e6a 224KiB/6.9MiB(3%)][#509900 6.5MiB/6.9MiB(94%)][#5d2f59 224KiB/6.9MiB(3%)][#897c77 0B/0B](+3)
+
+05/22 17:54:04 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195122_206154080123_R02C01_Grn.idat.gz
+[DL:1.2MiB][#0e676c 6.0MiB/6.9MiB(86%)][#327e6a 240KiB/6.9MiB(3%)][#5d2f59 240KiB/6.9MiB(3%)][#897c77 0B/0B][#022c95 0B/0B](+3)
+
+05/22 17:54:07 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195121_206154080074_R08C01_Grn.idat.gz
+[DL:1.5MiB][#327e6a 448KiB/6.9MiB(6%)][#5d2f59 448KiB/6.9MiB(6%)][#897c77 0B/0B][#022c95 0B/0B][#3e3764 0B/0B](+3)
+[DL:1.3MiB][#327e6a 1.0MiB/6.9MiB(14%)][#5d2f59 1.0MiB/6.9MiB(14%)][#897c77 0B/0B][#022c95 0B/0B][#3e3764 0B/0B](+3)
+
+05/22 17:54:12 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195144_206154250093_R07C01_Red.idat.gz
+[DL:1.6MiB][#327e6a 4.7MiB/6.9MiB(67%)][#5d2f59 3.2MiB/6.9MiB(47%)][#897c77 0B/0B][#022c95 0B/0B][#3e3764 0B/0B](+3)
+[DL:1.5MiB][#327e6a 4.7MiB/6.9MiB(68%)][#5d2f59 3.3MiB/6.9MiB(47%)][#897c77 0B/0B][#022c95 0B/6.9MiB(0%)][#3e3764 0B/0B](+3)
+[DL:1.5MiB][#327e6a 4.7MiB/6.9MiB(68%)][#5d2f59 3.3MiB/6.9MiB(48%)][#897c77 0B/0B][#022c95 0B/6.9MiB(0%)][#3e3764 0B/0B](+3)
+
+05/22 17:54:19 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195121_206154080074_R08C01_Red.idat.gz
+[DL:2.1MiB][#5d2f59 5.5MiB/6.9MiB(79%)][#897c77 0B/0B][#022c95 64KiB/6.9MiB(0%)][#3e3764 0B/0B][#9e68cc 0B/0B](+3)
+
+05/22 17:54:22 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195129_206154250078_R03C01_Grn.idat.gz
+[DL:1.0MiB][#897c77 0B/0B][#022c95 160KiB/6.9MiB(2%)][#3e3764 0B/0B][#9e68cc 0B/0B][#739835 0B/0B](+3)
+[DL:1.0MiB][#897c77 0B/6.9MiB(0%)][#022c95 272KiB/6.9MiB(3%)][#3e3764 0B/6.8MiB(0%)][#9e68cc 0B/0B][#739835 0B/0B](+3) [FileAlloc:#3e3764 0B/6.8MiB(0%)]
+[DL:1.0MiB][#897c77 0B/6.9MiB(0%)][#022c95 272KiB/6.9MiB(3%)][#3e3764 0B/6.8MiB(0%)][#9e68cc 0B/0B][#739835 0B/0B](+3)
+[DL:429KiB][#897c77 16KiB/6.9MiB(0%)][#022c95 304KiB/6.9MiB(4%)][#3e3764 16KiB/6.8MiB(0%)][#9e68cc 0B/0B][#739835 0B/0B](+3)
+
+05/22 17:54:29 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195145_206513950089_R01C01_Grn.idat.gz
+[DL:816KiB][#897c77 96KiB/6.9MiB(1%)][#022c95 1.5MiB/6.9MiB(21%)][#3e3764 96KiB/6.8MiB(1%)][#9e68cc 0B/0B][#739835 0B/0B](+3)
+[DL:853KiB][#897c77 336KiB/6.9MiB(4%)][#022c95 3.1MiB/6.9MiB(45%)][#3e3764 336KiB/6.8MiB(4%)][#9e68cc 0B/0B][#739835 0B/6.9MiB(0%)](+3)
+[DL:728KiB][#897c77 368KiB/6.9MiB(5%)][#022c95 3.2MiB/6.9MiB(46%)][#3e3764 368KiB/6.8MiB(5%)][#9e68cc 0B/6.9MiB(0%)][#739835 16KiB/6.9MiB(0%)](+3)
+
+05/22 17:54:36 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195135_206154250088_R04C01_Red.idat.gz
+[DL:1.7MiB][#897c77 2.2MiB/6.9MiB(32%)][#3e3764 2.3MiB/6.8MiB(33%)][#9e68cc 64KiB/6.9MiB(0%)][#739835 80KiB/6.9MiB(1%)][#3dffd3 2.4MiB/7.0MiB(34%)](+3)
+[DL:1.5MiB][#897c77 2.8MiB/6.9MiB(40%)][#3e3764 2.9MiB/6.8MiB(42%)][#9e68cc 176KiB/6.9MiB(2%)][#739835 176KiB/6.9MiB(2%)][#3dffd3 3.0MiB/7.0MiB(42%)](+3)
+
+05/22 17:54:40 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195137_206154250090_R01C01_Grn.idat.gz
+ *** Download Progress Summary as of Fri May 22 17:54:40 2026 *** 
+===============================================================================
+[#897c77 6.8MiB/6.9MiB(98%) CN:1 DL:810KiB]
+FILE: projects/GSE306227/idat/GSM9195135_206154250088_R04C01_Grn.idat.gz
+-------------------------------------------------------------------------------
+[#9e68cc 448KiB/6.9MiB(6%) CN:1 DL:70KiB ETA:1m35s]
+FILE: projects/GSE306227/idat/GSM9195137_206154250090_R01C01_Red.idat.gz
+-------------------------------------------------------------------------------
+[#739835 304KiB/6.9MiB(4%) CN:1 DL:39KiB ETA:2m55s]
+FILE: projects/GSE306227/idat/GSM9195144_206154250093_R07C01_Grn.idat.gz
+-------------------------------------------------------------------------------
+[#3dffd3 6.9MiB/7.0MiB(98%) CN:1 DL:827KiB]
+FILE: projects/GSE306227/idat/GSM9195145_206513950089_R01C01_Red.idat.gz
+-------------------------------------------------------------------------------
+[#00f32a 80KiB/6.9MiB(1%) CN:1 DL:62KiB ETA:1m53s]
+FILE: projects/GSE306227/idat/GSM9195152_206513950140_R08C01_Grn.idat.gz
+-------------------------------------------------------------------------------
+[#daa968 0B/0B CN:0 DL:0B]
+FILE: https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195152/suppl/GSM9195152_206513950140_R08C01_Red.idat.gz
+-------------------------------------------------------------------------------
+[#6e2ed7 4.2MiB/6.9MiB(61%) CN:1 DL:1.9MiB ETA:1s]
+FILE: projects/GSE306227/idat/GSM9195155_206513950147_R07C01_Grn.idat.gz
+-------------------------------------------------------------------------------
+[#af8b6a 0B/0B CN:0 DL:0B]
+FILE: https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195155/suppl/GSM9195155_206513950147_R07C01_Red.idat.gz
+-------------------------------------------------------------------------------
+
+[DL:3.4MiB][#897c77 6.8MiB/6.9MiB(98%)][#9e68cc 448KiB/6.9MiB(6%)][#739835 304KiB/6.9MiB(4%)][#3dffd3 6.9MiB/7.0MiB(98%)][#00f32a 80KiB/6.9MiB(1%)](+3)
+[DL:0B][#897c77 6.8MiB/6.9MiB(98%)][#9e68cc 464KiB/6.9MiB(6%)][#739835 320KiB/6.9MiB(4%)][#3dffd3 6.9MiB/7.0MiB(98%)][#00f32a 96KiB/6.9MiB(1%)](+3)
+
+05/22 17:54:59 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195135_206154250088_R04C01_Grn.idat.gz
+[DL:501KiB][#9e68cc 544KiB/6.9MiB(7%)][#739835 400KiB/6.9MiB(5%)][#3dffd3 7.0MiB/7.0MiB(99%)][#00f32a 176KiB/6.9MiB(2%)][#daa968 0B/0B](+3)
+
+05/22 17:55:01 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195145_206513950089_R01C01_Red.idat.gz
+[DL:384KiB][#9e68cc 608KiB/6.9MiB(8%)][#739835 464KiB/6.9MiB(6%)][#00f32a 240KiB/6.9MiB(3%)][#daa968 0B/0B][#6e2ed7 4.3MiB/6.9MiB(63%)](+3)
+
+05/22 17:55:02 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195155_206513950147_R07C01_Grn.idat.gz
+[DL:2.8MiB][#9e68cc 2.3MiB/6.9MiB(34%)][#739835 1.4MiB/6.9MiB(21%)][#00f32a 2.7MiB/6.9MiB(38%)][#daa968 0B/0B][#af8b6a 0B/0B](+3)
+[DL:1.8MiB][#9e68cc 2.4MiB/6.9MiB(34%)][#739835 1.5MiB/6.9MiB(21%)][#00f32a 2.7MiB/6.9MiB(39%)][#daa968 0B/7.0MiB(0%)][#af8b6a 0B/6.9MiB(0%)](+3) [FileAlloc:#af8b6a 0B/6.9MiB(0%)]
+[DL:1.2MiB][#9e68cc 2.4MiB/6.9MiB(34%)][#739835 1.5MiB/6.9MiB(21%)][#00f32a 2.7MiB/6.9MiB(39%)][#daa968 0B/7.0MiB(0%)][#af8b6a 0B/6.9MiB(0%)](+3)
+
+05/22 17:55:07 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195152_206513950140_R08C01_Grn.idat.gz
+[DL:2.5MiB][#9e68cc 6.5MiB/6.9MiB(93%)][#739835 6.4MiB/6.9MiB(92%)][#daa968 288KiB/7.0MiB(4%)][#af8b6a 272KiB/6.9MiB(3%)][#bda91e 0B/0B](+3)
+
+05/22 17:55:09 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195137_206154250090_R01C01_Red.idat.gz
+[DL:2.7MiB][#739835 6.8MiB/6.9MiB(98%)][#daa968 704KiB/7.0MiB(9%)][#af8b6a 704KiB/6.9MiB(9%)][#bda91e 0B/0B][#371d7d 0B/0B](+3)
+[DL:2.1MiB][#739835 6.8MiB/6.9MiB(98%)][#daa968 720KiB/7.0MiB(10%)][#af8b6a 720KiB/6.9MiB(10%)][#bda91e 0B/0B][#371d7d 0B/0B](+3)
+
+05/22 17:55:12 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195144_206154250093_R07C01_Grn.idat.gz
+[DL:1.7MiB][#daa968 832KiB/7.0MiB(11%)][#af8b6a 832KiB/6.9MiB(11%)][#bda91e 0B/0B][#371d7d 0B/0B][#490d90 0B/0B](+3)
+[DL:2.7MiB][#daa968 1.4MiB/7.0MiB(20%)][#af8b6a 1.7MiB/6.9MiB(25%)][#bda91e 0B/0B][#371d7d 0B/0B][#490d90 0B/0B](+3)
+
+05/22 17:55:16 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195164_206513950168_R07C01_Red.idat.gz
+[DL:1.2MiB][#daa968 1.5MiB/7.0MiB(22%)][#af8b6a 2.1MiB/6.9MiB(30%)][#bda91e 0B/0B][#371d7d 0B/0B][#490d90 0B/0B](+3)
+[DL:1.2MiB][#daa968 2.2MiB/7.0MiB(32%)][#af8b6a 4.2MiB/6.9MiB(60%)][#bda91e 0B/0B][#371d7d 0B/0B][#490d90 0B/0B](+3)
+
+05/22 17:55:21 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195155_206513950147_R07C01_Red.idat.gz
+[DL:2.2MiB][#daa968 3.3MiB/7.0MiB(47%)][#bda91e 0B/0B][#371d7d 0B/0B][#490d90 0B/0B][#56dac2 0B/0B](+3)
+
+05/22 17:55:22 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195169_206513950170_R03C01_Grn.idat.gz
+[DL:2.0MiB][#daa968 5.2MiB/7.0MiB(75%)][#bda91e 0B/0B][#371d7d 0B/0B][#490d90 0B/0B][#56dac2 0B/0B](+3)
+
+05/22 17:55:24 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195152_206513950140_R08C01_Red.idat.gz
+[DL:2.1MiB][#bda91e 0B/0B][#371d7d 0B/0B][#490d90 0B/0B][#56dac2 0B/0B][#6b6c16 0B/0B](+3)
+[DL:1.7MiB][#bda91e 0B/0B][#371d7d 0B/0B][#490d90 0B/0B][#56dac2 0B/0B][#6b6c16 0B/0B](+3)
+[DL:2.1MiB][#bda91e 0B/0B][#371d7d 0B/0B][#490d90 0B/0B][#56dac2 0B/0B][#6b6c16 0B/0B](+3)
+
+05/22 17:55:30 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195174_206513950184_R02C01_Red.idat.gz
+[DL:1.4MiB][#bda91e 0B/0B][#371d7d 0B/0B][#490d90 0B/0B][#56dac2 0B/0B][#6b6c16 0B/0B](+3)
+[DL:1.2MiB][#bda91e 0B/0B][#371d7d 0B/0B][#490d90 0B/0B][#56dac2 0B/0B][#6b6c16 0B/0B](+3)
+
+05/22 17:55:33 [[1;31mERROR[0m] CUID#41 - Download aborted. URI=https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195160/suppl/GSM9195160_206513950150_R07C01_Grn.idat.gz
+Exception: [HttpSkipResponseCommand.cc:228] errorCode=29 The response status is not successful. status=503
+
+05/22 17:55:33 [[1;31mERROR[0m] CUID#42 - Download aborted. URI=https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195160/suppl/GSM9195160_206513950150_R07C01_Red.idat.gz
+Exception: [HttpSkipResponseCommand.cc:228] errorCode=29 The response status is not successful. status=503
+
+05/22 17:55:33 [[1;31mERROR[0m] CUID#43 - Download aborted. URI=https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195164/suppl/GSM9195164_206513950168_R07C01_Grn.idat.gz
+Exception: [HttpSkipResponseCommand.cc:228] errorCode=29 The response status is not successful. status=503
+
+05/22 17:55:33 [[1;32mNOTICE[0m] Download GID#bda91e4d5d7c17e3 not complete: 
+
+05/22 17:55:33 [[1;32mNOTICE[0m] Download GID#371d7d9bc2fecff6 not complete: 
+
+05/22 17:55:33 [[1;32mNOTICE[0m] Download GID#490d90767035977d not complete: 
+[DL:1.3MiB][#56dac2 0B/0B][#6b6c16 0B/0B][#809f0a 0B/6.9MiB(0%)][#260d22 0B/0B][#0bd57f 4.5MiB/6.9MiB(66%)](+3)
+[DL:575KiB][#56dac2 0B/6.9MiB(0%)][#6b6c16 0B/0B][#809f0a 0B/6.9MiB(0%)][#260d22 0B/0B][#0bd57f 4.5MiB/6.9MiB(66%)](+3)
+[DL:768KiB][#56dac2 16KiB/6.9MiB(0%)][#6b6c16 0B/0B][#809f0a 32KiB/6.9MiB(0%)][#260d22 0B/0B][#0bd57f 4.6MiB/6.9MiB(66%)](+3) [FileAlloc:#b24353 0B/6.9MiB(0%)](+1)
+[DL:635KiB][#56dac2 32KiB/6.9MiB(0%)][#6b6c16 0B/0B][#809f0a 48KiB/6.9MiB(0%)][#260d22 0B/0B][#0bd57f 4.6MiB/6.9MiB(67%)](+3) [FileAlloc:#ad824e 0B/7.1MiB(0%)]
+ *** Download Progress Summary as of Fri May 22 17:55:42 2026 *** 
+===============================================================================
+[#56dac2 32KiB/6.9MiB(0%) CN:1 DL:10KiB ETA:10m47s]
+FILE: projects/GSE306227/idat/GSM9195168_206513950169_R06C01_Grn.idat.gz
+-------------------------------------------------------------------------------
+[#6b6c16 0B/0B CN:1 DL:0B]
+FILE: https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195168/suppl/GSM9195168_206513950169_R06C01_Red.idat.gz
+-------------------------------------------------------------------------------
+[#809f0a 48KiB/6.9MiB(0%) CN:1 DL:9.4KiB ETA:12m27s]
+FILE: projects/GSE306227/idat/GSM9195169_206513950170_R03C01_Red.idat.gz
+-------------------------------------------------------------------------------
+[#260d22 0B/0B CN:1 DL:0B]
+FILE: https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195174/suppl/GSM9195174_206513950184_R02C01_Grn.idat.gz
+-------------------------------------------------------------------------------
+[#0bd57f 4.6MiB/6.9MiB(67%) CN:1 DL:522KiB ETA:4s]
+FILE: projects/GSE306227/idat/GSM9195179_206513950186_R07C01_Grn.idat.gz
+-------------------------------------------------------------------------------
+[#4c7f5a 0B/6.9MiB(0%) CN:1 DL:5.3KiB ETA:22m8s]
+FILE: projects/GSE306227/idat/GSM9195179_206513950186_R07C01_Red.idat.gz
+-------------------------------------------------------------------------------
+[#b24353 0B/6.9MiB(0%) CN:1 DL:5.0KiB ETA:23m42s]
+FILE: projects/GSE306227/idat/GSM9195182_206513950194_R03C01_Grn.idat.gz
+-------------------------------------------------------------------------------
+[#ad824e 0B/7.1MiB(0%) CN:1 DL:0B]
+FILE: projects/GSE306227/idat/GSM9195182_206513950194_R03C01_Red.idat.gz
+-------------------------------------------------------------------------------
+
+[DL:537KiB][#56dac2 32KiB/6.9MiB(0%)][#6b6c16 0B/0B][#809f0a 48KiB/6.9MiB(0%)][#260d22 0B/0B][#0bd57f 4.6MiB/6.9MiB(67%)](+3)
+[DL:24KiB][#56dac2 48KiB/6.9MiB(0%)][#6b6c16 0B/0B][#809f0a 64KiB/6.9MiB(0%)][#260d22 0B/0B][#0bd57f 4.6MiB/6.9MiB(67%)](+3)
+
+05/22 17:55:45 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195179_206513950186_R07C01_Grn.idat.gz
+
+05/22 17:55:46 [[1;31mERROR[0m] CUID#49 - Download aborted. URI=https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195168/suppl/GSM9195168_206513950169_R06C01_Red.idat.gz
+Exception: [HttpSkipResponseCommand.cc:228] errorCode=29 The response status is not successful. status=503
+
+05/22 17:55:46 [[1;32mNOTICE[0m] Download GID#6b6c16a732cb7a41 not complete: 
+[DL:483KiB][#56dac2 192KiB/6.9MiB(2%)][#809f0a 208KiB/6.9MiB(2%)][#260d22 0B/0B][#4c7f5a 496KiB/6.9MiB(6%)][#b24353 480KiB/6.9MiB(6%)](+3)
+[DL:1.2MiB][#56dac2 288KiB/6.9MiB(4%)][#809f0a 304KiB/6.9MiB(4%)][#260d22 0B/0B][#4c7f5a 2.4MiB/6.9MiB(34%)][#b24353 4.5MiB/6.9MiB(65%)](+3)
+
+05/22 17:55:48 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195182_206513950194_R03C01_Grn.idat.gz
+
+05/22 17:55:48 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195179_206513950186_R07C01_Red.idat.gz
+[DL:2.3MiB][#56dac2 384KiB/6.9MiB(5%)][#809f0a 400KiB/6.9MiB(5%)][#260d22 0B/0B][#ad824e 5.8MiB/7.1MiB(81%)][#5fa2fb 0B/0B](+3)
+
+05/22 17:55:49 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195182_206513950194_R03C01_Red.idat.gz
+[DL:2.6MiB][#56dac2 464KiB/6.9MiB(6%)][#809f0a 496KiB/6.9MiB(6%)][#260d22 0B/0B][#5fa2fb 0B/0B][#489f74 0B/0B](+3)
+
+05/22 17:55:51 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195117_205854150033_R07C01_Red.idat.gz
+[DL:3.5MiB][#56dac2 880KiB/6.9MiB(12%)][#809f0a 912KiB/6.9MiB(12%)][#260d22 0B/0B][#5fa2fb 0B/0B][#489f74 0B/0B](+3)
+[DL:5.9MiB][#56dac2 1.7MiB/6.9MiB(25%)][#809f0a 1.7MiB/6.9MiB(25%)][#260d22 1.9MiB/6.8MiB(28%)][#5fa2fb 0B/0B][#489f74 0B/0B](+3)
+[DL:5.3MiB][#56dac2 1.8MiB/6.9MiB(26%)][#809f0a 1.8MiB/6.9MiB(26%)][#260d22 2.6MiB/6.8MiB(38%)][#5fa2fb 0B/6.8MiB(0%)][#489f74 0B/0B](+3)
+
+05/22 17:55:55 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195120_206154080074_R06C01_Grn.idat.gz
+[DL:4.6MiB][#56dac2 2.1MiB/6.9MiB(31%)][#809f0a 2.2MiB/6.9MiB(32%)][#260d22 3.0MiB/6.8MiB(44%)][#5fa2fb 48KiB/6.8MiB(0%)][#489f74 0B/0B](+3)
+[DL:2.3MiB][#56dac2 2.2MiB/6.9MiB(32%)][#809f0a 2.2MiB/6.9MiB(32%)][#260d22 3.0MiB/6.8MiB(44%)][#5fa2fb 80KiB/6.8MiB(1%)][#489f74 0B/6.9MiB(0%)](+3)
+[DL:1.3MiB][#56dac2 2.2MiB/6.9MiB(32%)][#809f0a 2.2MiB/6.9MiB(32%)][#260d22 3.1MiB/6.8MiB(45%)][#5fa2fb 96KiB/6.8MiB(1%)][#489f74 0B/6.9MiB(0%)](+3)
+
+05/22 17:56:03 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195174_206513950184_R02C01_Grn.idat.gz
+[DL:1.6MiB][#56dac2 5.3MiB/6.9MiB(76%)][#809f0a 5.4MiB/6.9MiB(78%)][#5fa2fb 144KiB/6.8MiB(2%)][#489f74 64KiB/6.9MiB(0%)][#4a8334 3.7MiB/7.0MiB(53%)](+3)
+[DL:1.4MiB][#56dac2 5.3MiB/6.9MiB(77%)][#809f0a 5.4MiB/6.9MiB(78%)][#5fa2fb 176KiB/6.8MiB(2%)][#489f74 96KiB/6.9MiB(1%)][#4a8334 3.8MiB/7.0MiB(54%)](+3)
+
+05/22 17:56:06 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195169_206513950170_R03C01_Red.idat.gz
+[DL:2.3MiB][#56dac2 6.8MiB/6.9MiB(98%)][#5fa2fb 256KiB/6.8MiB(3%)][#489f74 176KiB/6.9MiB(2%)][#4a8334 5.2MiB/7.0MiB(75%)][#1a8df9 256KiB/6.9MiB(3%)](+3)
+
+05/22 17:56:08 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195168_206513950169_R06C01_Grn.idat.gz
+[DL:2.0MiB][#5fa2fb 336KiB/6.8MiB(4%)][#489f74 256KiB/6.9MiB(3%)][#4a8334 5.3MiB/7.0MiB(76%)][#1a8df9 336KiB/6.9MiB(4%)][#6104d9 160KiB/6.9MiB(2%)](+3)
+[DL:2.2MiB][#5fa2fb 352KiB/6.8MiB(4%)][#489f74 272KiB/6.9MiB(3%)][#4a8334 5.3MiB/7.0MiB(76%)][#1a8df9 352KiB/6.9MiB(4%)][#6104d9 176KiB/6.9MiB(2%)](+3)
+[DL:710KiB][#5fa2fb 368KiB/6.8MiB(5%)][#489f74 288KiB/6.9MiB(4%)][#4a8334 5.3MiB/7.0MiB(76%)][#1a8df9 368KiB/6.9MiB(5%)][#6104d9 192KiB/6.9MiB(2%)](+3)
+
+05/22 17:56:12 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195117_205854150033_R07C01_Grn.idat.gz
+[DL:0.9MiB][#5fa2fb 448KiB/6.8MiB(6%)][#489f74 352KiB/6.9MiB(4%)][#1a8df9 432KiB/6.9MiB(6%)][#6104d9 256KiB/6.9MiB(3%)][#1a61dd 64KiB/6.9MiB(0%)](+3)
+[DL:0.9MiB][#5fa2fb 480KiB/6.8MiB(6%)][#489f74 384KiB/6.9MiB(5%)][#1a8df9 464KiB/6.9MiB(6%)][#6104d9 288KiB/6.9MiB(4%)][#1a61dd 96KiB/6.9MiB(1%)](+3)
+[DL:0.9MiB][#5fa2fb 592KiB/6.8MiB(8%)][#489f74 496KiB/6.9MiB(6%)][#1a8df9 592KiB/6.9MiB(8%)][#6104d9 400KiB/6.9MiB(5%)][#1a61dd 256KiB/6.9MiB(3%)](+3)
+
+05/22 17:56:18 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195126_206154250020_R03C01_Grn.idat.gz
+[DL:1.7MiB][#5fa2fb 1.8MiB/6.8MiB(27%)][#489f74 1.5MiB/6.9MiB(22%)][#1a8df9 1.8MiB/6.9MiB(26%)][#6104d9 1.1MiB/6.9MiB(16%)][#1a61dd 848KiB/6.9MiB(11%)](+3)
+
+05/22 17:56:21 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195126_206154250020_R03C01_Red.idat.gz
+[DL:3.8MiB][#5fa2fb 5.5MiB/6.8MiB(80%)][#489f74 5.0MiB/6.9MiB(72%)][#1a8df9 5.3MiB/6.9MiB(76%)][#6104d9 4.0MiB/6.9MiB(58%)][#1a61dd 2.1MiB/6.9MiB(30%)](+3)
+[DL:3.6MiB][#5fa2fb 5.5MiB/6.8MiB(80%)][#489f74 5.0MiB/6.9MiB(72%)][#1a8df9 5.3MiB/6.9MiB(77%)][#6104d9 4.0MiB/6.9MiB(58%)][#1a61dd 2.1MiB/6.9MiB(30%)](+3)
+
+05/22 17:56:25 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195187_206513950198_R04C01_Grn.idat.gz
+[DL:4.4MiB][#489f74 6.3MiB/6.9MiB(91%)][#1a8df9 6.7MiB/6.9MiB(96%)][#6104d9 5.4MiB/6.9MiB(77%)][#1a61dd 3.4MiB/6.9MiB(49%)][#17250e 2.1MiB/6.9MiB(30%)](+3)
+
+05/22 17:56:26 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195120_206154080074_R06C01_Red.idat.gz
+[DL:4.1MiB][#489f74 6.6MiB/6.9MiB(95%)][#6104d9 5.6MiB/6.9MiB(81%)][#1a61dd 3.7MiB/6.9MiB(53%)][#17250e 2.3MiB/6.9MiB(34%)][#5b17ee 160KiB/7.0MiB(2%)](+3)
+
+05/22 17:56:27 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195187_206513950198_R04C01_Red.idat.gz
+[DL:3.5MiB][#6104d9 6.0MiB/6.9MiB(86%)][#1a61dd 4.0MiB/6.9MiB(58%)][#17250e 2.7MiB/6.9MiB(38%)][#5b17ee 224KiB/7.0MiB(3%)][#4db5c1 0B/0B](+3)
+
+05/22 17:56:28 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195125_206154080123_R08C01_Grn.idat.gz
+[DL:3.5MiB][#1a61dd 5.0MiB/6.9MiB(71%)][#17250e 3.6MiB/6.9MiB(52%)][#5b17ee 368KiB/7.0MiB(5%)][#4db5c1 0B/0B][#8aa2fc 0B/0B](+3)
+[DL:1.6MiB][#1a61dd 5.0MiB/6.9MiB(71%)][#17250e 3.6MiB/6.9MiB(52%)][#5b17ee 400KiB/7.0MiB(5%)][#4db5c1 0B/0B][#8aa2fc 0B/6.9MiB(0%)](+3)
+
+05/22 17:56:31 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195125_206154080123_R08C01_Red.idat.gz
+[DL:1.8MiB][#17250e 5.5MiB/6.9MiB(79%)][#5b17ee 656KiB/7.0MiB(9%)][#4db5c1 0B/0B][#8aa2fc 64KiB/6.9MiB(0%)][#89902d 0B/0B](+3)
+[DL:1.9MiB][#17250e 5.5MiB/6.9MiB(80%)][#5b17ee 688KiB/7.0MiB(9%)][#4db5c1 0B/0B][#8aa2fc 96KiB/6.9MiB(1%)][#89902d 0B/0B](+3)
+[DL:1.1MiB][#17250e 5.6MiB/6.9MiB(80%)][#5b17ee 720KiB/7.0MiB(10%)][#4db5c1 0B/0B][#8aa2fc 128KiB/6.9MiB(1%)][#89902d 0B/0B](+3)
+
+05/22 17:56:36 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195132_206154250078_R07C01_Grn.idat.gz
+[DL:0.9MiB][#5b17ee 0.9MiB/7.0MiB(13%)][#4db5c1 0B/0B][#8aa2fc 192KiB/6.9MiB(2%)][#89902d 0B/0B][#fd160c 96KiB/6.9MiB(1%)](+3)
+[DL:652KiB][#5b17ee 0.9MiB/7.0MiB(13%)][#4db5c1 0B/6.9MiB(0%)][#8aa2fc 224KiB/6.9MiB(3%)][#89902d 0B/0B][#fd160c 128KiB/6.9MiB(1%)](+3) [FileAlloc:#7d2f6c 0B/7.0MiB(0%)]
+[DL:233KiB][#5b17ee 0.9MiB/7.0MiB(13%)][#4db5c1 0B/6.9MiB(0%)][#8aa2fc 240KiB/6.9MiB(3%)][#89902d 0B/0B][#fd160c 128KiB/6.9MiB(1%)](+3)
+ *** Download Progress Summary as of Fri May 22 17:56:53 2026 *** 
+===============================================================================
+[#5b17ee 1.2MiB/7.0MiB(17%) CN:1 DL:0B]
+FILE: projects/GSE306227/idat/GSM9195132_206154250078_R07C01_Red.idat.gz
+-------------------------------------------------------------------------------
+[#4db5c1 80KiB/6.9MiB(1%) CN:1 DL:0B]
+FILE: projects/GSE306227/idat/GSM9195136_206154250088_R06C01_Grn.idat.gz
+-------------------------------------------------------------------------------
+[#8aa2fc 320KiB/6.9MiB(4%) CN:1 DL:0B]
+FILE: projects/GSE306227/idat/GSM9195136_206154250088_R06C01_Red.idat.gz
+-------------------------------------------------------------------------------
+[#89902d 0B/0B CN:1 DL:0B]
+FILE: https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195139/suppl/GSM9195139_206154250090_R04C01_Grn.idat.gz
+-------------------------------------------------------------------------------
+[#fd160c 208KiB/6.9MiB(2%) CN:1 DL:0B]
+FILE: projects/GSE306227/idat/GSM9195139_206154250090_R04C01_Red.idat.gz
+-------------------------------------------------------------------------------
+[#855770 192KiB/6.9MiB(2%) CN:1 DL:0B]
+FILE: projects/GSE306227/idat/GSM9195141_206154250093_R03C01_Grn.idat.gz
+-------------------------------------------------------------------------------
+[#7d2f6c 96KiB/7.0MiB(1%) CN:1 DL:0B]
+FILE: projects/GSE306227/idat/GSM9195141_206154250093_R03C01_Red.idat.gz
+-------------------------------------------------------------------------------
+[#fe1df1 0B/0B CN:1 DL:0B]
+FILE: https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195147/suppl/GSM9195147_206513950089_R04C01_Grn.idat.gz
+-------------------------------------------------------------------------------
+
+[DL:0B][#5b17ee 1.2MiB/7.0MiB(17%)][#4db5c1 80KiB/6.9MiB(1%)][#8aa2fc 320KiB/6.9MiB(4%)][#89902d 0B/0B][#fd160c 208KiB/6.9MiB(2%)](+3)
+[DL:90KiB][#5b17ee 1.2MiB/7.0MiB(18%)][#4db5c1 112KiB/6.9MiB(1%)][#8aa2fc 352KiB/6.9MiB(4%)][#89902d 0B/6.9MiB(0%)][#fd160c 240KiB/6.9MiB(3%)](+3)
+[DL:4.5MiB][#5b17ee 5.3MiB/7.0MiB(76%)][#4db5c1 2.2MiB/6.9MiB(32%)][#8aa2fc 2.4MiB/6.9MiB(34%)][#89902d 128KiB/6.9MiB(1%)][#fd160c 1.8MiB/6.9MiB(27%)](+3)
+
+05/22 17:56:58 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195132_206154250078_R07C01_Red.idat.gz
+[DL:3.3MiB][#4db5c1 2.7MiB/6.9MiB(40%)][#8aa2fc 3.3MiB/6.9MiB(47%)][#89902d 192KiB/6.9MiB(2%)][#fd160c 2.2MiB/6.9MiB(32%)][#855770 2.1MiB/6.9MiB(31%)](+3)
+
+05/22 17:56:59 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195136_206154250088_R06C01_Red.idat.gz
+[DL:3.6MiB][#4db5c1 5.0MiB/6.9MiB(73%)][#89902d 560KiB/6.9MiB(7%)][#fd160c 3.8MiB/6.9MiB(55%)][#855770 3.2MiB/6.9MiB(46%)][#7d2f6c 4.4MiB/7.0MiB(63%)](+3)
+
+05/22 17:57:02 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195136_206154250088_R06C01_Grn.idat.gz
+
+05/22 17:57:03 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195141_206154250093_R03C01_Red.idat.gz
+[DL:5.2MiB][#89902d 2.3MiB/6.9MiB(34%)][#fd160c 6.4MiB/6.9MiB(92%)][#855770 5.8MiB/6.9MiB(84%)][#fe1df1 0B/0B][#619a2e 2.5MiB/7.0MiB(36%)](+3)
+[DL:4.3MiB][#89902d 2.3MiB/6.9MiB(34%)][#fd160c 6.4MiB/6.9MiB(92%)][#855770 5.8MiB/6.9MiB(84%)][#fe1df1 0B/0B][#619a2e 2.5MiB/7.0MiB(36%)](+3)
+
+05/22 17:57:07 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195139_206154250090_R04C01_Red.idat.gz
+[DL:3.1MiB][#89902d 2.8MiB/6.9MiB(41%)][#855770 6.3MiB/6.9MiB(91%)][#fe1df1 64KiB/6.9MiB(0%)][#619a2e 3.0MiB/7.0MiB(43%)][#83fc28 0B/0B](+3)
+
+05/22 17:57:09 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195141_206154250093_R03C01_Grn.idat.gz
+[DL:2.3MiB][#89902d 3.4MiB/6.9MiB(49%)][#fe1df1 144KiB/6.9MiB(2%)][#619a2e 3.6MiB/7.0MiB(51%)][#83fc28 0B/0B][#b5bc81 1.0MiB/6.9MiB(15%)](+3)
+[DL:1.9MiB][#89902d 3.4MiB/6.9MiB(50%)][#fe1df1 176KiB/6.9MiB(2%)][#619a2e 3.6MiB/7.0MiB(52%)][#83fc28 0B/0B][#b5bc81 1.0MiB/6.9MiB(15%)](+3)
+
+05/22 17:57:12 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195147_206513950089_R04C01_Red.idat.gz
+[DL:1.5MiB][#89902d 6.2MiB/6.9MiB(89%)][#fe1df1 256KiB/6.9MiB(3%)][#83fc28 0B/0B][#b5bc81 4.5MiB/6.9MiB(64%)][#40f0f6 64KiB/6.8MiB(0%)](+3)
+[DL:1.5MiB][#89902d 6.2MiB/6.9MiB(90%)][#fe1df1 288KiB/6.9MiB(4%)][#83fc28 0B/6.8MiB(0%)][#b5bc81 4.5MiB/6.9MiB(65%)][#40f0f6 96KiB/6.8MiB(1%)](+3) [FileAlloc:#cc96da 0B/6.9MiB(0%)]
+[DL:1.3MiB][#89902d 6.2MiB/6.9MiB(90%)][#fe1df1 304KiB/6.9MiB(4%)][#83fc28 0B/6.8MiB(0%)][#b5bc81 4.5MiB/6.9MiB(65%)][#40f0f6 112KiB/6.8MiB(1%)](+3)
+
+05/22 17:57:17 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195139_206154250090_R04C01_Grn.idat.gz
+[DL:1.3MiB][#fe1df1 352KiB/6.9MiB(4%)][#83fc28 64KiB/6.8MiB(0%)][#b5bc81 5.1MiB/6.9MiB(74%)][#40f0f6 176KiB/6.8MiB(2%)][#cc96da 64KiB/6.9MiB(0%)](+3)
+
+05/22 17:57:19 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195149_206513950140_R02C01_Red.idat.gz
+[DL:1.6MiB][#fe1df1 448KiB/6.9MiB(6%)][#83fc28 144KiB/6.8MiB(2%)][#40f0f6 256KiB/6.8MiB(3%)][#cc96da 160KiB/6.9MiB(2%)][#ecbc24 0B/0B](+3)
+[DL:1.4MiB][#fe1df1 480KiB/6.9MiB(6%)][#83fc28 176KiB/6.8MiB(2%)][#40f0f6 288KiB/6.8MiB(4%)][#cc96da 192KiB/6.9MiB(2%)][#ecbc24 0B/7.0MiB(0%)](+3) [FileAlloc:#4babff 0B/7.0MiB(0%)]
+[DL:433KiB][#fe1df1 480KiB/6.9MiB(6%)][#83fc28 192KiB/6.8MiB(2%)][#40f0f6 288KiB/6.8MiB(4%)][#cc96da 192KiB/6.9MiB(2%)][#ecbc24 0B/7.0MiB(0%)](+3)
+[DL:511KiB][#fe1df1 592KiB/6.9MiB(8%)][#83fc28 304KiB/6.8MiB(4%)][#40f0f6 400KiB/6.8MiB(5%)][#cc96da 304KiB/6.9MiB(4%)][#ecbc24 96KiB/7.0MiB(1%)](+3)
+[DL:2.3MiB][#fe1df1 1.6MiB/6.9MiB(23%)][#83fc28 1.4MiB/6.8MiB(20%)][#40f0f6 4.4MiB/6.8MiB(64%)][#cc96da 5.6MiB/6.9MiB(81%)][#ecbc24 336KiB/7.0MiB(4%)](+3)
+
+05/22 17:57:26 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195153_206513950147_R01C01_Red.idat.gz
+[DL:2.5MiB][#fe1df1 1.7MiB/6.9MiB(25%)][#83fc28 1.5MiB/6.8MiB(22%)][#40f0f6 5.2MiB/6.8MiB(76%)][#ecbc24 384KiB/7.0MiB(5%)][#4babff 4.4MiB/7.0MiB(62%)](+3)
+
+05/22 17:57:27 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195153_206513950147_R01C01_Grn.idat.gz
+[DL:2.7MiB][#fe1df1 3.3MiB/6.9MiB(48%)][#83fc28 2.7MiB/6.8MiB(39%)][#ecbc24 896KiB/7.0MiB(12%)][#4babff 6.0MiB/7.0MiB(85%)][#58c659 0B/0B](+3)
+
+05/22 17:57:29 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195158_206513950150_R04C01_Red.idat.gz
+[DL:3.5MiB][#fe1df1 4.4MiB/6.9MiB(63%)][#83fc28 3.7MiB/6.8MiB(54%)][#ecbc24 1.9MiB/7.0MiB(27%)][#58c659 0B/0B][#442ecb 1.1MiB/6.9MiB(16%)](+3)
+[DL:3.6MiB][#fe1df1 4.4MiB/6.9MiB(63%)][#83fc28 3.7MiB/6.8MiB(54%)][#ecbc24 1.9MiB/7.0MiB(27%)][#58c659 0B/6.9MiB(0%)][#442ecb 1.1MiB/6.9MiB(16%)](+3)
+
+05/22 17:57:31 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195147_206513950089_R04C01_Grn.idat.gz
+[DL:4.7MiB][#83fc28 6.3MiB/6.8MiB(91%)][#ecbc24 3.7MiB/7.0MiB(53%)][#58c659 2.5MiB/6.9MiB(36%)][#442ecb 3.0MiB/6.9MiB(43%)][#e591fc 3.5MiB/6.8MiB(52%)](+3)
+
+05/22 17:57:33 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195149_206513950140_R02C01_Grn.idat.gz
+[DL:5.1MiB][#ecbc24 4.2MiB/7.0MiB(61%)][#58c659 3.1MiB/6.9MiB(44%)][#442ecb 3.6MiB/6.9MiB(52%)][#e591fc 4.1MiB/6.8MiB(60%)][#4f83f7 0B/0B](+3)
+[DL:3.2MiB][#ecbc24 4.3MiB/7.0MiB(61%)][#58c659 3.1MiB/6.9MiB(45%)][#442ecb 3.6MiB/6.9MiB(52%)][#e591fc 4.2MiB/6.8MiB(61%)][#4f83f7 0B/0B](+3)
+[DL:2.8MiB][#ecbc24 4.3MiB/7.0MiB(62%)][#58c659 3.1MiB/6.9MiB(45%)][#442ecb 3.6MiB/6.9MiB(52%)][#e591fc 4.2MiB/6.8MiB(61%)][#4f83f7 0B/0B](+3)
+
+05/22 17:57:37 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195158_206513950150_R04C01_Grn.idat.gz
+[DL:4.2MiB][#58c659 5.8MiB/6.9MiB(84%)][#442ecb 6.3MiB/6.9MiB(90%)][#e591fc 6.8MiB/6.8MiB(99%)][#4f83f7 0B/0B][#d9d2b9 64KiB/6.8MiB(0%)](+3)
+
+05/22 17:57:38 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195166_206513950169_R02C01_Grn.idat.gz
+[DL:3.6MiB][#58c659 5.8MiB/6.9MiB(84%)][#442ecb 6.3MiB/6.9MiB(91%)][#4f83f7 0B/0B][#d9d2b9 80KiB/6.8MiB(1%)][#152815 2.7MiB/6.9MiB(38%)](+3)
+
+05/22 17:57:39 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195162_206513950168_R05C01_Red.idat.gz
+
+05/22 17:57:40 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195162_206513950168_R05C01_Grn.idat.gz
+[DL:3.8MiB][#4f83f7 0B/0B][#d9d2b9 192KiB/6.8MiB(2%)][#152815 3.7MiB/6.9MiB(54%)][#dab098 3.7MiB/6.8MiB(54%)][#4dd0c2 0B/0B](+3)
+[DL:2.2MiB][#4f83f7 0B/6.9MiB(0%)][#d9d2b9 224KiB/6.8MiB(3%)][#152815 3.8MiB/6.9MiB(55%)][#dab098 3.7MiB/6.8MiB(54%)][#4dd0c2 0B/0B](+3)
+[DL:454KiB][#4f83f7 0B/6.9MiB(0%)][#d9d2b9 240KiB/6.8MiB(3%)][#152815 3.8MiB/6.9MiB(55%)][#dab098 3.7MiB/6.8MiB(54%)][#4dd0c2 0B/0B](+3)
+[DL:445KiB][#4f83f7 16KiB/6.9MiB(0%)][#d9d2b9 256KiB/6.8MiB(3%)][#152815 3.8MiB/6.9MiB(55%)][#dab098 3.8MiB/6.8MiB(55%)][#4dd0c2 0B/6.9MiB(0%)](+3) [FileAlloc:#80a479 0B/6.9MiB(0%)](+1)
+[DL:27KiB][#4f83f7 32KiB/6.9MiB(0%)][#d9d2b9 272KiB/6.8MiB(3%)][#152815 3.8MiB/6.9MiB(55%)][#dab098 3.8MiB/6.8MiB(55%)][#4dd0c2 0B/6.9MiB(0%)](+3) [FileAlloc:#30f8c9 0B/6.9MiB(0%)]
+[DL:39KiB][#4f83f7 64KiB/6.9MiB(0%)][#d9d2b9 304KiB/6.8MiB(4%)][#152815 3.8MiB/6.9MiB(56%)][#dab098 3.8MiB/6.8MiB(55%)][#4dd0c2 32KiB/6.9MiB(0%)](+3)
+
+05/22 17:57:52 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195173_206513950184_R01C01_Grn.idat.gz
+
+05/22 17:57:53 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195171_206513950170_R05C01_Red.idat.gz
+ *** Download Progress Summary as of Fri May 22 17:57:53 2026 *** 
+===============================================================================
+[#4f83f7 144KiB/6.9MiB(2%) CN:1 DL:24KiB ETA:4m39s]
+FILE: projects/GSE306227/idat/GSM9195166_206513950169_R02C01_Red.idat.gz
+-------------------------------------------------------------------------------
+[#d9d2b9 1.0MiB/6.8MiB(15%) CN:1 DL:146KiB ETA:40s]
+FILE: projects/GSE306227/idat/GSM9195171_206513950170_R05C01_Grn.idat.gz
+-------------------------------------------------------------------------------
+[#4dd0c2 112KiB/6.9MiB(1%) CN:1 DL:25KiB ETA:4m36s]
+FILE: projects/GSE306227/idat/GSM9195173_206513950184_R01C01_Red.idat.gz
+-------------------------------------------------------------------------------
+[#80a479 112KiB/6.9MiB(1%) CN:1 DL:34KiB ETA:3m21s]
+FILE: projects/GSE306227/idat/GSM9195180_206513950186_R08C01_Grn.idat.gz
+-------------------------------------------------------------------------------
+[#30f8c9 112KiB/6.9MiB(1%) CN:1 DL:43KiB ETA:2m40s]
+FILE: projects/GSE306227/idat/GSM9195180_206513950186_R08C01_Red.idat.gz
+-------------------------------------------------------------------------------
+[#b75416 80KiB/6.9MiB(1%) CN:1 DL:65KiB ETA:1m46s]
+FILE: projects/GSE306227/idat/GSM9195181_206513950194_R01C01_Grn.idat.gz
+-------------------------------------------------------------------------------
+[#97a2d3 0B/0B CN:1 DL:0B]
+FILE: https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195181/suppl/GSM9195181_206513950194_R01C01_Red.idat.gz
+-------------------------------------------------------------------------------
+[#c16eeb 0B/0B CN:0 DL:0B]
+FILE: https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195186/suppl/GSM9195186_206513950198_R03C01_Grn.idat.gz
+-------------------------------------------------------------------------------
+
+[DL:1.2MiB][#4f83f7 144KiB/6.9MiB(2%)][#d9d2b9 1.0MiB/6.8MiB(15%)][#4dd0c2 112KiB/6.9MiB(1%)][#80a479 112KiB/6.9MiB(1%)][#30f8c9 112KiB/6.9MiB(1%)](+3)
+[DL:1.3MiB][#4f83f7 352KiB/6.9MiB(4%)][#d9d2b9 2.5MiB/6.8MiB(36%)][#4dd0c2 352KiB/6.9MiB(4%)][#80a479 352KiB/6.9MiB(4%)][#30f8c9 224KiB/6.9MiB(3%)](+3)
+[DL:1.1MiB][#4f83f7 384KiB/6.9MiB(5%)][#d9d2b9 2.5MiB/6.8MiB(37%)][#4dd0c2 384KiB/6.9MiB(5%)][#80a479 384KiB/6.9MiB(5%)][#30f8c9 256KiB/6.9MiB(3%)](+3)
+
+05/22 17:57:57 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195171_206513950170_R05C01_Grn.idat.gz
+[DL:2.6MiB][#4f83f7 2.7MiB/6.9MiB(38%)][#4dd0c2 1.6MiB/6.9MiB(24%)][#80a479 2.3MiB/6.9MiB(34%)][#30f8c9 592KiB/6.9MiB(8%)][#b75416 3.2MiB/6.9MiB(46%)](+3)
+
+05/22 17:57:58 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195181_206513950194_R01C01_Grn.idat.gz
+[DL:3.9MiB][#4f83f7 6.2MiB/6.9MiB(90%)][#4dd0c2 4.5MiB/6.9MiB(65%)][#80a479 5.8MiB/6.9MiB(83%)][#30f8c9 816KiB/6.9MiB(11%)][#97a2d3 608KiB/7.0MiB(8%)](+2)
+
+05/22 17:58:00 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195166_206513950169_R02C01_Red.idat.gz
+[DL:4.9MiB][#4dd0c2 5.1MiB/6.9MiB(74%)][#80a479 6.4MiB/6.9MiB(93%)][#30f8c9 1.4MiB/6.9MiB(20%)][#97a2d3 1.2MiB/7.0MiB(17%)][#c16eeb 1.5MiB/6.8MiB(22%)](+1)
+
+05/22 17:58:01 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195180_206513950186_R08C01_Grn.idat.gz
+[DL:4.6MiB][#4dd0c2 5.6MiB/6.9MiB(81%)][#30f8c9 1.9MiB/6.9MiB(27%)][#97a2d3 1.7MiB/7.0MiB(24%)][#c16eeb 2.0MiB/6.8MiB(29%)][#6734b4 1.0MiB/6.9MiB(15%)]
+
+05/22 17:58:03 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195173_206513950184_R01C01_Red.idat.gz
+[DL:4.5MiB][#30f8c9 3.2MiB/6.9MiB(45%)][#97a2d3 2.8MiB/7.0MiB(40%)][#c16eeb 3.2MiB/6.8MiB(47%)][#6734b4 2.3MiB/6.9MiB(34%)]
+
+05/22 17:58:04 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195186_206513950198_R03C01_Red.idat.gz
+[DL:5.7MiB][#30f8c9 6.7MiB/6.9MiB(96%)][#97a2d3 4.3MiB/7.0MiB(61%)][#c16eeb 5.8MiB/6.8MiB(85%)]
+
+05/22 17:58:05 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195180_206513950186_R08C01_Red.idat.gz
+
+05/22 17:58:06 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195186_206513950198_R03C01_Grn.idat.gz
+[#97a2d3 5.3MiB/7.0MiB(75%) CN:1 DL:584KiB ETA:3s]
+
+05/22 17:58:07 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195181_206513950194_R01C01_Red.idat.gz
+
+Download Results:
+gid   |stat|avg speed  |path/URI
+======+====+===========+=======================================================
+c80ab4|ERR |       0B/s|https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195122/suppl/GSM9195122_206154080123_R02C01_Red.idat.gz
+d9fdf5|ERR |       0B/s|https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195116/suppl/GSM9195116_205854150033_R06C01_Red.idat.gz
+310964|ERR |       0B/s|https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195129/suppl/GSM9195129_206154250078_R03C01_Red.idat.gz
+332eb8|ERR |       0B/s|https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195116/suppl/GSM9195116_205854150033_R06C01_Grn.idat.gz
+509900|OK  |   328KiB/s|projects/GSE306227/idat/GSM9195122_206154080123_R02C01_Grn.idat.gz
+0e676c|OK  |   352KiB/s|projects/GSE306227/idat/GSM9195121_206154080074_R08C01_Grn.idat.gz
+62eee2|OK  |   2.2MiB/s|projects/GSE306227/idat/GSM9195144_206154250093_R07C01_Red.idat.gz
+327e6a|OK  |   410KiB/s|projects/GSE306227/idat/GSM9195121_206154080074_R08C01_Red.idat.gz
+5d2f59|OK  |   305KiB/s|projects/GSE306227/idat/GSM9195129_206154250078_R03C01_Grn.idat.gz
+a4c640|OK  |   537KiB/s|projects/GSE306227/idat/GSM9195145_206513950089_R01C01_Grn.idat.gz
+022c95|OK  |   331KiB/s|projects/GSE306227/idat/GSM9195135_206154250088_R04C01_Red.idat.gz
+3e3764|OK  |   466KiB/s|projects/GSE306227/idat/GSM9195137_206154250090_R01C01_Grn.idat.gz
+897c77|OK  |   194KiB/s|projects/GSE306227/idat/GSM9195135_206154250088_R04C01_Grn.idat.gz
+3dffd3|OK  |   215KiB/s|projects/GSE306227/idat/GSM9195145_206513950089_R01C01_Red.idat.gz
+6e2ed7|OK  |   289KiB/s|projects/GSE306227/idat/GSM9195155_206513950147_R07C01_Grn.idat.gz
+00f32a|OK  |   254KiB/s|projects/GSE306227/idat/GSM9195152_206513950140_R08C01_Grn.idat.gz
+9e68cc|OK  |   201KiB/s|projects/GSE306227/idat/GSM9195137_206154250090_R01C01_Red.idat.gz
+739835|OK  |   174KiB/s|projects/GSE306227/idat/GSM9195144_206154250093_R07C01_Grn.idat.gz
+b4292b|OK  |   1.3MiB/s|projects/GSE306227/idat/GSM9195164_206513950168_R07C01_Red.idat.gz
+af8b6a|OK  |   454KiB/s|projects/GSE306227/idat/GSM9195155_206513950147_R07C01_Red.idat.gz
+a23c28|OK  |   1.4MiB/s|projects/GSE306227/idat/GSM9195169_206513950170_R03C01_Grn.idat.gz
+daa968|OK  |   336KiB/s|projects/GSE306227/idat/GSM9195152_206513950140_R08C01_Red.idat.gz
+25c0c9|OK  |   2.0MiB/s|projects/GSE306227/idat/GSM9195174_206513950184_R02C01_Red.idat.gz
+bda91e|ERR |       0B/s|https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195160/suppl/GSM9195160_206513950150_R07C01_Grn.idat.gz
+371d7d|ERR |       0B/s|https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195160/suppl/GSM9195160_206513950150_R07C01_Red.idat.gz
+490d90|ERR |       0B/s|https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195164/suppl/GSM9195164_206513950168_R07C01_Grn.idat.gz
+0bd57f|OK  |   489KiB/s|projects/GSE306227/idat/GSM9195179_206513950186_R07C01_Grn.idat.gz
+6b6c16|ERR |       0B/s|https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM9195nnn/GSM9195168/suppl/GSM9195168_206513950169_R06C01_Red.idat.gz
+b24353|OK  |   845KiB/s|projects/GSE306227/idat/GSM9195182_206513950194_R03C01_Grn.idat.gz
+4c7f5a|OK  |   684KiB/s|projects/GSE306227/idat/GSM9195179_206513950186_R07C01_Red.idat.gz
+ad824e|OK  |   893KiB/s|projects/GSE306227/idat/GSM9195182_206513950194_R03C01_Red.idat.gz
+6dff37|OK  |   4.8MiB/s|projects/GSE306227/idat/GSM9195117_205854150033_R07C01_Red.idat.gz
+7df906|OK  |   2.0MiB/s|projects/GSE306227/idat/GSM9195120_206154080074_R06C01_Grn.idat.gz
+260d22|OK  |   765KiB/s|projects/GSE306227/idat/GSM9195174_206513950184_R02C01_Grn.idat.gz
+809f0a|OK  |   226KiB/s|projects/GSE306227/idat/GSM9195169_206513950170_R03C01_Red.idat.gz
+56dac2|OK  |   229KiB/s|projects/GSE306227/idat/GSM9195168_206513950169_R06C01_Grn.idat.gz
+4a8334|OK  |   556KiB/s|projects/GSE306227/idat/GSM9195117_205854150033_R07C01_Grn.idat.gz
+147bf2|OK  |   801KiB/s|projects/GSE306227/idat/GSM9195126_206154250020_R03C01_Grn.idat.gz
+f907b4|OK  |   0.9MiB/s|projects/GSE306227/idat/GSM9195126_206154250020_R03C01_Red.idat.gz
+5fa2fb|OK  |   231KiB/s|projects/GSE306227/idat/GSM9195187_206513950198_R04C01_Grn.idat.gz
+1a8df9|OK  |   218KiB/s|projects/GSE306227/idat/GSM9195120_206154080074_R06C01_Red.idat.gz
+489f74|OK  |   227KiB/s|projects/GSE306227/idat/GSM9195187_206513950198_R04C01_Red.idat.gz
+6104d9|OK  |   292KiB/s|projects/GSE306227/idat/GSM9195125_206154080123_R08C01_Grn.idat.gz
+1a61dd|OK  |   353KiB/s|projects/GSE306227/idat/GSM9195125_206154080123_R08C01_Red.idat.gz
+17250e|OK  |   374KiB/s|projects/GSE306227/idat/GSM9195132_206154250078_R07C01_Grn.idat.gz
+5b17ee|OK  |   203KiB/s|projects/GSE306227/idat/GSM9195132_206154250078_R07C01_Red.idat.gz
+8aa2fc|OK  |   237KiB/s|projects/GSE306227/idat/GSM9195136_206154250088_R06C01_Red.idat.gz
+4db5c1|OK  |   294KiB/s|projects/GSE306227/idat/GSM9195136_206154250088_R06C01_Grn.idat.gz
+7d2f6c|OK  |   322KiB/s|projects/GSE306227/idat/GSM9195141_206154250093_R03C01_Red.idat.gz
+fd160c|OK  |   206KiB/s|projects/GSE306227/idat/GSM9195139_206154250090_R04C01_Red.idat.gz
+855770|OK  |   204KiB/s|projects/GSE306227/idat/GSM9195141_206154250093_R03C01_Grn.idat.gz
+619a2e|OK  |   636KiB/s|projects/GSE306227/idat/GSM9195147_206513950089_R04C01_Red.idat.gz
+89902d|OK  |   307KiB/s|projects/GSE306227/idat/GSM9195139_206154250090_R04C01_Grn.idat.gz
+b5bc81|OK  |   490KiB/s|projects/GSE306227/idat/GSM9195149_206513950140_R02C01_Red.idat.gz
+cc96da|OK  |   684KiB/s|projects/GSE306227/idat/GSM9195153_206513950147_R01C01_Red.idat.gz
+40f0f6|OK  |   405KiB/s|projects/GSE306227/idat/GSM9195153_206513950147_R01C01_Grn.idat.gz
+4babff|OK  |   898KiB/s|projects/GSE306227/idat/GSM9195158_206513950150_R04C01_Red.idat.gz
+fe1df1|OK  |   276KiB/s|projects/GSE306227/idat/GSM9195147_206513950089_R04C01_Grn.idat.gz
+83fc28|OK  |   368KiB/s|projects/GSE306227/idat/GSM9195149_206513950140_R02C01_Grn.idat.gz
+ecbc24|OK  |   407KiB/s|projects/GSE306227/idat/GSM9195158_206513950150_R04C01_Grn.idat.gz
+e591fc|OK  |   671KiB/s|projects/GSE306227/idat/GSM9195166_206513950169_R02C01_Grn.idat.gz
+442ecb|OK  |   439KiB/s|projects/GSE306227/idat/GSM9195162_206513950168_R05C01_Red.idat.gz
+58c659|OK  |   734KiB/s|projects/GSE306227/idat/GSM9195162_206513950168_R05C01_Grn.idat.gz
+dab098|OK  |   430KiB/s|projects/GSE306227/idat/GSM9195173_206513950184_R01C01_Grn.idat.gz
+152815|OK  |   367KiB/s|projects/GSE306227/idat/GSM9195171_206513950170_R05C01_Red.idat.gz
+d9d2b9|OK  |   310KiB/s|projects/GSE306227/idat/GSM9195171_206513950170_R05C01_Grn.idat.gz
+b75416|OK  |   1.0MiB/s|projects/GSE306227/idat/GSM9195181_206513950194_R01C01_Grn.idat.gz
+4f83f7|OK  |   380KiB/s|projects/GSE306227/idat/GSM9195166_206513950169_R02C01_Red.idat.gz
+80a479|OK  |   598KiB/s|projects/GSE306227/idat/GSM9195180_206513950186_R08C01_Grn.idat.gz
+4dd0c2|OK  |   492KiB/s|projects/GSE306227/idat/GSM9195173_206513950184_R01C01_Red.idat.gz
+6734b4|OK  |   1.3MiB/s|projects/GSE306227/idat/GSM9195186_206513950198_R03C01_Red.idat.gz
+30f8c9|OK  |   490KiB/s|projects/GSE306227/idat/GSM9195180_206513950186_R08C01_Red.idat.gz
+c16eeb|OK  |   688KiB/s|projects/GSE306227/idat/GSM9195186_206513950198_R03C01_Grn.idat.gz
+97a2d3|OK  |   566KiB/s|projects/GSE306227/idat/GSM9195181_206513950194_R01C01_Red.idat.gz
+
+Status Legend:
+(OK):download completed.(ERR):error occurred.
+
+aria2 will resume download if the transfer is restarted.
+If there are any errors, then see the log file. See '-l' option in help/man page for details.
+
+05/22 17:58:22 [[1;32mNOTICE[0m] Downloading 8 item(s)
+[DL:0B][#02866c 0B/0B][#4b43a4 0B/7.0MiB(0%)]
+[DL:12KiB][#02866c 0B/7.0MiB(0%)][#4b43a4 0B/7.0MiB(0%)]
+[DL:421KiB][#02866c 480KiB/7.0MiB(6%)][#4b43a4 432KiB/7.0MiB(6%)]
+
+05/22 17:58:28 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195116_205854150033_R06C01_Red.idat.gz
+[DL:2.8MiB][#02866c 4.2MiB/7.0MiB(60%)][#9b15b0 0B/0B]
+
+05/22 17:58:28 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195116_205854150033_R06C01_Grn.idat.gz
+[DL:2.4MiB][#9b15b0 0B/6.9MiB(0%)][#4c8390 0B/0B]
+[DL:2.6MiB][#9b15b0 5.0MiB/6.9MiB(72%)][#4c8390 0B/7.0MiB(0%)]
+
+05/22 17:58:32 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195122_206154080123_R02C01_Red.idat.gz
+[DL:3.1MiB][#4c8390 5.0MiB/7.0MiB(72%)][#44cff3 0B/0B]
+
+05/22 17:58:33 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195129_206154250078_R03C01_Red.idat.gz
+[DL:2.8MiB][#44cff3 0B/0B][#12d040 0B/0B]
+[DL:2.9MiB][#44cff3 0B/7.0MiB(0%)][#12d040 0B/0B]
+[DL:2.2MiB][#44cff3 4.2MiB/7.0MiB(60%)][#12d040 0B/7.1MiB(0%)]
+
+05/22 17:58:39 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195160_206513950150_R07C01_Grn.idat.gz
+[DL:2.5MiB][#12d040 2.7MiB/7.1MiB(38%)][#bc7a9a 0B/0B]
+[DL:2.4MiB][#12d040 7.0MiB/7.1MiB(98%)][#bc7a9a 0B/0B]
+
+05/22 17:58:41 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195160_206513950150_R07C01_Red.idat.gz
+[DL:1.7MiB][#bc7a9a 0B/0B][#aae522 0B/0B]
+[DL:1.8MiB][#bc7a9a 0B/6.9MiB(0%)][#aae522 0B/6.9MiB(0%)] [FileAlloc:#bc7a9a 0B/6.9MiB(0%)]
+[DL:1.6MiB][#bc7a9a 0B/6.9MiB(0%)][#aae522 0B/6.9MiB(0%)]
+
+05/22 17:58:46 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195168_206513950169_R06C01_Red.idat.gz
+[#bc7a9a 176KiB/6.9MiB(2%) CN:1 DL:122KiB ETA:56s]
+[#bc7a9a 0.9MiB/6.9MiB(13%) CN:1 DL:363KiB ETA:16s]
+[#bc7a9a 1.5MiB/6.9MiB(21%) CN:1 DL:415KiB ETA:13s]
+[#bc7a9a 2.2MiB/6.9MiB(31%) CN:1 DL:473KiB ETA:10s]
+[#bc7a9a 3.1MiB/6.9MiB(44%) CN:1 DL:552KiB ETA:7s]
+[#bc7a9a 4.2MiB/6.9MiB(61%) CN:1 DL:644KiB ETA:4s]
+[#bc7a9a 5.7MiB/6.9MiB(82%) CN:1 DL:755KiB ETA:1s]
+
+05/22 17:58:54 [[1;32mNOTICE[0m] Download complete: projects/GSE306227/idat/GSM9195164_206513950168_R07C01_Grn.idat.gz
+
+Download Results:
+gid   |stat|avg speed  |path/URI
+======+====+===========+=======================================================
+4b43a4|OK  |   1.6MiB/s|projects/GSE306227/idat/GSM9195116_205854150033_R06C01_Red.idat.gz
+02866c|OK  |   1.7MiB/s|projects/GSE306227/idat/GSM9195116_205854150033_R06C01_Grn.idat.gz
+9b15b0|OK  |   2.8MiB/s|projects/GSE306227/idat/GSM9195122_206154080123_R02C01_Red.idat.gz
+4c8390|OK  |   3.0MiB/s|projects/GSE306227/idat/GSM9195129_206154250078_R03C01_Red.idat.gz
+44cff3|OK  |   1.8MiB/s|projects/GSE306227/idat/GSM9195160_206513950150_R07C01_Grn.idat.gz
+12d040|OK  |   1.5MiB/s|projects/GSE306227/idat/GSM9195160_206513950150_R07C01_Red.idat.gz
+aae522|OK  |   2.0MiB/s|projects/GSE306227/idat/GSM9195168_206513950169_R06C01_Red.idat.gz
+bc7a9a|OK  |   735KiB/s|projects/GSE306227/idat/GSM9195164_206513950168_R07C01_Grn.idat.gz
+
+Status Legend:
+(OK):download completed.

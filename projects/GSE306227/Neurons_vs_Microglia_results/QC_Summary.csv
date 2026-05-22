@@ -1,0 +1,12 @@
+"metric","value"
+"Total_samples_input",37
+"Samples_failed_QC",0
+"Samples_passed_QC",37
+"Samples_failed_sex_mismatch",0
+"Sex_mismatch_samples",0
+"Total_probes_raw",865859
+"Probes_failed_detection",4824
+"Probes_cross_reactive",44254
+"Probes_with_SNPs",26679
+"Probes_sex_chromosomes",17508
+"Probes_final",772594

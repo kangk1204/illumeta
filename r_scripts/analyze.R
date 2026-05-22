@@ -4058,6 +4058,68 @@ compute_dmr_delta_beta <- function(dmr_res, dmr_anno, mean_con, mean_test) {
   dmr_res
 }
 
+collapse_dmr_annotation_tokens <- function(vals, max_n = 5) {
+  vals <- as.character(vals)
+  vals[is.na(vals)] <- ""
+  vals <- vals[nzchar(vals)]
+  if (length(vals) == 0) return("")
+  toks <- unlist(strsplit(vals, "[;,]"))
+  toks <- trimws(toks)
+  toks <- toks[nzchar(toks)]
+  if (length(toks) == 0) return("")
+  paste(head(unique(toks), max_n), collapse = ";")
+}
+
+annotate_dmr_regions <- function(dmr_res, anno_tbl, max_n = 5) {
+  if (nrow(dmr_res) == 0 || nrow(anno_tbl) == 0) return(dmr_res)
+  if (!all(c("chr", "start", "end") %in% colnames(dmr_res))) return(dmr_res)
+  if (!all(c("chr", "pos") %in% colnames(anno_tbl))) return(dmr_res)
+
+  if (!("Gene" %in% colnames(anno_tbl))) anno_tbl$Gene <- ""
+  if (!("Region" %in% colnames(anno_tbl))) anno_tbl$Region <- ""
+
+  dmr_res$Genes <- ""
+  dmr_res$Regions <- ""
+
+  anno_chr <- as.character(anno_tbl$chr)
+  anno_pos <- suppressWarnings(as.numeric(anno_tbl$pos))
+  anno_gene <- as.character(anno_tbl$Gene)
+  anno_region <- as.character(anno_tbl$Region)
+  anno_gene[is.na(anno_gene)] <- ""
+  anno_region[is.na(anno_region)] <- ""
+
+  res_chr <- as.character(dmr_res$chr)
+  common_chr <- intersect(unique(res_chr), unique(anno_chr[is.finite(anno_pos)]))
+  if (length(common_chr) == 0) return(dmr_res)
+
+  for (chr in common_chr) {
+    idx_region <- which(res_chr == chr)
+    idx_cpg <- which(anno_chr == chr & is.finite(anno_pos))
+    if (length(idx_region) == 0 || length(idx_cpg) == 0) next
+
+    ord <- order(anno_pos[idx_cpg])
+    pos_ord <- anno_pos[idx_cpg][ord]
+    gene_ord <- anno_gene[idx_cpg][ord]
+    region_ord <- anno_region[idx_cpg][ord]
+
+    starts <- suppressWarnings(as.numeric(dmr_res$start[idx_region]))
+    ends <- suppressWarnings(as.numeric(dmr_res$end[idx_region]))
+    lo <- findInterval(starts - 1, pos_ord) + 1
+    hi <- findInterval(ends, pos_ord)
+    valid <- is.finite(starts) & is.finite(ends) & hi >= lo & hi > 0
+    if (!any(valid)) next
+
+    for (j in which(valid)) {
+      slice <- lo[j]:hi[j]
+      target_row <- idx_region[j]
+      dmr_res$Genes[target_row] <- collapse_dmr_annotation_tokens(gene_ord[slice], max_n = max_n)
+      dmr_res$Regions[target_row] <- collapse_dmr_annotation_tokens(region_ord[slice], max_n = max_n)
+    }
+  }
+
+  dmr_res
+}
+
 normalize_tissue <- function(x) {
   if (is.null(x) || length(x) == 0) return(NA_character_)
   val <- trimws(as.character(x)[1])
@@ -6095,59 +6157,6 @@ run_dmrff_with_inputs <- function(dmr_df, betas, targets, curr_anno, prefix, out
     return(list(res = dmr_res, status = "skipped_too_few_cpgs", reason = "fewer_than_100_cpgs"))
   }
 
-	  annotate_dmr <- function(df, anno_tbl) {
-	    if (nrow(df) == 0) return(df)
-	    anno_tbl$Gene <- ifelse(is.na(anno_tbl$Gene), "", anno_tbl$Gene)
-	    anno_tbl$Region <- ifelse(is.na(anno_tbl$Region), "", anno_tbl$Region)
-	    collapse_unique_tokens <- function(vals, max_n = 5) {
-	      vals <- as.character(vals)
-	      vals[is.na(vals)] <- ""
-	      vals <- vals[nzchar(vals)]
-	      if (length(vals) == 0) return("")
-	      toks <- unlist(strsplit(vals, "[;,]"))
-	      toks <- trimws(toks)
-	      toks <- toks[nzchar(toks)]
-	      if (length(toks) == 0) return("")
-	      toks <- unique(toks)
-	      paste(head(toks, max_n), collapse = ";")
-	    }
-	    gene_region <- function(chr, start, end, field) {
-	      idx <- which(anno_tbl$chr == chr & anno_tbl$pos >= start & anno_tbl$pos <= end)
-	      if (length(idx) == 0) return("")
-	      collapse_unique_tokens(anno_tbl[idx, field], max_n = 5)
-	    }
-	    df$Genes <- mapply(gene_region, df$chr, df$start, df$end, MoreArgs = list(field = "Gene"))
-	    df$Regions <- mapply(gene_region, df$chr, df$start, df$end, MoreArgs = list(field = "Region"))
-	    df
-	  }
-
-  compute_dmr_delta_beta <- function(df, anno_tbl, mean_con, mean_test) {
-    if (nrow(df) == 0) return(df)
-    anno_tbl$CpG <- rownames(anno_tbl)
-    dmr_delta <- numeric(nrow(df))
-    for (i in seq_len(nrow(df))) {
-      chr <- df$chr[i]
-      start <- df$start[i]
-      end <- df$end[i]
-      idx <- which(anno_tbl$chr == chr & anno_tbl$pos >= start & anno_tbl$pos <= end)
-      if (length(idx) > 0) {
-        cpgs <- anno_tbl$CpG[idx]
-        cpgs <- cpgs[!is.na(cpgs)]
-        if (length(cpgs) > 0) {
-          dcon <- mean_con[cpgs]
-          dtest <- mean_test[cpgs]
-          dmr_delta[i] <- mean(dtest - dcon, na.rm = TRUE)
-        } else {
-          dmr_delta[i] <- NA_real_
-        }
-      } else {
-        dmr_delta[i] <- NA_real_
-      }
-    }
-    df$Delta_Beta <- dmr_delta
-    df
-  }
-
   tryCatch({
     dmr_res <- dmrff(
       estimate = dmr_est,
@@ -6167,7 +6176,7 @@ run_dmrff_with_inputs <- function(dmr_df, betas, targets, curr_anno, prefix, out
         message(paste("    - Filtered DMRs by min CpGs >=", dmr_min_cpgs, ":", dmr_before, "->", nrow(dmr_res)))
       }
       if (nrow(dmr_res) > 0) {
-        dmr_res <- annotate_dmr(dmr_res, curr_anno)
+        dmr_res <- annotate_dmr_regions(dmr_res, curr_anno)
         dmr_res <- compute_dmr_delta_beta(dmr_res, dmr_anno, dmr_mean_con, dmr_mean_test)
         dmr_res <- dmr_res[order(dmr_res$p.value, dmr_res$p.adjust, na.last = TRUE), ]
         message(paste("    - Found", nrow(dmr_res), "DMRs."))

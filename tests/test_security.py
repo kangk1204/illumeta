@@ -7,20 +7,30 @@ import unittest
 class TestGSEValidation(unittest.TestCase):
     """GSE ID must be GSE followed by digits only."""
 
-    PATTERN = re.compile(r'^GSE\d+$')
+    PATTERN = re.compile(r"GSE\d+\Z")
+
+    def test_public_validator(self):
+        from illumeta import is_valid_gse_id
+
+        self.assertTrue(is_valid_gse_id("GSE12345"))
+        self.assertTrue(is_valid_gse_id("GSE1", max_digits=8))
+        self.assertFalse(is_valid_gse_id("GSE12345\n"))
+        self.assertFalse(is_valid_gse_id("GSE123456789", max_digits=8))
+        self.assertFalse(is_valid_gse_id("gse12345"))
 
     def test_valid_gse(self):
-        self.assertIsNotNone(self.PATTERN.match("GSE12345"))
-        self.assertIsNotNone(self.PATTERN.match("GSE1"))
-        self.assertIsNotNone(self.PATTERN.match("GSE999999"))
+        self.assertIsNotNone(self.PATTERN.fullmatch("GSE12345"))
+        self.assertIsNotNone(self.PATTERN.fullmatch("GSE1"))
+        self.assertIsNotNone(self.PATTERN.fullmatch("GSE999999"))
 
     def test_rejects_injection(self):
-        self.assertIsNone(self.PATTERN.match('GSE12345; rm -rf /'))
-        self.assertIsNone(self.PATTERN.match('GSE12345\nGSE99999'))
-        self.assertIsNone(self.PATTERN.match('../etc/passwd'))
-        self.assertIsNone(self.PATTERN.match(''))
-        self.assertIsNone(self.PATTERN.match('GSE'))
-        self.assertIsNone(self.PATTERN.match('gse12345'))
+        self.assertIsNone(self.PATTERN.fullmatch("GSE12345; rm -rf /"))
+        self.assertIsNone(self.PATTERN.fullmatch("GSE12345\n"))
+        self.assertIsNone(self.PATTERN.fullmatch("GSE12345\nGSE99999"))
+        self.assertIsNone(self.PATTERN.fullmatch("../etc/passwd"))
+        self.assertIsNone(self.PATTERN.fullmatch(""))
+        self.assertIsNone(self.PATTERN.fullmatch("GSE"))
+        self.assertIsNone(self.PATTERN.fullmatch("gse12345"))
 
     def test_geo_suppl_url_validates(self):
         from illumeta import geo_suppl_url
@@ -35,6 +45,8 @@ class TestGSEValidation(unittest.TestCase):
             geo_suppl_url("")
         with self.assertRaises(ValueError):
             geo_suppl_url("notGSE123")
+        with self.assertRaises(ValueError):
+            geo_suppl_url("GSE12345\n")
 
 
 class TestRPackageNameValidation(unittest.TestCase):

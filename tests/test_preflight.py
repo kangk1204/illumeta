@@ -92,6 +92,36 @@ class PreflightTests(unittest.TestCase):
             self.assertEqual(result["group_con"], 1)
             self.assertEqual(result["group_test"], 1)
 
+    def test_preflight_falls_back_when_basename_has_only_one_channel(self):
+        """A basename is valid only when both red and green IDAT channels exist."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            idat_dir = os.path.join(tmpdir, "idat")
+            os.makedirs(idat_dir, exist_ok=True)
+            for sample in ("S1_R01C01", "S2_R01C01"):
+                open(os.path.join(idat_dir, f"{sample}_Grn.idat"), "wb").close()
+                open(os.path.join(idat_dir, f"{sample}_Red.idat"), "wb").close()
+            bad_base = os.path.join(tmpdir, "bad_basename")
+            open(f"{bad_base}_Grn.idat", "wb").close()
+
+            config_path = os.path.join(tmpdir, "configure.tsv")
+            headers = ["GSM", "Basename", "primary_group"]
+            rows = [
+                {"GSM": "S1", "Basename": bad_base, "primary_group": "control"},
+                {"GSM": "S2", "Basename": "S2_R01C01", "primary_group": "test"},
+            ]
+            write_config(config_path, headers, rows)
+
+            result = preflight_analysis(
+                config_path=config_path,
+                idat_dir=idat_dir,
+                group_con="control",
+                group_test="test",
+                min_total_size=2,
+                id_column="GSM",
+            )
+            self.assertEqual(result["group_con"], 1)
+            self.assertEqual(result["group_test"], 1)
+
     def test_preflight_filters_non_target_groups(self):
         """Samples with labels outside control/test are excluded and config rewritten."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -234,7 +264,7 @@ class PreflightTests(unittest.TestCase):
         with open(download_path, "r", encoding="utf-8") as handle:
             src = handle.read()
 
-        validation_pos = src.index('grepl("^GSE[0-9]+$", gse_id)')
+        validation_pos = src.index('grepl("^GSE[0-9]+\\\\z", x, perl = TRUE)')
         network_pos = src.index("getGEO(gse_id")
         self.assertLess(validation_pos, network_pos)
 

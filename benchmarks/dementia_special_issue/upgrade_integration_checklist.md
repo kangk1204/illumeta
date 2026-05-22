@@ -12,7 +12,7 @@ Generated: 2026-05-22T08:54:01.986795+00:00
 
 | Task | Owner | Status | Lease | Integration action |
 | --- | --- | --- | --- | --- |
-| 1: GSE306227 independent CEAM neural cell-type reference analysis | worker-1 | in_progress | 2026-05-22T09:05:04.897Z | wait for terminal evidence |
+| 1: GSE306227 independent CEAM neural cell-type reference analysis | worker-1 | completed |  | integrate as guarded neural cell-type reference evidence |
 | 2: GSE203332 frontal cortex AD specificity/stress-test lane | worker-2 | completed |  | integrate completed evidence |
 | 3: Optional extension readiness: GSE226298 and GSE153712 | worker-3 | completed |  | record readiness/deferred evidence; do not pool with brain/neural cohorts |
 | 4: Integration and verification for manuscript upgrade evidence | worker-4 | completed in task state; checklist committed as durable handoff |  | maintain this checklist until task 1 terminal evidence arrives |
@@ -79,7 +79,7 @@ For every completed or failed dataset lane, record the dataset-specific decision
 | GSE306226 native consensus | present | `projects/GSE306226/Neurons_vs_Microglia_results/Intersection_Native_Consensus_DMPs.csv` |
 | GSE66351 neuron-occipital summary.json | present | `projects/GSE66351/AD_vs_CTRL_neuron_occipital_results_direct_run5_tier3skip/summary.json` |
 | GSE66351 bulk summary.json | present | `projects/GSE66351/AD_vs_CTRL_bulk_results_lcC_run5_limmavp0_skipcompare/summary.json` |
-| GSE306227 terminal result scan | project dir present | no terminal `summary.json` found yet |
+| GSE306227 terminal result scan | terminal result present | `/home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/Neurons_vs_Microglia_results/summary.json`; strict 324706; native 334911; DMR 49744/43448/44498 |
 | GSE203332 terminal result scan | readiness artifacts present in worker-2 worktree; no terminal run summary | `projects/GSE203332/gse203332_lane_status.md`; no `summary.json` yet |
 | GSE226298 terminal result scan | readiness artifacts present in worker-3 worktree; no terminal run summary | `projects/GSE226298/README_readiness.md`; granulocytes 39/26, monocytes 24/17 |
 | GSE153712 terminal result scan | readiness artifacts present in worker-3 worktree; no terminal run summary | `projects/GSE153712/README_readiness.md`; AD 161/471, MCI 94/471 |
@@ -92,6 +92,18 @@ For every completed or failed dataset lane, record the dataset-specific decision
 - Regression gaps to preserve in final audit: no direct schema/golden test for `summary.json`; no automatic row-count parity check between `summary.json` and strict/native consensus CSVs; no direct lambda/status parity check between `*_Metrics.csv`, dashboards, and `summary.json`; no enforced source-data/manuscript drift test.
 - Change-slice finding: final cross-cohort and cell-type-reframe edits are blocked until task 1 reaches a terminal state; task 2 contributes readiness/contrast-design evidence and task 3 contributes optional readiness/deferred evidence only at this point.
 
+## Task 7 final guarded integration update
+
+Generated: 2026-05-22T11:14:23.840732+00:00
+
+- `GSE306227` terminal evidence is now available and classified as completed guarded neural cell-type reference / cell-type-dependence evidence. Artifact path: `/home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/Neurons_vs_Microglia_results`.
+- Verified GSE306227 counts: Microglia n=18, Neurons n=19; strict consensus DMP rows=324706; native consensus DMP rows=334911; DMR rows Minfi=49744, SeSAMe=43448, SeSAMe native=44498.
+- GSE306227 branch concordance: strict logFC r=0.999718, Jaccard=0.972599; native logFC r=0.999706, Jaccard=0.977326.
+- GSE306227 lambda guard remains triggered in all branches: Minfi lambda=36.8832641566773; SeSAMe lambda=38.0124018334161; SeSAMe native lambda=35.529493432393. Use as positive-control/reference signal recovery, not unqualified discovery or universal AD biomarker evidence.
+- `GSE203332` terminal task evidence is an explicit blocker/readiness result, not completed biology: primary neuropathological AD-vs-CONTR contrast AD=61 / Control=74 after QC; selected primary IDAT download 270 files / 135 pairs / 1.99GB; summary/DMP/DMR/lambda outputs missing by runtime setup blocker. Artifact path: `/home/keunsoo/Projects/23_illumeta/projects/GSE203332`.
+- `GSE226298` and `GSE153712` remain optional peripheral/deferred readiness evidence.
+- Detailed task-7 evidence and artifact paths are in `benchmarks/dementia_special_issue/task7_guarded_integration_summary.md`.
+
 ## Ready-to-run verification commands
 
 ```bash
@@ -103,4 +115,4 @@ pytest tests/test_dashboard_warnings.py tests/test_integration.py
 
 ## Stop condition for final integration
 
-Final manuscript-facing integration is safe only after task 1 is completed or failed with explicit evidence and the leader has merged terminal artifacts from task 2/3 worktrees. Until then, this checklist is the derived artifact of record: GSE203332, GSE226298, and GSE153712 are readiness/deferred evidence only, and GSE306227 remains pending for aggregate claims.
+Task 7 completed the guarded note-level integration after task 1 and task 5 terminal evidence. Generated cross-cohort/cell-type-reframe tables and manuscript counts remain unchanged until their builders are schema-updated for the new GSE306227 reference-axis row; GSE203332 remains blocked/readiness-only and must not enter completed-cohort counts.

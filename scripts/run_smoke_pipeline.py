@@ -2,6 +2,7 @@
 import argparse
 import csv
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -10,6 +11,15 @@ from pathlib import Path
 
 
 REQUIRED_FIELDS = ("config", "group_con", "group_test")
+
+
+def safe_job_name(name: str, fallback: str = "job") -> str:
+    """Return a path-safe job name for derived output/log paths."""
+    text = (name or "").strip()
+    text = re.sub(r"\s+", "_", text)
+    text = re.sub(r"[^A-Za-z0-9._-]+", "_", text)
+    text = re.sub(r"_+", "_", text).strip("._-")
+    return text or fallback
 
 
 def load_jobs(path: Path):
@@ -26,7 +36,9 @@ def load_jobs(path: Path):
             if not job["config"]:
                 continue
             job["config"] = str(Path(job["config"]).expanduser())
-            job["name"] = job.get("name") or Path(job["config"]).stem
+            raw_name = job.get("name") or Path(job["config"]).stem
+            job["raw_name"] = raw_name
+            job["name"] = safe_job_name(raw_name)
             jobs.append(job)
     if not jobs:
         raise ValueError("No valid jobs found.")

@@ -1853,7 +1853,7 @@ def run_search(args):
         _get_requests()
     except RuntimeError as exc:
         log_err(f"Error: {exc}")
-        return
+        return 1
 
     if args.email:
         log(f"[*] Using contact email for NCBI requests: {args.email}")
@@ -1861,14 +1861,21 @@ def run_search(args):
     keywords = (args.keywords or "").strip()
     if not keywords:
         log_err("--keywords is required and cannot be empty.")
-        return
+        return 2
 
-    term = build_search_term(keywords)
-    ids = search_gse_ids(term, args.email, args.sleep, args.retmax)
-    summaries = fetch_search_summaries(ids, args.email, args.sleep)
-    enrich_with_suppl_check(summaries, args.check_suppl, args.sleep)
-    write_search_tsv(summaries, args.output)
+    try:
+        term = build_search_term(keywords)
+        ids = search_gse_ids(term, args.email, args.sleep, args.retmax)
+        summaries = fetch_search_summaries(ids, args.email, args.sleep)
+        enrich_with_suppl_check(summaries, args.check_suppl, args.sleep)
+        write_search_tsv(summaries, args.output)
+    except Exception as exc:
+        # CLI boundary: convert network/XML/runtime failures into a reliable
+        # non-zero exit code so batch workflows do not treat failed searches as success.
+        log_err(f"[!] GEO search failed: {exc}")
+        return 1
     log("[*] Done.")
+    return 0
 
 def write_failure_summary(base_dir: str, stage: str, code: str, message: str, details=None):
     if not base_dir:
@@ -3951,7 +3958,7 @@ def generate_dashboard(output_dir, group_test, group_con):
             <div class="stat-row" title="Resampling Stability Score (RSS) assesses reproducibility under resampling (bootstrap, leave-pair-out, or split-half). Overlap = intersection rate of top hits. RSS = 0.5×Jaccard + 0.5×RBO (rank-biased overlap, p={rss_rbo_p if rss_rbo_p is not None else 'NA'}). Sign = effect direction consistency among shared hits.">
                 <div class="stat-label">Stability (RSS)</div>
                 <div>
-                    <div class="stat-value">RSS {rss_score_display} · Overlap {rss_overlap_display} · Sign {rss_sign_display}</div>
+                    <div class="stat-value">RSS {rss_score_display} · Overlap {rss_overlap_display} · Jaccard {rss_jaccard_display} · RBO {rss_rbo_display} · Sign {rss_sign_display}</div>
                     <div class="progress-bar {rss_progress_class}"><span style="width:{rss_bar:.0f}%"></span></div>
                 </div>
             </div>
@@ -4465,11 +4472,11 @@ def main():
     # Early handling for missing subcommand or required args
     if not args.command:
         parser.print_help()
-        return
+        sys.exit(2)
     if args.command == "download" and not args.gse_id:
         parser_download.print_help()
         log("Example: python illumeta.py download GSE12345 -o /path/to/project")
-        return
+        sys.exit(2)
 
     ensure_runtime_environment(args.command)
 
@@ -4477,8 +4484,7 @@ def main():
         run_doctor(args)
         return
     if args.command == "search":
-        run_search(args)
-        return
+        sys.exit(run_search(args))
     
     check_r_installation()
     if args.command in ("download", "analysis"):

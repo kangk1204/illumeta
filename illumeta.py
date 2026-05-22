@@ -1343,8 +1343,14 @@ def check_pandoc_installation():
         log_err("  - Windows: choco install pandoc")
         sys.exit(1)
 
+def is_valid_r_package_name(pkg: str) -> bool:
+    if not isinstance(pkg, str):
+        return False
+    return re.fullmatch(r"[A-Za-z][A-Za-z0-9._]+", pkg) is not None
+
+
 def check_r_package(pkg, env):
-    if not re.match(r'^[A-Za-z][A-Za-z0-9._]+$', pkg):
+    if not is_valid_r_package_name(pkg):
         return False, f"Invalid package name: {pkg}"
     expr = (
         'lib <- Sys.getenv("R_LIBS_USER"); '

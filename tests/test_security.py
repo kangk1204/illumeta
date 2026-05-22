@@ -52,16 +52,18 @@ class TestGSEValidation(unittest.TestCase):
 class TestRPackageNameValidation(unittest.TestCase):
     """Package names with shell/R metacharacters must be rejected."""
 
-    PATTERN = re.compile(r'^[A-Za-z][A-Za-z0-9._]+$')
-
     def test_valid_package_names(self):
+        from illumeta import is_valid_r_package_name
+
         for name in ["minfi", "sesame", "FlowSorted.Blood.EPIC", "data.table", "lme4"]:
-            self.assertIsNotNone(self.PATTERN.match(name), f"Should accept: {name}")
+            self.assertTrue(is_valid_r_package_name(name), f"Should accept: {name}")
 
     def test_rejects_injection(self):
-        for name in ['"; system("id")', "pkg\ncat /etc/passwd", "", "1package", "-flag",
-                      "a", "pkg;rm", "pkg$(cmd)"]:
-            self.assertIsNone(self.PATTERN.match(name), f"Should reject: {name!r}")
+        from illumeta import is_valid_r_package_name
+
+        for name in ['"; system("id")', "pkg\n", "pkg\ncat /etc/passwd", "", "1package", "-flag",
+                     "a", "pkg;rm", "pkg$(cmd)"]:
+            self.assertFalse(is_valid_r_package_name(name), f"Should reject: {name!r}")
 
 
 class TestHTMLEscaping(unittest.TestCase):

@@ -1,0 +1,6 @@
+contrast	AD_n	DLB_n	run_decision	PDD_n	PD_n	mixed_AD_LBD_n	iLBD_n
+neuropathological_AD_vs_DLB	61	83.0	secondary_specificity_design_only				
+neuropathological_AD_vs_PDD	61		secondary_specificity_design_only	75.0			
+neuropathological_AD_vs_PD	61		secondary_specificity_design_only		68.0		
+neuropathological_AD_vs_mixed_AD_LBD	61		secondary_specificity_design_only			50.0	
+neuropathological_AD_vs_iLBD	61		secondary_specificity_design_only				31.0

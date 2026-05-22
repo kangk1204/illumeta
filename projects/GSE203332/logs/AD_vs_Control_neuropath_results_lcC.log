@@ -1,0 +1,1529 @@
+START 2026-05-22T17:58:35+09:00
+Command: LC_ALL=C LANG=C python illumeta.py analysis -c projects/GSE203332/configure_AD_vs_Control_neuropath.tsv -o projects/GSE203332/AD_vs_Control_neuropath_results_lcC --idat-dir projects/GSE203332/idat --group_con Control --group_test AD --include-covariates age,sex,pmd_min --batch-column slide --batch-method limma --tissue Auto --permutations 0 --tier3-on-fail skip
+Using R library: /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5
+Note: CONDA_PREFIX is set but R is not from conda; skipping conda libs. Set ILLUMETA_USE_CONDA_LIBS=1 to override.
+Updated Makevars for compiler settings: /tmp/RtmpfdOl5o/Makevars.illumeta
+Configured CC17/C17FLAGS for C17 packages.
+Updated Makevars for compiler settings: /tmp/RtmpfdOl5o/Makevars.illumeta
+Configured CXX17/CXX17FLAGS for C++17 packages.
+trying URL 'https://cloud.r-project.org/src/contrib/optparse_1.8.2.tar.gz'
+Content type 'application/x-gzip' length 49638 bytes (48 KB)
+==================================================
+downloaded 48 KB
+
+* installing *source* package 'optparse' ...
+** this is package 'optparse' version '1.8.2'
+** package 'optparse' successfully unpacked and MD5 sums checked
+** using staged installation
+** R
+** exec
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+*** copying figures
+** building package indices
+** installing vignettes
+** testing if installed package can be loaded from temporary location
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (optparse)
+
+The downloaded source packages are in
+	'/tmp/RtmpfdOl5o/downloaded_packages'
+trying URL 'https://cloud.r-project.org/src/contrib/remotes_2.5.0.tar.gz'
+Content type 'application/x-gzip' length 164496 bytes (160 KB)
+==================================================
+downloaded 160 KB
+
+* installing *source* package 'remotes' ...
+** this is package 'remotes' version '2.5.0'
+** package 'remotes' successfully unpacked and MD5 sums checked
+** using staged installation
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** installing vignettes
+** testing if installed package can be loaded from temporary location
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (remotes)
+
+The downloaded source packages are in
+	'/tmp/RtmpfdOl5o/downloaded_packages'
+trying URL 'https://cloud.r-project.org/src/contrib/BiocManager_1.30.27.tar.gz'
+Content type 'application/x-gzip' length 752490 bytes (734 KB)
+==================================================
+downloaded 734 KB
+
+* installing *source* package 'BiocManager' ...
+** this is package 'BiocManager' version '1.30.27'
+** package 'BiocManager' successfully unpacked and MD5 sums checked
+** using staged installation
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+*** copying figures
+** building package indices
+** installing vignettes
+** testing if installed package can be loaded from temporary location
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (BiocManager)
+
+The downloaded source packages are in
+	'/tmp/RtmpfdOl5o/downloaded_packages'
+'getOption("repos")' replaces Bioconductor standard repositories, see
+'help("repositories", package = "BiocManager")' for details.
+Replacement repositories:
+    CRAN: https://cloud.r-project.org
+Using Bioconductor repositories (Bioc 3.22 ) + CRAN: https://cloud.r-project.org
+Installing CRAN packages: xml2, XML, rlang, stringi, glue, digest, jsonlite, matrixStats, fs, quadprog, dplyr, stringr, ggplot2, plotly, DT, htmlwidgets, data.table, qqman, ggrepel, yaml, lme4, tibble, purrr, readr, tidyr, forcats
+also installing the dependencies 'sys', 'rappdirs', 'askpass', 'cachem', 'memoise', 'sass', 'bit', 'prettyunits', 'utf8', 'farver', 'labeling', 'curl', 'mime', 'openssl', 'fastmap', 'later', 'otel', 'evaluate', 'highr', 'xfun', 'bslib', 'fontawesome', 'tinytex', 'rbibutils', 'bit64', 'progress', 'cli', 'generics', 'lifecycle', 'magrittr', 'pillar', 'R6', 'tidyselect', 'vctrs', 'gtable', 'isoband', 'S7', 'scales', 'withr', 'httr', 'viridisLite', 'base64enc', 'htmltools', 'RColorBrewer', 'lazyeval', 'crosstalk', 'promises', 'jquerylib', 'knitr', 'rmarkdown', 'calibrate', 'Rcpp', 'Rdpack', 'minqa', 'nloptr', 'reformulas', 'RcppEigen', 'pkgconfig', 'clipr', 'crayon', 'hms', 'vroom', 'cpp11', 'tzdb'
+
+trying URL 'https://cloud.r-project.org/src/contrib/sys_3.4.3.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/rappdirs_0.3.4.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/askpass_1.2.1.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/cachem_1.1.0.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/memoise_2.0.1.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/sass_0.4.10.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/bit_4.6.0.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/prettyunits_1.2.0.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/utf8_1.2.6.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/farver_2.1.2.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/labeling_0.4.3.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/curl_7.1.0.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/mime_0.13.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/openssl_2.4.1.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/fastmap_1.2.0.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/later_1.4.8.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/otel_0.2.0.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/evaluate_1.0.5.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/highr_0.12.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/xfun_0.57.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/bslib_0.11.0.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/fontawesome_0.5.3.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/tinytex_0.59.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/rbibutils_2.4.1.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/bit64_4.8.2.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/progress_1.2.3.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/cli_3.6.6.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/generics_0.1.4.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/lifecycle_1.0.5.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/magrittr_2.0.5.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/pillar_1.11.1.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/R6_2.6.1.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/tidyselect_1.2.1.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/vctrs_0.7.3.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/gtable_0.3.6.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/isoband_0.3.0.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/S7_0.2.2.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/scales_1.4.0.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/withr_3.0.2.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/httr_1.4.8.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/viridisLite_0.4.3.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/base64enc_0.1-6.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/htmltools_0.5.9.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/RColorBrewer_1.1-3.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/lazyeval_0.2.3.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/crosstalk_1.2.2.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/promises_1.5.0.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/jquerylib_0.1.4.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/knitr_1.51.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/rmarkdown_2.31.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/calibrate_1.7.7.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/Rcpp_1.1.1-1.1.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/Rdpack_2.6.6.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/minqa_1.2.8.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/nloptr_2.2.1.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/reformulas_0.4.4.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/RcppEigen_0.3.4.0.2.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/pkgconfig_2.0.3.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/clipr_0.8.0.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/crayon_1.5.3.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/hms_1.1.4.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/vroom_1.7.1.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/cpp11_0.5.5.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/tzdb_0.5.0.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/xml2_1.5.2.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/XML_3.99-0.23.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/rlang_1.2.0.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/stringi_1.8.7.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/glue_1.8.1.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/digest_0.6.39.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/jsonlite_2.0.0.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/matrixStats_1.5.0.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/fs_2.1.0.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/quadprog_1.5-8.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/dplyr_1.2.1.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/stringr_1.6.0.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/ggplot2_4.0.3.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/plotly_4.12.0.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/DT_0.34.0.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/htmlwidgets_1.6.4.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/data.table_1.18.4.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/qqman_0.1.9.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/ggrepel_0.9.8.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/yaml_2.3.12.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/lme4_2.0-1.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/tibble_3.3.1.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/purrr_1.2.2.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/readr_2.2.0.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/tidyr_1.3.2.tar.gz'
+trying URL 'https://cloud.r-project.org/src/contrib/forcats_1.0.1.tar.gz'
+* installing *source* package 'sys' ...
+** this is package 'sys' version '3.4.3'
+** package 'sys' successfully unpacked and MD5 sums checked
+** using staged installation
+** libs
+using C compiler: 'gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c exec.c -o exec.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c init.c -o init.o
+gcc -shared -L/usr/lib/R/lib -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro -o sys.so exec.o init.o -L/usr/lib/R/lib -lR
+installing to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-sys/00new/sys/libs
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** testing if installed package can be loaded from temporary location
+** checking absolute paths in shared objects and dynamic libraries
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (sys)
+* installing *source* package 'rappdirs' ...
+** this is package 'rappdirs' version '0.3.4'
+** package 'rappdirs' successfully unpacked and MD5 sums checked
+** using staged installation
+** libs
+using C compiler: 'gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c init.c -o init.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c win-path.c -o win-path.o
+gcc -shared -L/usr/lib/R/lib -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro -o rappdirs.so init.o win-path.o -L/usr/lib/R/lib -lR
+installing to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-rappdirs/00new/rappdirs/libs
+** R
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** testing if installed package can be loaded from temporary location
+** checking absolute paths in shared objects and dynamic libraries
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (rappdirs)
+* installing *source* package 'bit' ...
+** this is package 'bit' version '4.6.0'
+** package 'bit' successfully unpacked and MD5 sums checked
+** using staged installation
+** libs
+using C compiler: 'gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c attrutil.c -o attrutil.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c bit.c -o bit.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c chunkutil.c -o chunkutil.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c clone.c -o clone.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c init.c -o init.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c integerutil.c -o integerutil.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c merge.c -o merge.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c rle.c -o rle.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c sort.c -o sort.o
+gcc -shared -L/usr/lib/R/lib -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro -o bit.so attrutil.o bit.o chunkutil.o clone.o init.o integerutil.o merge.o rle.o sort.o -L/usr/lib/R/lib -lR
+installing to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-bit/00new/bit/libs
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** installing vignettes
+** testing if installed package can be loaded from temporary location
+** checking absolute paths in shared objects and dynamic libraries
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (bit)
+* installing *source* package 'prettyunits' ...
+** this is package 'prettyunits' version '1.2.0'
+** package 'prettyunits' successfully unpacked and MD5 sums checked
+** using staged installation
+** R
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** testing if installed package can be loaded from temporary location
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (prettyunits)
+* installing *source* package 'utf8' ...
+** this is package 'utf8' version '1.2.6'
+** package 'utf8' successfully unpacked and MD5 sums checked
+** using staged installation
+** libs
+using C compiler: 'gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c as_utf8.c -o as_utf8.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c bytes.c -o bytes.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c context.c -o context.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c init.c -o init.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c render.c -o render.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c render_table.c -o render_table.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c string.c -o string.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c text.c -o text.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utf8_encode.c -o utf8_encode.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utf8_format.c -o utf8_format.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utf8_normalize.c -o utf8_normalize.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utf8_valid.c -o utf8_valid.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utf8_width.c -o utf8_width.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c util.c -o util.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utf8lite/src/array.c -o utf8lite/src/array.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utf8lite/src/char.c -o utf8lite/src/char.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utf8lite/src/encode.c -o utf8lite/src/encode.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utf8lite/src/error.c -o utf8lite/src/error.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utf8lite/src/escape.c -o utf8lite/src/escape.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utf8lite/src/graph.c -o utf8lite/src/graph.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utf8lite/src/graphscan.c -o utf8lite/src/graphscan.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utf8lite/src/normalize.c -o utf8lite/src/normalize.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utf8lite/src/render.c -o utf8lite/src/render.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utf8lite/src/text.c -o utf8lite/src/text.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utf8lite/src/textassign.c -o utf8lite/src/textassign.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utf8lite/src/textiter.c -o utf8lite/src/textiter.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -Iutf8lite/src -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utf8lite/src/textmap.c -o utf8lite/src/textmap.o
+ar rcs libcutf8lite.a utf8lite/src/array.o utf8lite/src/char.o utf8lite/src/encode.o utf8lite/src/error.o utf8lite/src/escape.o utf8lite/src/graph.o utf8lite/src/graphscan.o utf8lite/src/normalize.o utf8lite/src/render.o utf8lite/src/text.o utf8lite/src/textassign.o utf8lite/src/textiter.o utf8lite/src/textmap.o
+gcc -shared -L/usr/lib/R/lib -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro -o utf8.so as_utf8.o bytes.o context.o init.o render.o render_table.o string.o text.o utf8_encode.o utf8_format.o utf8_normalize.o utf8_valid.o utf8_width.o util.o -L. -lcutf8lite -L/usr/lib/R/lib -lR
+installing to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-utf8/00new/utf8/libs
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** installing vignettes
+** testing if installed package can be loaded from temporary location
+** checking absolute paths in shared objects and dynamic libraries
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (utf8)
+* installing *source* package 'farver' ...
+** this is package 'farver' version '2.1.2'
+** package 'farver' successfully unpacked and MD5 sums checked
+** using staged installation
+** libs
+using C++ compiler: 'g++ (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c ColorSpace.cpp -o ColorSpace.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c Comparison.cpp -o Comparison.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c Conversion.cpp -o Conversion.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c encode.cpp -o encode.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c farver.cpp -o farver.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c init.cpp -o init.o
+g++ -std=gnu++17 -shared -L/usr/lib/R/lib -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro -o farver.so ColorSpace.o Comparison.o Conversion.o encode.o farver.o init.o -L/usr/lib/R/lib -lR
+installing to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-farver/00new/farver/libs
+** R
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+*** copying figures
+** building package indices
+** testing if installed package can be loaded from temporary location
+** checking absolute paths in shared objects and dynamic libraries
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (farver)
+* installing *source* package 'labeling' ...
+** this is package 'labeling' version '0.4.3'
+** package 'labeling' successfully unpacked and MD5 sums checked
+** using staged installation
+** R
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** testing if installed package can be loaded from temporary location
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (labeling)
+* installing *source* package 'curl' ...
+** this is package 'curl' version '7.1.0'
+** package 'curl' successfully unpacked and MD5 sums checked
+** using staged installation
+Found pkg-config cflags and libs!
+Using PKG_CFLAGS=-I/home/keunsoo/mambaforge/include
+Using PKG_LIBS=-L/home/keunsoo/mambaforge/lib -lcurl
+** libs
+using C compiler: 'gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c callbacks.c -o callbacks.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c curl.c -o curl.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c download.c -o download.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c dryrun.c -o dryrun.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c escape.c -o escape.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c fetch.c -o fetch.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c findport.c -o findport.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c form.c -o form.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c getdate.c -o getdate.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c handle.c -o handle.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c ieproxy.c -o ieproxy.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c init.c -o init.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c interrupt.c -o interrupt.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c multi.c -o multi.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c nslookup.c -o nslookup.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c options.c -o options.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c reflist.c -o reflist.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c split.c -o split.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c ssl.c -o ssl.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c typechecking.c -o typechecking.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c urlparser.c -o urlparser.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utils.c -o utils.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c version.c -o version.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c winidn.c -o winidn.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I/home/keunsoo/mambaforge/include -DSTRICT_R_HEADERS -DR_NO_REMAP     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c writer.c -o writer.o
+gcc -shared -L/usr/lib/R/lib -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro -o curl.so callbacks.o curl.o download.o dryrun.o escape.o fetch.o findport.o form.o getdate.o handle.o ieproxy.o init.o interrupt.o multi.o nslookup.o options.o reflist.o split.o ssl.o typechecking.o urlparser.o utils.o version.o winidn.o writer.o -L/home/keunsoo/mambaforge/lib -lcurl -L/usr/lib/R/lib -lR
+installing to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-curl/00new/curl/libs
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** installing vignettes
+** testing if installed package can be loaded from temporary location
+** checking absolute paths in shared objects and dynamic libraries
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (curl)
+* installing *source* package 'mime' ...
+** this is package 'mime' version '0.13'
+** package 'mime' successfully unpacked and MD5 sums checked
+** using staged installation
+** libs
+using C compiler: 'gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c init.c -o init.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c rawmatch.c -o rawmatch.o
+gcc -shared -L/usr/lib/R/lib -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro -o mime.so init.o rawmatch.o -L/usr/lib/R/lib -lR
+installing to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-mime/00new/mime/libs
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** testing if installed package can be loaded from temporary location
+** checking absolute paths in shared objects and dynamic libraries
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (mime)
+* installing *source* package 'fastmap' ...
+** this is package 'fastmap' version '1.2.0'
+** package 'fastmap' successfully unpacked and MD5 sums checked
+** using staged installation
+** libs
+using C compiler: 'gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+using C++ compiler: 'g++ (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -Ilib/     -DR_NO_REMAP -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c fastmap.cpp -o fastmap.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Ilib/      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c init.c -o init.o
+g++ -std=gnu++17 -shared -L/usr/lib/R/lib -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro -o fastmap.so fastmap.o init.o -L/usr/lib/R/lib -lR
+installing to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-fastmap/00new/fastmap/libs
+** R
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** testing if installed package can be loaded from temporary location
+** checking absolute paths in shared objects and dynamic libraries
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (fastmap)
+* installing *source* package 'otel' ...
+** this is package 'otel' version '0.2.0'
+** package 'otel' successfully unpacked and MD5 sums checked
+** using staged installation
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** testing if installed package can be loaded from temporary location
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (otel)
+* installing *source* package 'evaluate' ...
+** this is package 'evaluate' version '1.0.5'
+** package 'evaluate' successfully unpacked and MD5 sums checked
+** using staged installation
+** R
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** testing if installed package can be loaded from temporary location
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (evaluate)
+* installing *source* package 'xfun' ...
+** this is package 'xfun' version '0.57'
+** package 'xfun' successfully unpacked and MD5 sums checked
+** using staged installation
+** libs
+using C compiler: 'gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c base64.c -o base64.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c init.c -o init.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c rand_lcg.c -o rand_lcg.o
+gcc -shared -L/usr/lib/R/lib -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro -o xfun.so base64.o init.o rand_lcg.o -L/usr/lib/R/lib -lR
+installing to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-xfun/00new/xfun/libs
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** installing vignettes
+** testing if installed package can be loaded from temporary location
+** checking absolute paths in shared objects and dynamic libraries
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (xfun)
+* installing *source* package 'rbibutils' ...
+** this is package 'rbibutils' version '2.4.1'
+** package 'rbibutils' successfully unpacked and MD5 sums checked
+** using staged installation
+** libs
+using C compiler: 'gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c adsout.c -o adsout.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c any2xml.c -o any2xml.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c args.c -o args.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c bib2be.c -o bib2be.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c bibcore.c -o bibcore.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c bibentrydirectout.c -o bibentrydirectout.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c bibentryout.c -o bibentryout.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c bibl.c -o bibl.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c biblatexin.c -o biblatexin.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c biblatexout.c -o biblatexout.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c bibprog.c -o bibprog.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c bibtexdirectin.c -o bibtexdirectin.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c bibtexin.c -o bibtexin.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c bibtexout.c -o bibtexout.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c bibtextypes.c -o bibtextypes.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c bibutils.c -o bibutils.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c bltypes.c -o bltypes.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c bu_auth.c -o bu_auth.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c charsets.c -o charsets.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c common_be_bed.c -o common_be_bed.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c common_bt_blt_btd_out.c -o common_bt_blt_btd_out.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c common_bt_btd.c -o common_bt_btd.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c common_bt_btd_blt.c -o common_bt_btd_blt.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c common_bt_btd_out.c -o common_bt_btd_out.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c common_most.c -o common_most.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c copacin.c -o copacin.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c copactypes.c -o copactypes.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c ebiin.c -o ebiin.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c endin.c -o endin.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c endout.c -o endout.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c endtypes.c -o endtypes.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c endxmlin.c -o endxmlin.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c entities.c -o entities.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c fields.c -o fields.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c gb18030.c -o gb18030.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c generic.c -o generic.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c init.c -o init.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c intlist.c -o intlist.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c is_ws.c -o is_ws.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c isiin.c -o isiin.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c isiout.c -o isiout.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c isitypes.c -o isitypes.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c iso639_1.c -o iso639_1.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c iso639_2.c -o iso639_2.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c iso639_3.c -o iso639_3.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c latex.c -o latex.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c latex_parse.c -o latex_parse.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c marc_auth.c -o marc_auth.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c medin.c -o medin.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c modsin.c -o modsin.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c modsout.c -o modsout.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c modstypes.c -o modstypes.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c name.c -o name.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c nbibin.c -o nbibin.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c nbibout.c -o nbibout.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c nbibtypes.c -o nbibtypes.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c notes.c -o notes.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c pages.c -o pages.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c reftypes.c -o reftypes.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c risin.c -o risin.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c risout.c -o risout.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c ristypes.c -o ristypes.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c serialno.c -o serialno.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c slist.c -o slist.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c str.c -o str.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c str_conv.c -o str_conv.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c strsearch.c -o strsearch.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c title.c -o title.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c tomods.c -o tomods.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c type.c -o type.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c unicode.c -o unicode.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c url.c -o url.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utf8.c -o utf8.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c vplist.c -o vplist.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c wordin.c -o wordin.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c wordout.c -o wordout.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c xml.c -o xml.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c xml2any.c -o xml2any.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c xml_encoding.c -o xml_encoding.o
+gcc -shared -L/usr/lib/R/lib -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro -o rbibutils.so adsout.o any2xml.o args.o bib2be.o bibcore.o bibentrydirectout.o bibentryout.o bibl.o biblatexin.o biblatexout.o bibprog.o bibtexdirectin.o bibtexin.o bibtexout.o bibtextypes.o bibutils.o bltypes.o bu_auth.o charsets.o common_be_bed.o common_bt_blt_btd_out.o common_bt_btd.o common_bt_btd_blt.o common_bt_btd_out.o common_most.o copacin.o copactypes.o ebiin.o endin.o endout.o endtypes.o endxmlin.o entities.o fields.o gb18030.o generic.o init.o intlist.o is_ws.o isiin.o isiout.o isitypes.o iso639_1.o iso639_2.o iso639_3.o latex.o latex_parse.o marc_auth.o medin.o modsin.o modsout.o modstypes.o name.o nbibin.o nbibout.o nbibtypes.o notes.o pages.o reftypes.o risin.o risout.o ristypes.o serialno.o slist.o str.o str_conv.o strsearch.o title.o tomods.o type.o unicode.o url.o utf8.o vplist.o wordin.o wordout.o xml.o xml2any.o xml_encoding.o -L/usr/lib/R/lib -lR
+installing to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-rbibutils/00new/rbibutils/libs
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** installing vignettes
+** testing if installed package can be loaded from temporary location
+** checking absolute paths in shared objects and dynamic libraries
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (rbibutils)
+* installing *source* package 'cli' ...
+** this is package 'cli' version '3.6.6'
+** package 'cli' successfully unpacked and MD5 sums checked
+** using staged installation
+** libs
+using C compiler: 'gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c ansi.c -o ansi.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c cleancall.c -o cleancall.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c diff.c -o diff.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c errors.c -o errors.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c glue.c -o glue.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c init.c -o init.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c inst.c -o inst.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c keypress-unix.c -o keypress-unix.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c keypress-win.c -o keypress-win.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c keypress.c -o keypress.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c md5.c -o md5.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c progress-altrep.c -o progress-altrep.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c progress.c -o progress.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c sha1.c -o sha1.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c sha256.c -o sha256.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c thread.c -o thread.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c tty.c -o tty.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utf8.c -o utf8.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utils.c -o utils.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c vt.c -o vt.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c vtparse.c -o vtparse.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c vtparse_table.c -o vtparse_table.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c win-utf8.c -o win-utf8.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c winfiles.c -o winfiles.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c xxhash.c -o xxhash.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I../inst/include     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c xxhash2.c -o xxhash2.o
+gcc -shared -L/usr/lib/R/lib -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro -o cli.so ansi.o cleancall.o diff.o errors.o glue.o init.o inst.o keypress-unix.o keypress-win.o keypress.o md5.o progress-altrep.o progress.o sha1.o sha256.o thread.o tty.o utf8.o utils.o vt.o vtparse.o vtparse_table.o win-utf8.o winfiles.o xxhash.o xxhash2.o -lpthread -L/usr/lib/R/lib -lR
+installing to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-cli/00new/cli/libs
+** R
+** exec
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+*** copying figures
+** building package indices
+** testing if installed package can be loaded from temporary location
+** checking absolute paths in shared objects and dynamic libraries
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (cli)
+* installing *source* package 'generics' ...
+** this is package 'generics' version '0.1.4'
+** package 'generics' successfully unpacked and MD5 sums checked
+** using staged installation
+** R
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** testing if installed package can be loaded from temporary location
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (generics)
+* installing *source* package 'magrittr' ...
+** this is package 'magrittr' version '2.0.5'
+** package 'magrittr' successfully unpacked and MD5 sums checked
+** using staged installation
+** libs
+using C compiler: 'gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c pipe.c -o pipe.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utils.c -o utils.o
+gcc -shared -L/usr/lib/R/lib -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro -o magrittr.so pipe.o utils.o -L/usr/lib/R/lib -lR
+installing to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-magrittr/00new/magrittr/libs
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+*** copying figures
+** building package indices
+** installing vignettes
+** testing if installed package can be loaded from temporary location
+** checking absolute paths in shared objects and dynamic libraries
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (magrittr)
+* installing *source* package 'R6' ...
+** this is package 'R6' version '2.6.1'
+** package 'R6' successfully unpacked and MD5 sums checked
+** using staged installation
+** R
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+*** copying figures
+** building package indices
+** testing if installed package can be loaded from temporary location
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (R6)
+* installing *source* package 'S7' ...
+** this is package 'S7' version '0.2.2'
+** package 'S7' successfully unpacked and MD5 sums checked
+** using staged installation
+** libs
+using C compiler: 'gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c init.c -o init.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c method-dispatch.c -o method-dispatch.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c prop.c -o prop.o
+gcc -shared -L/usr/lib/R/lib -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro -o S7.so init.o method-dispatch.o prop.o -L/usr/lib/R/lib -lR
+installing to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-S7/00new/S7/libs
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** installing vignettes
+** testing if installed package can be loaded from temporary location
+** checking absolute paths in shared objects and dynamic libraries
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (S7)
+* installing *source* package 'withr' ...
+** this is package 'withr' version '3.0.2'
+** package 'withr' successfully unpacked and MD5 sums checked
+** using staged installation
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+*** copying figures
+** building package indices
+** installing vignettes
+** testing if installed package can be loaded from temporary location
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (withr)
+* installing *source* package 'viridisLite' ...
+** this is package 'viridisLite' version '0.4.3'
+** package 'viridisLite' successfully unpacked and MD5 sums checked
+** using staged installation
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+*** copying figures
+** building package indices
+** testing if installed package can be loaded from temporary location
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (viridisLite)
+* installing *source* package 'base64enc' ...
+** this is package 'base64enc' version '0.1-6'
+** package 'base64enc' successfully unpacked and MD5 sums checked
+** using staged installation
+** libs
+using C compiler: 'gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c base64.c -o base64.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c dummy.c -o dummy.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c uriencode.c -o uriencode.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c utf8.c -o utf8.o
+gcc -shared -L/usr/lib/R/lib -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro -o base64enc.so base64.o dummy.o uriencode.o utf8.o -L/usr/lib/R/lib -lR
+installing to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-base64enc/00new/base64enc/libs
+** R
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** testing if installed package can be loaded from temporary location
+** checking absolute paths in shared objects and dynamic libraries
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (base64enc)
+* installing *source* package 'RColorBrewer' ...
+** this is package 'RColorBrewer' version '1.1-3'
+** package 'RColorBrewer' successfully unpacked and MD5 sums checked
+** using staged installation
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** testing if installed package can be loaded from temporary location
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (RColorBrewer)
+* installing *source* package 'calibrate' ...
+** this is package 'calibrate' version '1.7.7'
+** package 'calibrate' successfully unpacked and MD5 sums checked
+** using staged installation
+** R
+** data
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** installing vignettes
+** testing if installed package can be loaded from temporary location
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (calibrate)
+* installing *source* package 'Rcpp' ...
+** this is package 'Rcpp' version '1.1.1-1.1'
+** package 'Rcpp' successfully unpacked and MD5 sums checked
+** using staged installation
+** libs
+using C++ compiler: 'g++ (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I../inst/include/      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c api.cpp -o api.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I../inst/include/      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c attributes.cpp -o attributes.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I../inst/include/      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c barrier.cpp -o barrier.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I../inst/include/      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c date.cpp -o date.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I../inst/include/      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c module.cpp -o module.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I../inst/include/      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c rcpp_init.cpp -o rcpp_init.o
+g++ -std=gnu++17 -shared -L/usr/lib/R/lib -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro -o Rcpp.so api.o attributes.o barrier.o date.o module.o rcpp_init.o -L/usr/lib/R/lib -lR
+installing to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-Rcpp/00new/Rcpp/libs
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** installing vignettes
+** testing if installed package can be loaded from temporary location
+** checking absolute paths in shared objects and dynamic libraries
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (Rcpp)
+* installing *source* package 'nloptr' ...
+** this is package 'nloptr' version '2.2.1'
+** package 'nloptr' successfully unpacked and MD5 sums checked
+** using staged installation
+checking whether the C++ compiler works... yes
+checking for C++ compiler default output file name... a.out
+checking for suffix of executables... 
+checking whether we are cross compiling... no
+checking for suffix of object files... o
+checking whether the compiler supports GNU C++... yes
+checking whether g++ -std=gnu++17 accepts -g... yes
+checking for g++ -std=gnu++17 option to enable C++11 features... none needed
+checking how to run the C++ preprocessor... g++ -std=gnu++17 -E
+checking whether the compiler supports GNU C++... (cached) yes
+checking whether g++ -std=gnu++17 accepts -g... (cached) yes
+checking for g++ -std=gnu++17 option to enable C++11 features... (cached) none needed
+checking for pkg-config... /home/keunsoo/mambaforge/bin/pkg-config
+checking if pkg-config knows NLopt... no
+checking for cmake... /usr/local/bin/cmake
+using cmake via /usr/local/bin/cmake
+using NLopt via local cmake build on x86_64
+set CC=gcc
+set CFLAGS= -fpic -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2
+set CXX=g++
+set CXXFLAGS=-std=gnu++11 -fpic -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2
+set LDFLAGS=-Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro
+-- The C compiler identification is GNU 10.5.0
+-- The CXX compiler identification is GNU 10.5.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/gcc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/g++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- NLopt version 2.10.0
+-- Looking for getopt.h
+-- Looking for getopt.h - found
+-- Looking for unistd.h
+-- Looking for unistd.h - found
+-- Looking for stdint.h
+-- Looking for stdint.h - found
+-- Looking for time.h
+-- Looking for time.h - found
+-- Looking for sys/time.h
+-- Looking for sys/time.h - found
+-- Looking for getpid
+-- Looking for getpid - found
+-- Looking for syscall
+-- Looking for syscall - found
+-- Looking for isinf
+-- Looking for isinf - found
+-- Looking for isnan
+-- Looking for isnan - found
+-- Looking for gettimeofday
+-- Looking for gettimeofday - found
+-- Looking for qsort_r
+-- Looking for qsort_r - found
+-- Looking for time
+-- Looking for time - found
+-- Looking for copysign
+-- Looking for copysign - found
+-- Looking for getopt
+-- Looking for getopt - found
+-- Looking for sys/types.h
+-- Looking for sys/types.h - found
+-- Looking for stddef.h
+-- Looking for stddef.h - found
+-- Check size of uint32_t
+-- Check size of uint32_t - done
+-- Check size of unsigned int
+-- Check size of unsigned int - done
+-- Check size of unsigned long
+-- Check size of unsigned long - done
+-- Looking for sqrt in m
+-- Looking for sqrt in m - found
+-- Looking for fpclassify
+-- Looking for fpclassify - TRUE
+-- Performing Test HAVE_THREAD_LOCAL_STORAGE
+-- Performing Test HAVE_THREAD_LOCAL_STORAGE - Success
+-- Performing Test HAVE_THREAD_LOCAL_STORAGE
+-- Performing Test HAVE_THREAD_LOCAL_STORAGE - Failed
+-- Looking for __cplusplus
+-- Looking for __cplusplus - found
+-- Found JNI: /usr/lib/jvm/default-java/include  found components: JVM 
+-- Found Java: /usr/bin/java (found suitable version "11.0.30", minimum required is "1.5") 
+-- Configuring done (28.8s)
+-- Generating done (0.0s)
+-- Build files have been written to: /tmp/RtmpiWLi4Y/R.INSTALL32e0062eb60faa/nloptr/src/nlopt-build
+[  2%] Generating nlopt.hpp
+[  2%] Built target generate-cpp
+[  4%] Building C object CMakeFiles/nlopt.dir/src/algs/direct/DIRect.c.o
+[  6%] Building C object CMakeFiles/nlopt.dir/src/algs/direct/direct_wrap.c.o
+[  8%] Building C object CMakeFiles/nlopt.dir/src/algs/direct/DIRserial.c.o
+[ 10%] Building C object CMakeFiles/nlopt.dir/src/algs/direct/DIRsubrout.c.o
+[ 12%] Building C object CMakeFiles/nlopt.dir/src/algs/cdirect/cdirect.c.o
+[ 14%] Building C object CMakeFiles/nlopt.dir/src/algs/cdirect/hybrid.c.o
+[ 16%] Building C object CMakeFiles/nlopt.dir/src/algs/praxis/praxis.c.o
+[ 18%] Building C object CMakeFiles/nlopt.dir/src/algs/crs/crs.c.o
+[ 20%] Building C object CMakeFiles/nlopt.dir/src/algs/mlsl/mlsl.c.o
+[ 24%] Building C object CMakeFiles/nlopt.dir/src/algs/mma/mma.c.o
+[ 24%] Building C object CMakeFiles/nlopt.dir/src/algs/mma/ccsa_quadratic.c.o
+[ 26%] Building C object CMakeFiles/nlopt.dir/src/algs/cobyla/cobyla.c.o
+[ 28%] Building C object CMakeFiles/nlopt.dir/src/algs/newuoa/newuoa.c.o
+[ 30%] Building C object CMakeFiles/nlopt.dir/src/algs/neldermead/nldrmd.c.o
+[ 32%] Building C object CMakeFiles/nlopt.dir/src/algs/neldermead/sbplx.c.o
+[ 34%] Building C object CMakeFiles/nlopt.dir/src/algs/auglag/auglag.c.o
+[ 36%] Building C object CMakeFiles/nlopt.dir/src/algs/bobyqa/bobyqa.c.o
+[ 38%] Building C object CMakeFiles/nlopt.dir/src/algs/isres/isres.c.o
+[ 40%] Building C object CMakeFiles/nlopt.dir/src/algs/slsqp/slsqp.c.o
+In function 'hfti_',
+    inlined from 'lsei_' at /tmp/RtmpiWLi4Y/R.INSTALL32e0062eb60faa/nloptr/src/nlopt-src/src/algs/slsqp/slsqp.c:1176:5,
+    inlined from 'lsq_' at /tmp/RtmpiWLi4Y/R.INSTALL32e0062eb60faa/nloptr/src/nlopt-src/src/algs/slsqp/slsqp.c:1417:5:
+/tmp/RtmpiWLi4Y/R.INSTALL32e0062eb60faa/nloptr/src/nlopt-src/src/algs/slsqp/slsqp.c:959:12: warning: '__builtin_memset' writing between 8 and 34359738368 bytes into a region of size 0 overflows the destination [-Wstringop-overflow=]
+  959 |  rnorm[jb] = dnrm2___(&i__1, &b[kp1 + jb * b_dim1], 1);
+      |  ~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[ 42%] Building C object CMakeFiles/nlopt.dir/src/algs/esch/esch.c.o
+[ 44%] Building C object CMakeFiles/nlopt.dir/src/api/general.c.o
+[ 48%] Building C object CMakeFiles/nlopt.dir/src/api/options.c.o
+[ 48%] Building C object CMakeFiles/nlopt.dir/src/api/optimize.c.o
+[ 53%] Building C object CMakeFiles/nlopt.dir/src/api/deprecated.c.o
+[ 53%] Building C object CMakeFiles/nlopt.dir/src/api/f77api.c.o
+[ 57%] Building C object CMakeFiles/nlopt.dir/src/util/sobolseq.c.o
+[ 57%] Building C object CMakeFiles/nlopt.dir/src/util/mt19937ar.c.o
+[ 61%] Building C object CMakeFiles/nlopt.dir/src/util/stop.c.o
+[ 61%] Building C object CMakeFiles/nlopt.dir/src/util/timer.c.o
+[ 63%] Building C object CMakeFiles/nlopt.dir/src/util/redblack.c.o
+[ 65%] Building C object CMakeFiles/nlopt.dir/src/util/qsort_r.c.o
+[ 67%] Building C object CMakeFiles/nlopt.dir/src/util/rescale.c.o
+[ 69%] Building C object CMakeFiles/nlopt.dir/src/algs/luksan/plis.c.o
+[ 73%] Building C object CMakeFiles/nlopt.dir/src/algs/luksan/pnet.c.o
+[ 73%] Building C object CMakeFiles/nlopt.dir/src/algs/luksan/plip.c.o
+[ 75%] Building C object CMakeFiles/nlopt.dir/src/algs/luksan/mssubs.c.o
+[ 77%] Building C object CMakeFiles/nlopt.dir/src/algs/luksan/pssubs.c.o
+[ 79%] Building CXX object CMakeFiles/nlopt.dir/src/algs/stogo/global.cc.o
+[ 81%] Building CXX object CMakeFiles/nlopt.dir/src/algs/stogo/linalg.cc.o
+[ 83%] Building CXX object CMakeFiles/nlopt.dir/src/algs/stogo/local.cc.o
+[ 85%] Building CXX object CMakeFiles/nlopt.dir/src/algs/stogo/stogo.cc.o
+[ 87%] Building CXX object CMakeFiles/nlopt.dir/src/algs/stogo/tools.cc.o
+[ 89%] Building CXX object CMakeFiles/nlopt.dir/src/algs/ags/evolvent.cc.o
+[ 91%] Building CXX object CMakeFiles/nlopt.dir/src/algs/ags/solver.cc.o
+[ 93%] Building CXX object CMakeFiles/nlopt.dir/src/algs/ags/local_optimizer.cc.o
+[ 95%] Building CXX object CMakeFiles/nlopt.dir/src/algs/ags/ags.cc.o
+[ 97%] Linking CXX static library libnlopt.a
+[100%] Built target nlopt
+[  2%] Built target generate-cpp
+[100%] Built target nlopt
+Install the project...
+-- Install configuration: "Release"
+-- Installing: /tmp/RtmpiWLi4Y/R.INSTALL32e0062eb60faa/nloptr/src/nlopt/lib/pkgconfig/nlopt.pc
+-- Installing: /tmp/RtmpiWLi4Y/R.INSTALL32e0062eb60faa/nloptr/src/nlopt/include/nlopt.h
+-- Installing: /tmp/RtmpiWLi4Y/R.INSTALL32e0062eb60faa/nloptr/src/nlopt/include/nlopt.hpp
+-- Installing: /tmp/RtmpiWLi4Y/R.INSTALL32e0062eb60faa/nloptr/src/nlopt/lib/libnlopt.a
+-- Installing: /tmp/RtmpiWLi4Y/R.INSTALL32e0062eb60faa/nloptr/src/nlopt/share/man/man3/nlopt.3
+-- Installing: /tmp/RtmpiWLi4Y/R.INSTALL32e0062eb60faa/nloptr/src/nlopt/share/man/man3/nlopt_minimize.3
+-- Installing: /tmp/RtmpiWLi4Y/R.INSTALL32e0062eb60faa/nloptr/src/nlopt/share/man/man3/nlopt_minimize_constrained.3
+-- Installing: /tmp/RtmpiWLi4Y/R.INSTALL32e0062eb60faa/nloptr/src/nlopt/lib/cmake/nlopt/NLoptLibraryDepends.cmake
+-- Installing: /tmp/RtmpiWLi4Y/R.INSTALL32e0062eb60faa/nloptr/src/nlopt/lib/cmake/nlopt/NLoptLibraryDepends-release.cmake
+-- Installing: /tmp/RtmpiWLi4Y/R.INSTALL32e0062eb60faa/nloptr/src/nlopt/lib/cmake/nlopt/NLoptConfig.cmake
+-- Installing: /tmp/RtmpiWLi4Y/R.INSTALL32e0062eb60faa/nloptr/src/nlopt/lib/cmake/nlopt/NLoptConfigVersion.cmake
+Moving nlopt/lib to nlopt/lib
+mv: cannot move 'nlopt/lib' to a subdirectory of itself, 'nlopt/lib/lib'
+Copying headers found in src/nlopt/include into inst/include
+configure: creating ./config.status
+config.status: creating src/Makevars
+** libs
+using C compiler: 'gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+using C++ compiler: 'g++ (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -Inlopt/include      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c dummy.cpp -o dummy.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Inlopt/include      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c init_nloptr.c -o init_nloptr.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Inlopt/include      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c nloptr.c -o nloptr.o
+g++ -std=gnu++17 -shared -L/usr/lib/R/lib -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro -o nloptr.so dummy.o init_nloptr.o nloptr.o -llapack -lblas -lgfortran -lm -lquadmath nlopt/lib/libnlopt.a -L/usr/lib/R/lib -lR
+installing to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-nloptr/00new/nloptr/libs
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+*** copying figures
+** building package indices
+** installing vignettes
+** testing if installed package can be loaded from temporary location
+** checking absolute paths in shared objects and dynamic libraries
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (nloptr)
+* installing *source* package 'pkgconfig' ...
+** this is package 'pkgconfig' version '2.0.3'
+** package 'pkgconfig' successfully unpacked and MD5 sums checked
+** using staged installation
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** testing if installed package can be loaded from temporary location
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (pkgconfig)
+* installing *source* package 'clipr' ...
+** this is package 'clipr' version '0.8.0'
+** package 'clipr' successfully unpacked and MD5 sums checked
+** using staged installation
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** installing vignettes
+** testing if installed package can be loaded from temporary location
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (clipr)
+* installing *source* package 'crayon' ...
+** this is package 'crayon' version '1.5.3'
+** package 'crayon' successfully unpacked and MD5 sums checked
+** using staged installation
+** R
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** testing if installed package can be loaded from temporary location
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (crayon)
+* installing *source* package 'cpp11' ...
+** this is package 'cpp11' version '0.5.5'
+** package 'cpp11' successfully unpacked and MD5 sums checked
+** using staged installation
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** installing vignettes
+** testing if installed package can be loaded from temporary location
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (cpp11)
+* installing *source* package 'XML' ...
+** this is package 'XML' version '3.99-0.23'
+** package 'XML' successfully unpacked and MD5 sums checked
+** using staged installation
+checking for gcc... gcc
+checking whether the C compiler works... yes
+checking for C compiler default output file name... a.out
+checking for suffix of executables... 
+checking whether we are cross compiling... no
+checking for suffix of object files... o
+checking whether the compiler supports GNU C... yes
+checking whether gcc accepts -g... yes
+checking for gcc option to enable C11 features... none needed
+checking how to run the C preprocessor... gcc -E
+checking for sed... /bin/sed
+checking for pkg-config... /home/keunsoo/mambaforge/bin/pkg-config
+checking for xml2-config... /home/keunsoo/mambaforge/bin/xml2-config
+USE_XML2 = yes
+SED_EXTENDED_ARG: -E
+Minor 15, Patch 2 for 2.15.2
+Located parser file -I/home/keunsoo/mambaforge/include/libxml2/parser.h
+Checking for 1.8:  -I/home/keunsoo/mambaforge/include/libxml2
+Using libxml2.*
+checking for gzopen in -lz... yes
+checking for xmlParseFile in -lxml2... yes
+checking for xmlHashSize in -lxml2... yes
+Using built-in xmlHashSize
+Checking DTD parsing (presence of externalSubset)...
+checking for xmlHashSize in -lxml2... (cached) yes
+Found xmlHashSize
+checking for xmlOutputBufferCreateBuffer in -lxml2... yes
+have xmlOutputBufferCreateBuffer()
+checking for xmlDocDumpFormatMemoryEnc in -lxml2... yes
+checking for libxml/xmlversion.h... yes
+Expat:  FALSE
+Checking for return type of xmlHashScan element routine.
+No return value for xmlHashScan
+xmlNs has a context field
+Checking for cetype_t enumeration
+No cetype_t enumeration defined in R headers.
+checking for xmlsec1-config... no
+nodegc default 
+xml-debug default 
+Version has XML_WITH_ZLIB
+Version has xmlHasFeature()
+
+****************************************
+Configuration information:
+
+Libxml settings
+
+libxml include directory: -I/home/keunsoo/mambaforge/include/libxml2
+libxml library directory: -L/home/keunsoo/mambaforge/lib -lxml2 -ldl -lpthread -L/home/keunsoo/mambaforge/lib -lz -L/home/keunsoo/mambaforge/lib -liconv -L/home/keunsoo/mambaforge/lib -licuuc -lm -lz  -lxml2
+libxml 2:                 -DLIBXML2=1
+
+Compilation flags:         -DLIBXML -I/home/keunsoo/mambaforge/include/libxml2 -DUSE_EXTERNAL_SUBSET=1 -DROOT_HAS_DTD_NODE=1 -DNO_CHECKED_ENTITY_FIELD=1 -DDUMP_WITH_ENCODING=1 -DUSE_XML_VERSION_H=1 -DXML_ELEMENT_ETYPE=1 -DXML_ATTRIBUTE_ATYPE=1 -DNO_XML_HASH_SCANNER_RETURN=1 -DLIBXML_NAMESPACE_HAS_CONTEXT=1 -DHAVE_XML_WITH_ZLIB=1 -DHAVE_XML_HAS_FEATURE=1 -DUSE_R=1 -D_R_=1  -DHAVE_VALIDITY=1 -DXML_REF_COUNT_NODES=1 
+Link flags:               -L/home/keunsoo/mambaforge/lib -lxml2 -ldl -lpthread -L/home/keunsoo/mambaforge/lib -lz -L/home/keunsoo/mambaforge/lib -liconv -L/home/keunsoo/mambaforge/lib -licuuc -lm -lz  -lxml2
+
+****************************************
+configure: creating ./config.status
+config.status: creating src/Makevars
+config.status: creating R/supports.R
+config.status: creating inst/scripts/RSXML.csh
+config.status: creating inst/scripts/RSXML.bsh
+** libs
+using C compiler: 'gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+gcc -I"/usr/share/R/include" -DNDEBUG -DLIBXML -I/home/keunsoo/mambaforge/include/libxml2 -DUSE_EXTERNAL_SUBSET=1 -DROOT_HAS_DTD_NODE=1 -DNO_CHECKED_ENTITY_FIELD=1 -DDUMP_WITH_ENCODING=1 -DUSE_XML_VERSION_H=1 -DXML_ELEMENT_ETYPE=1 -DXML_ATTRIBUTE_ATYPE=1 -DNO_XML_HASH_SCANNER_RETURN=1 -DLIBXML_NAMESPACE_HAS_CONTEXT=1 -DHAVE_XML_WITH_ZLIB=1 -DHAVE_XML_HAS_FEATURE=1 -DUSE_R=1 -D_R_=1  -DHAVE_VALIDITY=1 -DXML_REF_COUNT_NODES=1  -I. -DLIBXML2=1      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c DocParse.c -o DocParse.o
+gcc -I"/usr/share/R/include" -DNDEBUG -DLIBXML -I/home/keunsoo/mambaforge/include/libxml2 -DUSE_EXTERNAL_SUBSET=1 -DROOT_HAS_DTD_NODE=1 -DNO_CHECKED_ENTITY_FIELD=1 -DDUMP_WITH_ENCODING=1 -DUSE_XML_VERSION_H=1 -DXML_ELEMENT_ETYPE=1 -DXML_ATTRIBUTE_ATYPE=1 -DNO_XML_HASH_SCANNER_RETURN=1 -DLIBXML_NAMESPACE_HAS_CONTEXT=1 -DHAVE_XML_WITH_ZLIB=1 -DHAVE_XML_HAS_FEATURE=1 -DUSE_R=1 -D_R_=1  -DHAVE_VALIDITY=1 -DXML_REF_COUNT_NODES=1  -I. -DLIBXML2=1      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c EventParse.c -o EventParse.o
+gcc -I"/usr/share/R/include" -DNDEBUG -DLIBXML -I/home/keunsoo/mambaforge/include/libxml2 -DUSE_EXTERNAL_SUBSET=1 -DROOT_HAS_DTD_NODE=1 -DNO_CHECKED_ENTITY_FIELD=1 -DDUMP_WITH_ENCODING=1 -DUSE_XML_VERSION_H=1 -DXML_ELEMENT_ETYPE=1 -DXML_ATTRIBUTE_ATYPE=1 -DNO_XML_HASH_SCANNER_RETURN=1 -DLIBXML_NAMESPACE_HAS_CONTEXT=1 -DHAVE_XML_WITH_ZLIB=1 -DHAVE_XML_HAS_FEATURE=1 -DUSE_R=1 -D_R_=1  -DHAVE_VALIDITY=1 -DXML_REF_COUNT_NODES=1  -I. -DLIBXML2=1      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c ExpatParse.c -o ExpatParse.o
+gcc -I"/usr/share/R/include" -DNDEBUG -DLIBXML -I/home/keunsoo/mambaforge/include/libxml2 -DUSE_EXTERNAL_SUBSET=1 -DROOT_HAS_DTD_NODE=1 -DNO_CHECKED_ENTITY_FIELD=1 -DDUMP_WITH_ENCODING=1 -DUSE_XML_VERSION_H=1 -DXML_ELEMENT_ETYPE=1 -DXML_ATTRIBUTE_ATYPE=1 -DNO_XML_HASH_SCANNER_RETURN=1 -DLIBXML_NAMESPACE_HAS_CONTEXT=1 -DHAVE_XML_WITH_ZLIB=1 -DHAVE_XML_HAS_FEATURE=1 -DUSE_R=1 -D_R_=1  -DHAVE_VALIDITY=1 -DXML_REF_COUNT_NODES=1  -I. -DLIBXML2=1      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c HTMLParse.c -o HTMLParse.o
+gcc -I"/usr/share/R/include" -DNDEBUG -DLIBXML -I/home/keunsoo/mambaforge/include/libxml2 -DUSE_EXTERNAL_SUBSET=1 -DROOT_HAS_DTD_NODE=1 -DNO_CHECKED_ENTITY_FIELD=1 -DDUMP_WITH_ENCODING=1 -DUSE_XML_VERSION_H=1 -DXML_ELEMENT_ETYPE=1 -DXML_ATTRIBUTE_ATYPE=1 -DNO_XML_HASH_SCANNER_RETURN=1 -DLIBXML_NAMESPACE_HAS_CONTEXT=1 -DHAVE_XML_WITH_ZLIB=1 -DHAVE_XML_HAS_FEATURE=1 -DUSE_R=1 -D_R_=1  -DHAVE_VALIDITY=1 -DXML_REF_COUNT_NODES=1  -I. -DLIBXML2=1      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c NodeGC.c -o NodeGC.o
+gcc -I"/usr/share/R/include" -DNDEBUG -DLIBXML -I/home/keunsoo/mambaforge/include/libxml2 -DUSE_EXTERNAL_SUBSET=1 -DROOT_HAS_DTD_NODE=1 -DNO_CHECKED_ENTITY_FIELD=1 -DDUMP_WITH_ENCODING=1 -DUSE_XML_VERSION_H=1 -DXML_ELEMENT_ETYPE=1 -DXML_ATTRIBUTE_ATYPE=1 -DNO_XML_HASH_SCANNER_RETURN=1 -DLIBXML_NAMESPACE_HAS_CONTEXT=1 -DHAVE_XML_WITH_ZLIB=1 -DHAVE_XML_HAS_FEATURE=1 -DUSE_R=1 -D_R_=1  -DHAVE_VALIDITY=1 -DXML_REF_COUNT_NODES=1  -I. -DLIBXML2=1      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c RUtils.c -o RUtils.o
+gcc -I"/usr/share/R/include" -DNDEBUG -DLIBXML -I/home/keunsoo/mambaforge/include/libxml2 -DUSE_EXTERNAL_SUBSET=1 -DROOT_HAS_DTD_NODE=1 -DNO_CHECKED_ENTITY_FIELD=1 -DDUMP_WITH_ENCODING=1 -DUSE_XML_VERSION_H=1 -DXML_ELEMENT_ETYPE=1 -DXML_ATTRIBUTE_ATYPE=1 -DNO_XML_HASH_SCANNER_RETURN=1 -DLIBXML_NAMESPACE_HAS_CONTEXT=1 -DHAVE_XML_WITH_ZLIB=1 -DHAVE_XML_HAS_FEATURE=1 -DUSE_R=1 -D_R_=1  -DHAVE_VALIDITY=1 -DXML_REF_COUNT_NODES=1  -I. -DLIBXML2=1      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c Rcatalog.c -o Rcatalog.o
+gcc -I"/usr/share/R/include" -DNDEBUG -DLIBXML -I/home/keunsoo/mambaforge/include/libxml2 -DUSE_EXTERNAL_SUBSET=1 -DROOT_HAS_DTD_NODE=1 -DNO_CHECKED_ENTITY_FIELD=1 -DDUMP_WITH_ENCODING=1 -DUSE_XML_VERSION_H=1 -DXML_ELEMENT_ETYPE=1 -DXML_ATTRIBUTE_ATYPE=1 -DNO_XML_HASH_SCANNER_RETURN=1 -DLIBXML_NAMESPACE_HAS_CONTEXT=1 -DHAVE_XML_WITH_ZLIB=1 -DHAVE_XML_HAS_FEATURE=1 -DUSE_R=1 -D_R_=1  -DHAVE_VALIDITY=1 -DXML_REF_COUNT_NODES=1  -I. -DLIBXML2=1      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c Utils.c -o Utils.o
+gcc -I"/usr/share/R/include" -DNDEBUG -DLIBXML -I/home/keunsoo/mambaforge/include/libxml2 -DUSE_EXTERNAL_SUBSET=1 -DROOT_HAS_DTD_NODE=1 -DNO_CHECKED_ENTITY_FIELD=1 -DDUMP_WITH_ENCODING=1 -DUSE_XML_VERSION_H=1 -DXML_ELEMENT_ETYPE=1 -DXML_ATTRIBUTE_ATYPE=1 -DNO_XML_HASH_SCANNER_RETURN=1 -DLIBXML_NAMESPACE_HAS_CONTEXT=1 -DHAVE_XML_WITH_ZLIB=1 -DHAVE_XML_HAS_FEATURE=1 -DUSE_R=1 -D_R_=1  -DHAVE_VALIDITY=1 -DXML_REF_COUNT_NODES=1  -I. -DLIBXML2=1      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c XMLEventParse.c -o XMLEventParse.o
+gcc -I"/usr/share/R/include" -DNDEBUG -DLIBXML -I/home/keunsoo/mambaforge/include/libxml2 -DUSE_EXTERNAL_SUBSET=1 -DROOT_HAS_DTD_NODE=1 -DNO_CHECKED_ENTITY_FIELD=1 -DDUMP_WITH_ENCODING=1 -DUSE_XML_VERSION_H=1 -DXML_ELEMENT_ETYPE=1 -DXML_ATTRIBUTE_ATYPE=1 -DNO_XML_HASH_SCANNER_RETURN=1 -DLIBXML_NAMESPACE_HAS_CONTEXT=1 -DHAVE_XML_WITH_ZLIB=1 -DHAVE_XML_HAS_FEATURE=1 -DUSE_R=1 -D_R_=1  -DHAVE_VALIDITY=1 -DXML_REF_COUNT_NODES=1  -I. -DLIBXML2=1      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c XMLHashTree.c -o XMLHashTree.o
+gcc -I"/usr/share/R/include" -DNDEBUG -DLIBXML -I/home/keunsoo/mambaforge/include/libxml2 -DUSE_EXTERNAL_SUBSET=1 -DROOT_HAS_DTD_NODE=1 -DNO_CHECKED_ENTITY_FIELD=1 -DDUMP_WITH_ENCODING=1 -DUSE_XML_VERSION_H=1 -DXML_ELEMENT_ETYPE=1 -DXML_ATTRIBUTE_ATYPE=1 -DNO_XML_HASH_SCANNER_RETURN=1 -DLIBXML_NAMESPACE_HAS_CONTEXT=1 -DHAVE_XML_WITH_ZLIB=1 -DHAVE_XML_HAS_FEATURE=1 -DUSE_R=1 -D_R_=1  -DHAVE_VALIDITY=1 -DXML_REF_COUNT_NODES=1  -I. -DLIBXML2=1      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c XMLTree.c -o XMLTree.o
+gcc -I"/usr/share/R/include" -DNDEBUG -DLIBXML -I/home/keunsoo/mambaforge/include/libxml2 -DUSE_EXTERNAL_SUBSET=1 -DROOT_HAS_DTD_NODE=1 -DNO_CHECKED_ENTITY_FIELD=1 -DDUMP_WITH_ENCODING=1 -DUSE_XML_VERSION_H=1 -DXML_ELEMENT_ETYPE=1 -DXML_ATTRIBUTE_ATYPE=1 -DNO_XML_HASH_SCANNER_RETURN=1 -DLIBXML_NAMESPACE_HAS_CONTEXT=1 -DHAVE_XML_WITH_ZLIB=1 -DHAVE_XML_HAS_FEATURE=1 -DUSE_R=1 -D_R_=1  -DHAVE_VALIDITY=1 -DXML_REF_COUNT_NODES=1  -I. -DLIBXML2=1      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c fixNS.c -o fixNS.o
+gcc -I"/usr/share/R/include" -DNDEBUG -DLIBXML -I/home/keunsoo/mambaforge/include/libxml2 -DUSE_EXTERNAL_SUBSET=1 -DROOT_HAS_DTD_NODE=1 -DNO_CHECKED_ENTITY_FIELD=1 -DDUMP_WITH_ENCODING=1 -DUSE_XML_VERSION_H=1 -DXML_ELEMENT_ETYPE=1 -DXML_ATTRIBUTE_ATYPE=1 -DNO_XML_HASH_SCANNER_RETURN=1 -DLIBXML_NAMESPACE_HAS_CONTEXT=1 -DHAVE_XML_WITH_ZLIB=1 -DHAVE_XML_HAS_FEATURE=1 -DUSE_R=1 -D_R_=1  -DHAVE_VALIDITY=1 -DXML_REF_COUNT_NODES=1  -I. -DLIBXML2=1      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c libxmlFeatures.c -o libxmlFeatures.o
+gcc -I"/usr/share/R/include" -DNDEBUG -DLIBXML -I/home/keunsoo/mambaforge/include/libxml2 -DUSE_EXTERNAL_SUBSET=1 -DROOT_HAS_DTD_NODE=1 -DNO_CHECKED_ENTITY_FIELD=1 -DDUMP_WITH_ENCODING=1 -DUSE_XML_VERSION_H=1 -DXML_ELEMENT_ETYPE=1 -DXML_ATTRIBUTE_ATYPE=1 -DNO_XML_HASH_SCANNER_RETURN=1 -DLIBXML_NAMESPACE_HAS_CONTEXT=1 -DHAVE_XML_WITH_ZLIB=1 -DHAVE_XML_HAS_FEATURE=1 -DUSE_R=1 -D_R_=1  -DHAVE_VALIDITY=1 -DXML_REF_COUNT_NODES=1  -I. -DLIBXML2=1      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c schema.c -o schema.o
+gcc -I"/usr/share/R/include" -DNDEBUG -DLIBXML -I/home/keunsoo/mambaforge/include/libxml2 -DUSE_EXTERNAL_SUBSET=1 -DROOT_HAS_DTD_NODE=1 -DNO_CHECKED_ENTITY_FIELD=1 -DDUMP_WITH_ENCODING=1 -DUSE_XML_VERSION_H=1 -DXML_ELEMENT_ETYPE=1 -DXML_ATTRIBUTE_ATYPE=1 -DNO_XML_HASH_SCANNER_RETURN=1 -DLIBXML_NAMESPACE_HAS_CONTEXT=1 -DHAVE_XML_WITH_ZLIB=1 -DHAVE_XML_HAS_FEATURE=1 -DUSE_R=1 -D_R_=1  -DHAVE_VALIDITY=1 -DXML_REF_COUNT_NODES=1  -I. -DLIBXML2=1      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c xmlsecurity.c -o xmlsecurity.o
+gcc -I"/usr/share/R/include" -DNDEBUG -DLIBXML -I/home/keunsoo/mambaforge/include/libxml2 -DUSE_EXTERNAL_SUBSET=1 -DROOT_HAS_DTD_NODE=1 -DNO_CHECKED_ENTITY_FIELD=1 -DDUMP_WITH_ENCODING=1 -DUSE_XML_VERSION_H=1 -DXML_ELEMENT_ETYPE=1 -DXML_ATTRIBUTE_ATYPE=1 -DNO_XML_HASH_SCANNER_RETURN=1 -DLIBXML_NAMESPACE_HAS_CONTEXT=1 -DHAVE_XML_WITH_ZLIB=1 -DHAVE_XML_HAS_FEATURE=1 -DUSE_R=1 -D_R_=1  -DHAVE_VALIDITY=1 -DXML_REF_COUNT_NODES=1  -I. -DLIBXML2=1      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c xpath.c -o xpath.o
+gcc -shared -L/usr/lib/R/lib -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro -o XML.so DocParse.o EventParse.o ExpatParse.o HTMLParse.o NodeGC.o RUtils.o Rcatalog.o Utils.o XMLEventParse.o XMLHashTree.o XMLTree.o fixNS.o libxmlFeatures.o schema.o xmlsecurity.o xpath.o -L/home/keunsoo/mambaforge/lib -lxml2 -ldl -lpthread -L/home/keunsoo/mambaforge/lib -lz -L/home/keunsoo/mambaforge/lib -liconv -L/home/keunsoo/mambaforge/lib -licuuc -lm -lz -lxml2 -L/usr/lib/R/lib -lR
+installing to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-XML/00new/XML/libs
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+Creating a generic function for 'source' from package 'base' in package 'XML'
+in method for 'xmlAttrsToDataFrame' with signature '"AsIs"': no definition for class "AsIs"
+in method for 'readKeyValueDB' with signature '"AsIs"': no definition for class "AsIs"
+in method for 'readSolrDoc' with signature '"AsIs"': no definition for class "AsIs"
+** help
+*** installing help indices
+** building package indices
+** testing if installed package can be loaded from temporary location
+** checking absolute paths in shared objects and dynamic libraries
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (XML)
+* installing *source* package 'rlang' ...
+** this is package 'rlang' version '1.2.0'
+** package 'rlang' successfully unpacked and MD5 sums checked
+** using staged installation
+** libs
+using C compiler: 'gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+gcc -I"/usr/share/R/include" -DNDEBUG -I./rlang/     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c capture.c -o capture.o
+touch internal.c
+gcc -I"/usr/share/R/include" -DNDEBUG -I./rlang/     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c internal.c -o internal.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I./rlang/     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c rlang.c -o rlang.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I./rlang/     -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c version.c -o version.o
+gcc -shared -L/usr/lib/R/lib -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro -o rlang.so capture.o internal.o rlang.o version.o -L/usr/lib/R/lib -lR
+installing to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-rlang/00new/rlang/libs
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+*** copying figures
+** building package indices
+** testing if installed package can be loaded from temporary location
+** checking absolute paths in shared objects and dynamic libraries
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (rlang)
+* installing *source* package 'stringi' ...
+** this is package 'stringi' version '1.8.7'
+** package 'stringi' successfully unpacked and MD5 sums checked
+** using staged installation
+checking for R_HOME... /usr/lib/R
+checking for R... /usr/lib/R/bin/R
+checking for endianness... little
+checking for cat... /usr/bin/cat
+checking whether the C++ compiler works... yes
+checking for C++ compiler default output file name... a.out
+checking for suffix of executables... 
+checking whether we are cross compiling... no
+checking for suffix of object files... o
+checking whether the compiler supports GNU C++... yes
+checking whether g++ -std=gnu++17 accepts -g... yes
+checking for g++ -std=gnu++17 option to enable C++11 features... none needed
+checking whether the C++ compiler supports the 'long long' type... yes
+checking whether the compiler implements namespaces... yes
+checking whether the compiler supports the Standard Template Library... yes
+checking whether std::map is available... yes
+checking for pkg-config... /home/keunsoo/mambaforge/bin/pkg-config
+checking with 'pkg-config' for the system ICU4C (icu-i18n icu-uc)... 78.3
+checking for ICU4C >= 61... yes
+checking for additional CPPFLAGS, LDFLAGS, and LIBS required... done
+checking whether an ICU4C-based project can be built... yes
+checking programmatically for sufficient U_ICU_VERSION_MAJOR_NUM... yes
+checking the capabilities of the ICU data library (ucnv, uloc, utrans)... yes
+checking the capabilities of the ICU data library (ucol)... yes
+checking for stdio.h... yes
+checking for stdlib.h... yes
+checking for string.h... yes
+checking for inttypes.h... yes
+checking for stdint.h... yes
+checking for strings.h... yes
+checking for sys/stat.h... yes
+checking for sys/types.h... yes
+checking for unistd.h... yes
+checking for elf.h... yes
+configure: creating ./config.status
+config.status: creating src/Makevars
+config.status: creating src/uconfig_local.h
+config.status: creating src/install.libs.R
+
+*** stringi configure summary:
+    ICU_FOUND=1
+    STRINGI_CXXSTD=
+    STRINGI_CXXFLAGS=  -fpic
+    STRINGI_CPPFLAGS=-I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include
+    STRINGI_LDFLAGS=  -L/home/keunsoo/mambaforge/lib
+    STRINGI_LIBS=  -licuuc -licui18n
+
+*** Compiler settings used:
+    CXX=g++ -std=gnu++17
+    LD=g++ -std=gnu++17
+    CXXFLAGS=-g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2
+    CPPFLAGS=
+    LDFLAGS=
+    LIBS=
+
+** libs
+using C++ compiler: 'g++ (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_brkiter.cpp -o stri_brkiter.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_callables.cpp -o stri_callables.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_collator.cpp -o stri_collator.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_common.cpp -o stri_common.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_compare.cpp -o stri_compare.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_container_base.cpp -o stri_container_base.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_container_bytesearch.cpp -o stri_container_bytesearch.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_container_listint.cpp -o stri_container_listint.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_container_listraw.cpp -o stri_container_listraw.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_container_listutf8.cpp -o stri_container_listutf8.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_container_regex.cpp -o stri_container_regex.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_container_usearch.cpp -o stri_container_usearch.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_container_utf16.cpp -o stri_container_utf16.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_container_utf8.cpp -o stri_container_utf8.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_container_utf8_indexable.cpp -o stri_container_utf8_indexable.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_encoding_conversion.cpp -o stri_encoding_conversion.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_encoding_detection.cpp -o stri_encoding_detection.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_encoding_management.cpp -o stri_encoding_management.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_escape.cpp -o stri_escape.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_exception.cpp -o stri_exception.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_ICU_settings.cpp -o stri_ICU_settings.o
+In file included from stri_ICU_settings.cpp:37:
+uconfig_local.h:42: warning: "UCONFIG_USE_WINDOWS_LCID_MAPPING_API" redefined
+   42 | #define UCONFIG_USE_WINDOWS_LCID_MAPPING_API 0
+      | 
+In file included from /home/keunsoo/mambaforge/include/unicode/platform.h:24,
+                 from /home/keunsoo/mambaforge/include/unicode/ptypes.h:46,
+                 from stri_external.h:52,
+                 from stri_stringi.h:36,
+                 from stri_ICU_settings.cpp:33:
+/home/keunsoo/mambaforge/include/unicode/uconfig.h:391: note: this is the location of the previous definition
+  391 | #   define UCONFIG_USE_WINDOWS_LCID_MAPPING_API 1
+      | 
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_join.cpp -o stri_join.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_length.cpp -o stri_length.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_pad.cpp -o stri_pad.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_prepare_arg.cpp -o stri_prepare_arg.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_random.cpp -o stri_random.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_reverse.cpp -o stri_reverse.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_class_count.cpp -o stri_search_class_count.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_class_detect.cpp -o stri_search_class_detect.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_class_extract.cpp -o stri_search_class_extract.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_class_locate.cpp -o stri_search_class_locate.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_class_replace.cpp -o stri_search_class_replace.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_class_split.cpp -o stri_search_class_split.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_class_startsendswith.cpp -o stri_search_class_startsendswith.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_class_subset.cpp -o stri_search_class_subset.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_class_trim.cpp -o stri_search_class_trim.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_common.cpp -o stri_search_common.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_coll_count.cpp -o stri_search_coll_count.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_coll_detect.cpp -o stri_search_coll_detect.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_coll_extract.cpp -o stri_search_coll_extract.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_coll_locate.cpp -o stri_search_coll_locate.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_coll_replace.cpp -o stri_search_coll_replace.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_coll_split.cpp -o stri_search_coll_split.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_coll_startsendswith.cpp -o stri_search_coll_startsendswith.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_coll_subset.cpp -o stri_search_coll_subset.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_boundaries_count.cpp -o stri_search_boundaries_count.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_boundaries_extract.cpp -o stri_search_boundaries_extract.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_boundaries_locate.cpp -o stri_search_boundaries_locate.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_boundaries_split.cpp -o stri_search_boundaries_split.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_fixed_count.cpp -o stri_search_fixed_count.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_fixed_detect.cpp -o stri_search_fixed_detect.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_fixed_extract.cpp -o stri_search_fixed_extract.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_fixed_locate.cpp -o stri_search_fixed_locate.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_fixed_replace.cpp -o stri_search_fixed_replace.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_fixed_split.cpp -o stri_search_fixed_split.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_fixed_subset.cpp -o stri_search_fixed_subset.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_fixed_startsendswith.cpp -o stri_search_fixed_startsendswith.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_in.cpp -o stri_search_in.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_other_split.cpp -o stri_search_other_split.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_regex_count.cpp -o stri_search_regex_count.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_regex_detect.cpp -o stri_search_regex_detect.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_regex_extract.cpp -o stri_search_regex_extract.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_regex_locate.cpp -o stri_search_regex_locate.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_regex_match.cpp -o stri_search_regex_match.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_regex_replace.cpp -o stri_search_regex_replace.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_regex_split.cpp -o stri_search_regex_split.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_search_regex_subset.cpp -o stri_search_regex_subset.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_sort.cpp -o stri_sort.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_sprintf.cpp -o stri_sprintf.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_stats.cpp -o stri_stats.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_string8.cpp -o stri_string8.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_stringi.cpp -o stri_stringi.o
+In file included from stri_stringi.cpp:40:
+uconfig_local.h:42: warning: "UCONFIG_USE_WINDOWS_LCID_MAPPING_API" redefined
+   42 | #define UCONFIG_USE_WINDOWS_LCID_MAPPING_API 0
+      | 
+In file included from /home/keunsoo/mambaforge/include/unicode/platform.h:24,
+                 from /home/keunsoo/mambaforge/include/unicode/ptypes.h:46,
+                 from stri_external.h:52,
+                 from stri_stringi.h:36,
+                 from stri_stringi.cpp:33:
+/home/keunsoo/mambaforge/include/unicode/uconfig.h:391: note: this is the location of the previous definition
+  391 | #   define UCONFIG_USE_WINDOWS_LCID_MAPPING_API 1
+      | 
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_sub.cpp -o stri_sub.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_test.cpp -o stri_test.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_time_zone.cpp -o stri_time_zone.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_time_calendar.cpp -o stri_time_calendar.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_time_symbols.cpp -o stri_time_symbols.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_time_format.cpp -o stri_time_format.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_trans_casemap.cpp -o stri_trans_casemap.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_trans_other.cpp -o stri_trans_other.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_trans_normalization.cpp -o stri_trans_normalization.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_trans_transliterate.cpp -o stri_trans_transliterate.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_ucnv.cpp -o stri_ucnv.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_uloc.cpp -o stri_uloc.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_utils.cpp -o stri_utils.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.   -UDEBUG -DNDEBUG -DU_HAVE_ELF_H -I/home/keunsoo/mambaforge/include     -fpic -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c stri_wrap.cpp -o stri_wrap.o
+g++ -std=gnu++17 -shared -L/usr/lib/R/lib -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro -o stringi.so stri_brkiter.o stri_callables.o stri_collator.o stri_common.o stri_compare.o stri_container_base.o stri_container_bytesearch.o stri_container_listint.o stri_container_listraw.o stri_container_listutf8.o stri_container_regex.o stri_container_usearch.o stri_container_utf16.o stri_container_utf8.o stri_container_utf8_indexable.o stri_encoding_conversion.o stri_encoding_detection.o stri_encoding_management.o stri_escape.o stri_exception.o stri_ICU_settings.o stri_join.o stri_length.o stri_pad.o stri_prepare_arg.o stri_random.o stri_reverse.o stri_search_class_count.o stri_search_class_detect.o stri_search_class_extract.o stri_search_class_locate.o stri_search_class_replace.o stri_search_class_split.o stri_search_class_startsendswith.o stri_search_class_subset.o stri_search_class_trim.o stri_search_common.o stri_search_coll_count.o stri_search_coll_detect.o stri_search_coll_extract.o stri_search_coll_locate.o stri_search_coll_replace.o stri_search_coll_split.o stri_search_coll_startsendswith.o stri_search_coll_subset.o stri_search_boundaries_count.o stri_search_boundaries_extract.o stri_search_boundaries_locate.o stri_search_boundaries_split.o stri_search_fixed_count.o stri_search_fixed_detect.o stri_search_fixed_extract.o stri_search_fixed_locate.o stri_search_fixed_replace.o stri_search_fixed_split.o stri_search_fixed_subset.o stri_search_fixed_startsendswith.o stri_search_in.o stri_search_other_split.o stri_search_regex_count.o stri_search_regex_detect.o stri_search_regex_extract.o stri_search_regex_locate.o stri_search_regex_match.o stri_search_regex_replace.o stri_search_regex_split.o stri_search_regex_subset.o stri_sort.o stri_sprintf.o stri_stats.o stri_string8.o stri_stringi.o stri_sub.o stri_test.o stri_time_zone.o stri_time_calendar.o stri_time_symbols.o stri_time_format.o stri_trans_casemap.o stri_trans_other.o stri_trans_normalization.o stri_trans_transliterate.o stri_ucnv.o stri_uloc.o stri_utils.o stri_wrap.o -L/home/keunsoo/mambaforge/lib -licuuc -licui18n -L/usr/lib/R/lib -lR
+installing via 'install.libs.R' to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-stringi/00new/stringi
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** testing if installed package can be loaded from temporary location
+Error: package or namespace load failed for 'stringi' in dyn.load(file, DLLpath = DLLpath, ...):
+ unable to load shared object '/home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-stringi/00new/stringi/libs/stringi.so':
+  /usr/lib/x86_64-linux-gnu/libstdc++.so.6: version `CXXABI_1.3.15' not found (required by /home/keunsoo/mambaforge/lib/libicui18n.so.78)
+Error: loading failed
+Execution halted
+ERROR: loading failed
+* removing '/home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/stringi'
+* installing *source* package 'glue' ...
+** this is package 'glue' version '1.8.1'
+** package 'glue' successfully unpacked and MD5 sums checked
+** using staged installation
+** libs
+using C compiler: 'gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+gcc -I"/usr/share/R/include" -DNDEBUG      -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c glue.c -o glue.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c init.c -o init.o
+gcc -I"/usr/share/R/include" -DNDEBUG      -fvisibility=hidden -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c trim.c -o trim.o
+gcc -shared -L/usr/lib/R/lib -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro -o glue.so glue.o init.o trim.o -L/usr/lib/R/lib -lR
+installing to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-glue/00new/glue/libs
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+*** copying figures
+** building package indices
+** installing vignettes
+** testing if installed package can be loaded from temporary location
+** checking absolute paths in shared objects and dynamic libraries
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (glue)
+* installing *source* package 'digest' ...
+** this is package 'digest' version '0.6.39'
+** package 'digest' successfully unpacked and MD5 sums checked
+** using staged installation
+** libs
+using C compiler: 'gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+using C++ compiler: 'g++ (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c SpookyV2.cpp -o SpookyV2.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I.      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c aes.c -o aes.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I.      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c blake3.c -o blake3.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I.      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c blake3_dispatch.c -o blake3_dispatch.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I.      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c blake3_portable.c -o blake3_portable.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I.      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c crc32.c -o crc32.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c crc32c.cpp -o crc32c.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c crc32c_portable.cpp -o crc32c_portable.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I.      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c digest.c -o digest.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I.      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c digest2int.c -o digest2int.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I.      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c init.c -o init.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I.      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c md5.c -o md5.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I.      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c pmurhash.c -o pmurhash.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I.      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c raes.c -o raes.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I.      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c sha1.c -o sha1.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I.      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c sha2.c -o sha2.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I.      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c sha256.c -o sha256.o
+g++ -std=gnu++17 -I"/usr/share/R/include" -DNDEBUG -I.      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2   -c spooky_serialize.cpp -o spooky_serialize.o
+gcc -I"/usr/share/R/include" -DNDEBUG -I.      -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c xxhash.c -o xxhash.o
+g++ -std=gnu++17 -shared -L/usr/lib/R/lib -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro -o digest.so SpookyV2.o aes.o blake3.o blake3_dispatch.o blake3_portable.o crc32.o crc32c.o crc32c_portable.o digest.o digest2int.o init.o md5.o pmurhash.o raes.o sha1.o sha2.o sha256.o spooky_serialize.o xxhash.o -L/usr/lib/R/lib -lR
+installing to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-digest/00new/digest/libs
+** R
+** demo
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** installing vignettes
+** testing if installed package can be loaded from temporary location
+** checking absolute paths in shared objects and dynamic libraries
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (digest)
+* installing *source* package 'jsonlite' ...
+** this is package 'jsonlite' version '2.0.0'
+** package 'jsonlite' successfully unpacked and MD5 sums checked
+** using staged installation
+** libs
+using C compiler: 'gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c base64.c -o base64.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c collapse_array.c -o collapse_array.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c collapse_object.c -o collapse_object.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c collapse_pretty.c -o collapse_pretty.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c escape_chars.c -o escape_chars.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c integer64_to_na.c -o integer64_to_na.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c is_datelist.c -o is_datelist.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c is_recordlist.c -o is_recordlist.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c is_scalarlist.c -o is_scalarlist.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c modp_numtoa.c -o modp_numtoa.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c null_to_na.c -o null_to_na.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c num_to_char.c -o num_to_char.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c parse.c -o parse.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c prettify.c -o prettify.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c push_parser.c -o push_parser.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c r-base64.c -o r-base64.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c register.c -o register.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c row_collapse.c -o row_collapse.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c transpose_list.c -o transpose_list.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c validate.c -o validate.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c yajl/yajl.c -o yajl/yajl.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c yajl/yajl_alloc.c -o yajl/yajl_alloc.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c yajl/yajl_buf.c -o yajl/yajl_buf.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c yajl/yajl_encode.c -o yajl/yajl_encode.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c yajl/yajl_gen.c -o yajl/yajl_gen.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c yajl/yajl_lex.c -o yajl/yajl_lex.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c yajl/yajl_parser.c -o yajl/yajl_parser.o
+gcc -I"/usr/share/R/include" -DNDEBUG -Iyajl/api     -fvisibility=hidden  -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c yajl/yajl_tree.c -o yajl/yajl_tree.o
+ar rcs yajl/libstatyajl.a yajl/yajl.o yajl/yajl_alloc.o yajl/yajl_buf.o yajl/yajl_encode.o yajl/yajl_gen.o yajl/yajl_lex.o yajl/yajl_parser.o yajl/yajl_tree.o
+gcc -shared -L/usr/lib/R/lib -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -flto=auto -Wl,-z,relro -o jsonlite.so base64.o collapse_array.o collapse_object.o collapse_pretty.o escape_chars.o integer64_to_na.o is_datelist.o is_recordlist.o is_scalarlist.o modp_numtoa.o null_to_na.o num_to_char.o parse.o prettify.o push_parser.o r-base64.o register.o row_collapse.o transpose_list.o validate.o -Lyajl -lstatyajl -L/usr/lib/R/lib -lR
+installing to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-2/.r-lib/R-4.5/00LOCK-jsonlite/00new/jsonlite/libs
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+in method for 'asJSON' with signature '"AsIs"': no definition for class "AsIs"
+in method for 'asJSON' with signature '"ITime"': no definition for class "ITime"
+in method for 'asJSON' with signature '"hms"': no definition for class "hms"
+in method for 'asJSON' with signature '"json"': no definition for class "json"
+in method for 'asJSON' with signature '"integer64"': no definition for class "integer64"
+in method for 'asJSON' with signature '"pairlist"': no definition for class "pairlist"
+in method for 'asJSON' with signature '"blob"': no definition for class "blob"
+in method for 'asJSON' with signature '"scalar"': no definition for class "scalar"
+in method for 'asJSON' with signature '"sf"': no definition for class "sf"
+in method for 'asJSON' with signature '"sfc"': no definition for class "sfc"
+in method for 'asJSON' with signature '"vctrs_vctr"': no definition for class "vctrs_vctr"
+** help
+*** installing help indices
+** building package indices
+** installing vignettes
+** testing if installed package can be loaded from temporary location
+** checking absolute paths in shared objects and dynamic libraries
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (jsonlite)
+* installing *source* package 'matrixStats' ...
+** this is package 'matrixStats' version '1.5.0'
+** package 'matrixStats' successfully unpacked and MD5 sums checked
+** using staged installation
+** libs
+using C compiler: 'gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0'
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c 000.init.c -o 000.init.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c allocMatrix2.c -o allocMatrix2.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c anyMissing.c -o anyMissing.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c binCounts.c -o binCounts.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c binMeans.c -o binMeans.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c colCounts.c -o colCounts.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c colOrderStats.c -o colOrderStats.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c colRanges.c -o colRanges.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c diff2.c -o diff2.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c indexByRow.c -o indexByRow.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c logSumExp.c -o logSumExp.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c mean2.c -o mean2.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c naming.c -o naming.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c productExpSumLog.c -o productExpSumLog.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c psortKM.c -o psortKM.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c rowCounts.c -o rowCounts.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c rowCummaxs.c -o rowCummaxs.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c rowCummins.c -o rowCummins.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c rowCumprods.c -o rowCumprods.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c rowCumsums.c -o rowCumsums.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c rowDiffs.c -o rowDiffs.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c rowLogSumExp.c -o rowLogSumExp.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c rowMads.c -o rowMads.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c rowMeans2.c -o rowMeans2.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c rowMedians.c -o rowMedians.o
+gcc -I"/usr/share/R/include" -DNDEBUG       -fpic  -g -O2 -ffile-prefix-map=/build/r-base-QoVTUP/r-base-4.5.3=. -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2  -c rowOrderStats.c -o rowOrderStats.o

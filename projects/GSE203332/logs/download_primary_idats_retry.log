@@ -1,0 +1,10 @@
+resume missing=76 existing=194
+retry progress 10/76 counts={'downloaded': 10} files=204 size_gb=1.50 elapsed_min=0.2
+retry progress 20/76 counts={'downloaded': 20} files=214 size_gb=1.57 elapsed_min=0.5
+retry progress 30/76 counts={'downloaded': 30} files=224 size_gb=1.65 elapsed_min=0.8
+retry progress 40/76 counts={'downloaded': 40} files=234 size_gb=1.72 elapsed_min=1.0
+retry progress 50/76 counts={'downloaded': 50} files=244 size_gb=1.79 elapsed_min=1.3
+retry progress 60/76 counts={'downloaded': 60} files=254 size_gb=1.87 elapsed_min=1.5
+retry progress 70/76 counts={'downloaded': 70} files=264 size_gb=1.94 elapsed_min=1.7
+retry progress 76/76 counts={'downloaded': 76} files=270 size_gb=1.99 elapsed_min=1.9
+done {'downloaded': 76} files_on_disk 270 size_gb 1.986091256

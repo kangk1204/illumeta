@@ -1,0 +1,27 @@
+target files=270 samples=135 out=projects/GSE203332/idat
+progress 10/270 counts={'downloaded': 10} size_gb=0.07 elapsed_min=0.2
+progress 20/270 counts={'downloaded': 20} size_gb=0.15 elapsed_min=0.4
+progress 30/270 counts={'downloaded': 30} size_gb=0.22 elapsed_min=0.5
+progress 40/270 counts={'downloaded': 40} size_gb=0.29 elapsed_min=0.7
+Traceback (most recent call last):
+  File "<stdin>", line 31, in <module>
+  File "/home/keunsoo/mambaforge/lib/python3.10/concurrent/futures/_base.py", line 451, in result
+    return self.__get_result()
+  File "/home/keunsoo/mambaforge/lib/python3.10/concurrent/futures/_base.py", line 403, in __get_result
+    raise self._exception
+  File "/home/keunsoo/mambaforge/lib/python3.10/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "<stdin>", line 20, in fetch
+  File "/home/keunsoo/mambaforge/lib/python3.10/urllib/request.py", line 216, in urlopen
+    return opener.open(url, data, timeout)
+  File "/home/keunsoo/mambaforge/lib/python3.10/urllib/request.py", line 525, in open
+    response = meth(req, response)
+  File "/home/keunsoo/mambaforge/lib/python3.10/urllib/request.py", line 634, in http_response
+    response = self.parent.error(
+  File "/home/keunsoo/mambaforge/lib/python3.10/urllib/request.py", line 563, in error
+    return self._call_chain(*args)
+  File "/home/keunsoo/mambaforge/lib/python3.10/urllib/request.py", line 496, in _call_chain
+    result = func(*args)
+  File "/home/keunsoo/mambaforge/lib/python3.10/urllib/request.py", line 643, in http_error_default
+    raise HTTPError(req.full_url, code, msg, hdrs, fp)
+urllib.error.HTTPError: HTTP Error 503: Service Unavailable

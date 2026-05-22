@@ -1,0 +1,15 @@
+field	value
+dataset	GSE203332
+primary_contrast	neuropathological AD vs CONTR
+primary_counts_after_qc	AD=61; Control=74
+raw_gate	984 IDAT links in GEO metadata/filelist; selected primary download complete: 270 files / 135 pairs / 1.99GB
+run_status	blocked_before_analysis
+blocker_1	system R attempt failed loading stringi because conda ICU required CXXABI_1.3.15 unavailable in system libstdc++
+blocker_2	conda full setup spent runtime on optional FlowSorted/cell-reference downloads not needed for tissue Auto
+blocker_3	minimal conda setup stalled downloading Bioconductor GenomeInfoDb_1.42.3.tar.gz at 0 bytes
+summary_json	missing
+strict_consensus_dmps	missing
+native_consensus_dmps	missing
+dmr_rows	missing
+lambda_guard	missing
+manuscript_use_decision	blocked readiness/stress-test evidence only; not a completed cohort; preserve guarded interpretation

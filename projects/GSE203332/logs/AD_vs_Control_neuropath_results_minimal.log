@@ -1,0 +1,2 @@
+START 2026-05-22T18:52:43+09:00
+Command: ILLUMETA_INSTALL_MINIMAL=1 LC_ALL=C LANG=C conda run -n illumeta python illumeta.py analysis -c projects/GSE203332/configure_AD_vs_Control_neuropath.tsv -o projects/GSE203332/AD_vs_Control_neuropath_results_minimal --idat-dir projects/GSE203332/idat --group_con Control --group_test AD --include-covariates age,sex,pmd_min --batch-column slide --batch-method limma --tissue Auto --permutations 0 --tier3-on-fail skip

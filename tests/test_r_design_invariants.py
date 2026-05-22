@@ -152,6 +152,66 @@ class RDesignInvariantTests(unittest.TestCase):
             )
         )
 
+    def test_tier3_eligibility_ignores_unused_factor_group_levels(self):
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+        tier3_fn = extract_r_function(source, "check_tier3_eligibility")
+
+        self.run_r(
+            textwrap.dedent(
+                f"""
+                {tier3_fn}
+                targets <- data.frame(
+                  batch = c(rep("A", 10), rep("B", 10)),
+                  primary_group = factor(
+                    c(rep(c("Control", "Case"), each = 5), rep(c("Control", "Case"), each = 5)),
+                    levels = c("Control", "Case", "Unused")
+                  )
+                )
+                res <- check_tier3_eligibility(
+                  targets,
+                  "batch",
+                  "primary_group",
+                  min_total_n = 20,
+                  min_per_group_per_stratum = 5,
+                  out_dir = tempdir()
+                )
+                if (!isTRUE(res$eligible)) stop("unused factor level should not make Tier3 ineligible")
+                if (res$min_overlap_group_n != 5) stop("unused factor level leaked into minimum group count")
+                if ("Unused" %in% res$counts$Group) stop("unused factor level should not be audited as an observed group")
+                """
+            )
+        )
+
+    def test_batch_overlap_helpers_ignore_unused_factor_group_levels(self):
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+        safe_chisq_fn = extract_r_function(source, "safe_chisq_p")
+        identify_fn = extract_r_function(source, "identify_overlap_batches")
+        confounded_fn = extract_r_function(source, "is_batch_confounded")
+
+        self.run_r(
+            textwrap.dedent(
+                f"""
+                {safe_chisq_fn}
+                {identify_fn}
+                {confounded_fn}
+                meta <- data.frame(
+                  batch = c(rep("A", 10), rep("B", 10)),
+                  primary_group = factor(
+                    c(rep(c("Control", "Case"), each = 5), rep(c("Control", "Case"), each = 5)),
+                    levels = c("Control", "Case", "Unused")
+                  )
+                )
+                overlap <- identify_overlap_batches(meta, "batch", "primary_group")
+                if (!identical(sort(overlap), c("A", "B"))) stop("unused factor level changed overlap batches")
+                if (is_batch_confounded(meta, "batch", "primary_group")) {{
+                  stop("unused factor level created a false batch-confounding zero cell")
+                }}
+                """
+            )
+        )
+
     def test_r_summary_exposes_sesame_native_imputation_contract(self):
         with open(ANALYZE_R, "r", encoding="utf-8") as handle:
             source = handle.read()
@@ -250,6 +310,32 @@ class RDesignInvariantTests(unittest.TestCase):
                     if (length(extracted) != 1) stop("expected exactly one extracted IDAT")
                     if (!grepl("sample_Grn.idat$", extracted[[1]])) stop("wrong extracted file")
                     if (file.exists(file.path(out_dir, "README.txt"))) stop("non-IDAT file should not be extracted")
+                    """
+                )
+            )
+
+    def test_download_rejects_idat_symlink_members(self):
+        with open(DOWNLOAD_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+        safe_extract_fn = extract_r_function(source, "safe_extract_idats_from_tar")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tar_path = os.path.join(tmpdir, "GSE999_RAW.tar")
+            info = tarfile.TarInfo("linked_Grn.idat")
+            info.type = tarfile.SYMTYPE
+            info.linkname = "/etc/passwd"
+            with tarfile.open(tar_path, "w") as tar:
+                tar.addfile(info)
+
+            self.run_r(
+                textwrap.dedent(
+                    f"""
+                    {safe_extract_fn}
+                    stopped <- tryCatch({{
+                      safe_extract_idats_from_tar("{tar_path}", exdir = tempfile("extract_"))
+                      FALSE
+                    }}, error = function(e) grepl("Unsafe RAW tar symlink", conditionMessage(e)))
+                    if (!isTRUE(stopped)) stop("IDAT symlink member was not rejected")
                     """
                 )
             )

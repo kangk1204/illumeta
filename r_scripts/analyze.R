@@ -2982,7 +2982,7 @@ auto_detect_covariates <- function(targets, gsm_col, pca_scores, alpha=AUTO_COVA
     
     # Skip if almost perfectly collinear with group (chi-square check for factors)
     if (is.character(val_cc) || is.factor(val_cc)) {
-      tbl <- table(val_cc, targets$primary_group[cc])
+      tbl <- table(val_cc, factor(as.character(targets$primary_group[cc])))
       p_chisq <- safe_chisq_p(tbl)
       if (!is.na(p_chisq) && p_chisq < 1e-6) next
     }
@@ -5139,7 +5139,7 @@ assess_batch_confounding <- function(meta, batch_cols, group_col, config_setting
 
 plot_confounding_heatmap <- function(meta, batch_col, group_col, prefix, out_dir) {
   if (!(batch_col %in% colnames(meta)) || !(group_col %in% colnames(meta))) return(NULL)
-  tbl <- table(meta[[batch_col]], meta[[group_col]])
+  tbl <- table(Batch = as.character(meta[[batch_col]]), VOI = as.character(meta[[group_col]]))
   df <- as.data.frame(tbl)
   colnames(df) <- c("Batch", "VOI", "Count")
   p <- ggplot(df, aes(x = VOI, y = Batch, fill = Count, text = Count)) +
@@ -5169,7 +5169,7 @@ plot_confounding_summary <- function(conf_df, prefix, out_dir) {
 
 identify_overlap_batches <- function(meta, batch_col, group_col) {
   if (is.null(batch_col) || !(batch_col %in% colnames(meta))) return(character(0))
-  tbl <- table(meta[[batch_col]], meta[[group_col]])
+  tbl <- table(Batch = as.character(meta[[batch_col]]), Group = as.character(meta[[group_col]]))
   if (nrow(tbl) == 0 || ncol(tbl) == 0) return(character(0))
   keep <- rownames(tbl)[apply(tbl, 1, function(x) sum(x > 0) >= 2)]
   keep
@@ -5178,7 +5178,7 @@ identify_overlap_batches <- function(meta, batch_col, group_col) {
 is_batch_confounded <- function(meta, batch_col, group_col, p_thresh = 1e-6) {
   if (is.null(batch_col) || is.null(group_col)) return(FALSE)
   if (!(batch_col %in% colnames(meta)) || !(group_col %in% colnames(meta))) return(FALSE)
-  tbl <- table(meta[[batch_col]], meta[[group_col]])
+  tbl <- table(Batch = as.character(meta[[batch_col]]), Group = as.character(meta[[group_col]]))
   if (any(tbl == 0)) return(TRUE)
   p_chisq <- safe_chisq_p(tbl)
   if (!is.na(p_chisq) && p_chisq < p_thresh) return(TRUE)
@@ -5208,8 +5208,8 @@ eval_batch_method <- function(M_mat, meta, group_col, batch_col, covariates, met
     }
   }
   rownames(meta_use) <- sample_ids
-  meta_use[[batch_col]] <- as.factor(meta_use[[batch_col]])
-  meta_use[[group_col]] <- as.factor(meta_use[[group_col]])
+  meta_use[[batch_col]] <- factor(as.character(meta_use[[batch_col]]))
+  meta_use[[group_col]] <- factor(as.character(meta_use[[group_col]]))
   note <- ""
   cov_terms <- setdiff(covariates, batch_col)
   cov_terms_use <- cov_terms
@@ -5788,7 +5788,9 @@ check_tier3_eligibility <- function(targets, batch_col, group_col,
   if (!(group_col %in% colnames(targets))) {
     return(list(eligible = FALSE, reason = "missing_group_column"))
   }
-  counts <- as.data.frame(table(targets[[batch_col]], targets[[group_col]]), stringsAsFactors = FALSE)
+  batch_values <- as.character(targets[[batch_col]])
+  group_values <- as.character(targets[[group_col]])
+  counts <- as.data.frame(table(Batch = batch_values, Group = group_values), stringsAsFactors = FALSE)
   colnames(counts) <- c("Batch", "Group", "N")
   counts$N <- as.integer(counts$N)
   counts$Pass_Group_Min <- counts$N >= min_per_group_per_stratum
@@ -6049,7 +6051,7 @@ run_overlap_restricted_analysis <- function(betas, targets, batch_col, group_col
   sub_targets <- targets[idx, , drop = FALSE]
   sub_betas <- betas[, idx, drop = FALSE]
   if (!(group_col %in% colnames(sub_targets))) return(NULL)
-  sub_targets[[group_col]] <- as.factor(sub_targets[[group_col]])
+  sub_targets[[group_col]] <- factor(as.character(sub_targets[[group_col]]))
   group_counts <- table(sub_targets[[group_col]])
   if (length(group_counts) < 2) {
     message("  Overlap restricted analysis skipped: <2 groups after overlap filter.")
@@ -6114,7 +6116,7 @@ run_lambda_guard <- function(betas, targets, group_col, prefix, out_dir, max_poi
   if (is.null(betas) || is.null(targets)) return(list(status = "failed", lambda = NA_real_))
   if (!(group_col %in% colnames(targets))) return(list(status = "failed", lambda = NA_real_))
   targets_use <- targets
-  targets_use[[group_col]] <- as.factor(targets_use[[group_col]])
+  targets_use[[group_col]] <- factor(as.character(targets_use[[group_col]]))
   if (length(levels(targets_use[[group_col]])) < 2) {
     return(list(status = "failed", lambda = NA_real_))
   }

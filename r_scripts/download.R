@@ -98,7 +98,26 @@ safe_extract_idats_from_tar <- function(tar_file, exdir) {
   }
   dir.create(exdir, recursive = TRUE, showWarnings = FALSE)
   utils::untar(tar_file, files = idat_members, exdir = exdir)
-  list.files(exdir, pattern = "\\.idat(\\.gz)?$", full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
+  extracted <- list.files(exdir, pattern = "\\.idat(\\.gz)?$", full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
+  if (length(extracted) == 0) {
+    return(character(0))
+  }
+  link_targets <- Sys.readlink(extracted)
+  if (any(nzchar(link_targets))) {
+    stop("Unsafe RAW tar symlink member(s): ", paste(head(basename(extracted[nzchar(link_targets)]), 5), collapse = ", "))
+  }
+  exdir_real <- normalizePath(exdir, winslash = "/", mustWork = TRUE)
+  extracted_real <- normalizePath(extracted, winslash = "/", mustWork = TRUE)
+  outside <- !(extracted_real == exdir_real | startsWith(extracted_real, paste0(exdir_real, "/")))
+  if (any(outside)) {
+    stop("Unsafe RAW tar extraction escaped target directory: ", paste(head(extracted[outside], 5), collapse = ", "))
+  }
+  file_info <- file.info(extracted)
+  invalid <- is.na(file_info$isdir) | file_info$isdir
+  if (any(invalid)) {
+    stop("Unsafe RAW tar member(s) are not regular IDAT files: ", paste(head(extracted[invalid], 5), collapse = ", "))
+  }
+  extracted
 }
 
 # Fetch GEO series (possibly multi-platform)

@@ -44,6 +44,12 @@ COLORS = {
 }
 
 
+def strip_trailing_whitespace(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    path.write_text("\n".join(line.rstrip() for line in lines) + "\n", encoding="utf-8")
+
+
 def load_inputs() -> dict[str, pd.DataFrame]:
     tables = {
         "cohort": pd.read_csv(CROSS / "cohort_summary.tsv", sep="\t"),
@@ -330,6 +336,8 @@ def save_figure(fig: plt.Figure, stem: Path) -> list[str]:
     for ext in ("png", "pdf", "svg"):
         path = stem.with_suffix(f".{ext}")
         fig.savefig(path, dpi=320, bbox_inches="tight")
+        if ext == "svg":
+            strip_trailing_whitespace(path)
         outputs.append(str(path.relative_to(ROOT)))
     return outputs
 

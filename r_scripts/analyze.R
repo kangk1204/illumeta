@@ -3124,7 +3124,10 @@ compute_covariate_collinearity <- function(targets, vars) {
     if (length(cols_v) == 0 || length(cols_other) == 0) next
     sub_cor <- cor_mat[cols_v, cols_other, drop = FALSE]
     if (length(sub_cor) == 0) next
-    idx <- arrayInd(which.max(abs(sub_cor)), dim(sub_cor))
+    sub_abs <- abs(sub_cor)
+    if (!any(is.finite(sub_abs))) next
+    sub_abs[!is.finite(sub_abs)] <- -Inf
+    idx <- arrayInd(which.max(sub_abs), dim(sub_abs))
     max_val <- sub_cor[idx[1], idx[2]]
     out$Max_Correlation[i] <- max_val
     col_other <- cols_other[idx[2]]
@@ -3167,19 +3170,33 @@ build_covariate_candidate_report <- function(targets, covar_log_df, group_col,
   report
 }
 
-  drop_linear_dependencies <- function(mat, group_cols) {
-  # Reorder: group columns first to favor keeping them
+drop_linear_dependencies <- function(mat, group_cols) {
+  if (is.null(mat) || ncol(mat) == 0) {
+    return(list(mat = mat, dropped = character(0)))
+  }
   all_cols <- colnames(mat)
   group_cols <- intersect(group_cols, all_cols)
   other_cols <- setdiff(all_cols, group_cols)
-  mat2 <- mat[, c(group_cols, other_cols), drop=FALSE]
-  
-  qr_obj <- qr(mat2)
-  keep_idx <- sort(qr_obj$pivot[seq_len(qr_obj$rank)])
-  keep_cols <- colnames(mat2)[keep_idx]
-  drop_cols <- setdiff(colnames(mat2), keep_cols)
-  
-  list(mat = mat2[, keep_cols, drop=FALSE], dropped = drop_cols)
+  ordered_cols <- c(group_cols, other_cols)
+
+  rank_of <- function(cols) {
+    if (length(cols) == 0) return(0L)
+    qr(mat[, cols, drop = FALSE])$rank
+  }
+
+  keep_cols <- character(0)
+  keep_rank <- 0L
+  for (col in ordered_cols) {
+    trial_cols <- c(keep_cols, col)
+    trial_rank <- rank_of(trial_cols)
+    if (trial_rank > keep_rank) {
+      keep_cols <- trial_cols
+      keep_rank <- trial_rank
+    }
+  }
+  drop_cols <- setdiff(all_cols, keep_cols)
+
+  list(mat = mat[, keep_cols, drop = FALSE], dropped = drop_cols)
 }
 
 filter_covariates <- function(targets, covariates, group_col) {

@@ -1,6 +1,6 @@
 {
   "figure_id": "figure2_dementia_full_cross_cohort_evidence",
-  "generated_at": "2026-05-22T13:42:27.071245+00:00",
+  "generated_at": "2026-05-22T15:02:33.242678+00:00",
   "script": "benchmarks/dementia_special_issue/make_full_cross_cohort_figure.py",
   "inputs": [
     "benchmarks/dementia_special_issue/cross_cohort/cohort_summary.tsv",

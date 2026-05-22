@@ -260,6 +260,12 @@ def replace_between(text: str, start: str, end: str, replacement: str) -> str:
     return before + start + "\n\n" + replacement.strip() + "\n\n" + end + after
 
 
+def strip_trailing_whitespace(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    path.write_text("\n".join(line.rstrip() for line in lines) + "\n", encoding="utf-8")
+
+
 def demote_subheadings(markdown: str) -> str:
     lines = markdown.splitlines()
     if not lines:
@@ -371,7 +377,10 @@ def make_figure(summary: pd.DataFrame, fig_dir: Path, generated_at: str) -> None
     ax.legend(frameon=False, loc="upper left", bbox_to_anchor=(0.0, 0.88))
     fig.tight_layout()
     for ext in ["png", "pdf", "svg"]:
-        fig.savefig(fig_dir / f"figure3_cell_type_reframe.{ext}", dpi=300 if ext == "png" else None)
+        path = fig_dir / f"figure3_cell_type_reframe.{ext}"
+        fig.savefig(path, dpi=300 if ext == "png" else None)
+        if ext == "svg":
+            strip_trailing_whitespace(path)
     plt.close(fig)
     manifest = {
         "figure_id": "figure3_cell_type_reframe",

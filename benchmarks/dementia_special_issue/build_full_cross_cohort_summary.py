@@ -375,8 +375,8 @@ def build_pairwise_overlap(native: bool) -> pd.DataFrame:
                 "left_n": len(a),
                 "right_n": len(b),
                 "overlap_n": len(inter),
-                "jaccard": len(inter) / len(union) if union else 0.0,
                 "overlap_cpgs": ";".join(sorted(inter)[:100]),
+                "jaccard": len(inter) / len(union) if union else 0.0,
             }
         )
     return pd.DataFrame(rows)

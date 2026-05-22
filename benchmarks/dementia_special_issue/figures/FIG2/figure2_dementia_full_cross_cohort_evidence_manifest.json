@@ -1,0 +1,68 @@
+{
+  "figure_id": "figure2_dementia_full_cross_cohort_evidence",
+  "generated_at": "2026-05-22T13:42:27.071245+00:00",
+  "script": "benchmarks/dementia_special_issue/make_full_cross_cohort_figure.py",
+  "inputs": [
+    "benchmarks/dementia_special_issue/cross_cohort/cohort_summary.tsv",
+    "benchmarks/dementia_special_issue/cross_cohort/adjustment_summary.tsv",
+    "benchmarks/dementia_special_issue/cross_cohort/branch_metrics.tsv",
+    "benchmarks/dementia_special_issue/cross_cohort/consensus_pairwise_overlap.tsv",
+    "benchmarks/dementia_special_issue/cross_cohort/top_consensus_cpgs.tsv",
+    "benchmarks/dementia_special_issue/cross_cohort/top_dmr_regions.tsv"
+  ],
+  "outputs": [
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence.png",
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence.pdf",
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence.svg",
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence_panel_a.png",
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence_panel_a.pdf",
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence_panel_a.svg",
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence_panel_b.png",
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence_panel_b.pdf",
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence_panel_b.svg",
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence_panel_c.png",
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence_panel_c.pdf",
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence_panel_c.svg",
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence_panel_d.png",
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence_panel_d.pdf",
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence_panel_d.svg",
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence_panel_e.png",
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence_panel_e.pdf",
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence_panel_e.svg",
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence_panel_f.png",
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence_panel_f.pdf",
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence_panel_f.svg",
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence_legend.docx"
+  ],
+  "source_data": [
+    "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence_source_data.xlsx"
+  ],
+  "panel_claims": [
+    "GSE208623, GSE125895, GSE134379, GSE284764, GSE105109, and GSE66351 completed full IlluMeta analyses from public IDAT files.",
+    "GSE208623, GSE125895, GSE284764, and native GSE66351 contain nonzero dual-pipeline consensus DMP evidence; GSE134379 and GSE105109 have zero consensus DMPs.",
+    "GSE125895 shows high Minfi/SeSAMe significant-set overlap; GSE134379 and GSE105109 have no consensus DMP set.",
+    "All six completed cohorts contain DMR outputs in Minfi, strict SeSAMe, and native SeSAMe branches.",
+    "6 strict consensus CpGs are shared between GSE125895 and GSE284764 in the current source tables."
+  ],
+  "transformations": [
+    "Consensus counts were read from IlluMeta summary.json files and cross-cohort summary tables.",
+    "DMP overlap was computed on CpG identifiers from Intersection_Consensus_DMPs.csv and Intersection_Native_Consensus_DMPs.csv.",
+    "DMR counts are row counts from branch-specific DMR CSV files."
+  ],
+  "validation": {
+    "script_regenerated_outputs": true,
+    "formats": [
+      "png",
+      "pdf",
+      "svg"
+    ],
+    "source_workbook": "benchmarks/dementia_special_issue/figures/FIG2/figure2_dementia_full_cross_cohort_evidence_source_data.xlsx"
+  },
+  "known_limitations": [
+    "GSE134379 is a completed stress-test/extension cohort but is not a clean positive DMP replication result because consensus DMP count is zero and the lambda guard triggered.",
+    "GSE284764 contributes a recent EPIC prefrontal-cortex brain extension with nonzero consensus DMPs but also lambda-guard triggering, so it should be presented as guarded supporting evidence.",
+    "GSE105109 is a completed BS-only brain extension with DMR outputs but zero strict/native consensus DMPs.",
+    "GSE66351 contributes native-consensus DMPs only; its native SeSAMe branch has lambda-guard triggering and should be interpreted conservatively.",
+    "Cross-cohort CpG overlap is conservative because cohorts differ by tissue and array platform."
+  ]
+}

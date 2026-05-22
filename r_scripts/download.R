@@ -34,7 +34,10 @@ if (is.null(opt$gse)){
 }
 
 gse_id <- opt$gse
-if (!grepl("^GSE[0-9]+$", gse_id)) {
+is_valid_gse_id <- function(x) {
+  is.character(x) && length(x) == 1 && grepl("^GSE[0-9]+\\z", x, perl = TRUE)
+}
+if (!is_valid_gse_id(gse_id)) {
   stop("Invalid GEO Series ID. Expected format: GSE followed by digits (e.g., GSE12345).", call. = FALSE)
 }
 out_dir <- opt$out

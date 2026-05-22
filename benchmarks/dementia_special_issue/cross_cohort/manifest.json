@@ -1,0 +1,21 @@
+{
+  "generated_at": "2026-05-22T13:42:13.486343+00:00",
+  "script": "benchmarks/dementia_special_issue/build_full_cross_cohort_summary.py",
+  "cohorts": {
+    "GSE208623": "projects/GSE208623/AD_vs_Control_full_long_results",
+    "GSE125895": "projects/GSE125895/AD_vs_Control_all_regions_results_lcC",
+    "GSE134379": "projects/GSE134379/AD_vs_Control_all_regions_results_lcC",
+    "GSE284764": "projects/GSE284764/AD_vs_Ctl_PFC_results_lcC_run2",
+    "GSE105109": "projects/GSE105109/AD_vs_Control_BS_only_results_lcC",
+    "GSE66351": "projects/GSE66351/AD_vs_CTRL_bulk_results_lcC_run5_limmavp0_skipcompare"
+  },
+  "outputs": [
+    "benchmarks/dementia_special_issue/cross_cohort/cohort_summary.tsv",
+    "benchmarks/dementia_special_issue/cross_cohort/adjustment_summary.tsv",
+    "benchmarks/dementia_special_issue/cross_cohort/branch_metrics.tsv",
+    "benchmarks/dementia_special_issue/cross_cohort/consensus_pairwise_overlap.tsv",
+    "benchmarks/dementia_special_issue/cross_cohort/top_consensus_cpgs.tsv",
+    "benchmarks/dementia_special_issue/cross_cohort/top_dmr_regions.tsv",
+    "benchmarks/dementia_special_issue/cross_cohort/dementia_full_cross_cohort_source_data.xlsx"
+  ]
+}

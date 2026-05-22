@@ -1,7 +1,8 @@
 {
   "figure_id": "figure3_cell_type_reframe",
-  "generated_at": "2026-05-21T13:33:34.578587+00:00",
+  "generated_at": "2026-05-22T13:42:38.968915+00:00",
   "source_table": "benchmarks/dementia_special_issue/cell_type_reframe_summary.tsv",
+  "guarded_extension_table": "benchmarks/dementia_special_issue/gse306227_guarded_extension.tsv",
   "outputs": [
     "figure3_cell_type_reframe.png",
     "figure3_cell_type_reframe.pdf",

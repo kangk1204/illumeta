@@ -870,7 +870,7 @@ def resolve_basename(candidate: str, sample_id: str, basename_index, project_dir
         cand = cand_project
         if not has_idat_pair(cand) and idat_dir != project_dir and has_idat_pair(cand_idat):
             cand = cand_idat
-    if not has_idat_green(cand):
+    if not has_idat_pair(cand):
         fallback = find_basename_for_id(sample_id, basename_index)
         if fallback:
             return fallback
@@ -1556,9 +1556,17 @@ def run_doctor(args):
     else:
         log("[*] Optional R packages: OK")
 
+
+def is_valid_gse_id(gse_id: str, max_digits: int | None = None) -> bool:
+    if not isinstance(gse_id, str):
+        return False
+    digit_count = f"{{1,{max_digits}}}" if max_digits is not None else "+"
+    return re.fullmatch(rf"GSE\d{digit_count}", gse_id) is not None
+
+
 def run_download(args):
     """Executes the download step."""
-    if not re.match(r'^GSE\d+$', args.gse_id):
+    if not is_valid_gse_id(args.gse_id):
         log_err(f"[!] Invalid GEO Series ID: {args.gse_id}. Expected format: GSE followed by digits (e.g., GSE12345).")
         sys.exit(1)
     out_dir = args.out_dir if args.out_dir else os.path.abspath(args.gse_id)
@@ -1702,7 +1710,7 @@ def fetch_search_summaries(ids, email: str, sleep_s: float):
 
 
 def geo_suppl_url(gse_id: str) -> str:
-    if not re.match(r'^GSE\d{1,8}$', gse_id):
+    if not is_valid_gse_id(gse_id, max_digits=8):
         raise ValueError(f"Invalid GSE ID: {gse_id}")
     prefix = gse_id[:-3] + "nnn"
     return f"https://ftp.ncbi.nlm.nih.gov/geo/series/{prefix}/{gse_id}/suppl/"

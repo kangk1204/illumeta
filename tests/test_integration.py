@@ -6,8 +6,6 @@ without requiring actual IDAT files. For full integration tests with
 real data, use the smoke test framework in scripts/run_smoke_pipeline.py.
 """
 
-import csv
-import json
 import os
 import subprocess
 import sys
@@ -24,7 +22,6 @@ from illumeta import (
     load_config_rows,
     normalize_group_value,
     score_group_candidate,
-    collect_group_candidates,
     collect_dashboard_warnings,
 )
 

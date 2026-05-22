@@ -909,13 +909,10 @@ def preflight_analysis(config_path: str, idat_dir: str, group_con: str, group_te
     filtered_config_path = config_path
     missing_idat_preview = []
 
-    basenames = list_idat_basenames(idat_dir)
-    basename_index = build_basename_index(basenames)
     missing_id = []
     duplicate_ids = []
     seen_ids = set()
     duplicate_set = set()
-    missing_pairs = []
 
     for row in rows:
         sample_id = (row.get(id_col) or "").strip()
@@ -927,34 +924,10 @@ def preflight_analysis(config_path: str, idat_dir: str, group_con: str, group_te
             duplicate_set.add(sample_id)
         seen_ids.add(sample_id)
 
-        cand = (row.get("Basename") or "").strip()
-        basename = resolve_basename(cand, sample_id, basename_index, project_dir, idat_dir)
-        if not has_idat_pair(basename):
-            missing_pairs.append((sample_id, basename))
-
     if missing_id:
         raise ValueError("Sample ID column contains missing/empty values. Please fill it before running analysis.")
     if duplicate_ids:
         raise ValueError(f"Duplicate sample IDs detected: {', '.join(duplicate_ids)}")
-    if missing_pairs:
-        missing_preview = [sid for sid, _ in missing_pairs[:10]]
-        if not drop_missing_idat:
-            preview_str = ", ".join(missing_preview)
-            raise ValueError(f"Missing IDAT pairs for {len(missing_pairs)} samples (e.g. {preview_str}).")
-        missing_ids = {sid for sid, _ in missing_pairs}
-        filtered_rows = [row for row in rows if (row.get(id_col) or "").strip() not in missing_ids]
-        if not filtered_rows:
-            preview_str = ", ".join(missing_preview)
-            raise ValueError(f"All samples are missing IDAT pairs (e.g. {preview_str}).")
-        root, ext = os.path.splitext(config_path)
-        filtered_config_path = f"{root}_idat{ext or '.tsv'}"
-        write_config_rows(filtered_config_path, headers, filtered_rows)
-        rows = filtered_rows
-        missing_idat_preview = missing_preview
-        warnings.append(
-            f"Filtered out {len(missing_ids)} samples with missing IDAT pairs; "
-            f"using {filtered_config_path}"
-        )
 
     con_norm = normalize_group_value(group_con)
     test_norm = normalize_group_value(group_test)
@@ -1016,6 +989,36 @@ def preflight_analysis(config_path: str, idat_dir: str, group_con: str, group_te
             f"({preview_labels}{'...' if len(other_groups) > 5 else ''}); "
             f"e.g. {preview_ids}{'...' if len(excluded_ids) > 5 else ''}. "
             f"Using filtered config: {filtered_config_path}"
+        )
+
+    basenames = list_idat_basenames(idat_dir)
+    basename_index = build_basename_index(basenames)
+    missing_pairs = []
+    for row in rows:
+        sample_id = (row.get(id_col) or "").strip()
+        cand = (row.get("Basename") or "").strip()
+        basename = resolve_basename(cand, sample_id, basename_index, project_dir, idat_dir)
+        if not has_idat_pair(basename):
+            missing_pairs.append((sample_id, basename))
+
+    if missing_pairs:
+        missing_preview = [sid for sid, _ in missing_pairs[:10]]
+        if not drop_missing_idat:
+            preview_str = ", ".join(missing_preview)
+            raise ValueError(f"Missing IDAT pairs for {len(missing_pairs)} samples (e.g. {preview_str}).")
+        missing_ids = {sid for sid, _ in missing_pairs}
+        filtered_rows = [row for row in rows if (row.get(id_col) or "").strip() not in missing_ids]
+        if not filtered_rows:
+            preview_str = ", ".join(missing_preview)
+            raise ValueError(f"All samples are missing IDAT pairs (e.g. {preview_str}).")
+        root, ext = os.path.splitext(filtered_config_path)
+        filtered_config_path = f"{root}_idat{ext or '.tsv'}"
+        write_config_rows(filtered_config_path, headers, filtered_rows)
+        rows = filtered_rows
+        missing_idat_preview = missing_preview
+        warnings.append(
+            f"Filtered out {len(missing_ids)} samples with missing IDAT pairs; "
+            f"using {filtered_config_path}"
         )
     batch_patterns = r"(sentrix|slide|array|plate|chip|batch)"
     batch_candidates = [h for h in headers if re.search(batch_patterns, h, flags=re.IGNORECASE)]
@@ -1941,9 +1944,6 @@ def run_analysis(args):
     default_dir_base = args.input_dir if args.input_dir else config_base_dir
     default_folder = safe_path_component(f"{args.group_test}_vs_{args.group_con}_results", fallback="analysis_results")
     planned_output_dir = args.output or os.path.join(default_dir_base, default_folder)
-    stale_markers = cleanup_failure_markers([planned_output_dir, args.input_dir, config_base_dir])
-    if stale_markers:
-        log(f"[*] Removed stale failure markers: {', '.join(stale_markers)}")
     
     if not os.path.exists(config_path):
         log_err(f"Error: Configuration file {config_path} not found.")
@@ -2062,6 +2062,10 @@ def run_analysis(args):
     except OSError as e:
         log_err(f"[!] Cannot create output directory: {output_dir} ({e})")
         sys.exit(1)
+
+    stale_markers = cleanup_failure_markers([output_dir])
+    if stale_markers:
+        log(f"[*] Removed stale failure markers: {', '.join(stale_markers)}")
 
     # Snapshot the analysis script into the output directory so long-running runs
     # are not affected by local edits (e.g., while a tmux batch is still running).

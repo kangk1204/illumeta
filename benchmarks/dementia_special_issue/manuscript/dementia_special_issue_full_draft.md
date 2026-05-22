@@ -1,13 +1,13 @@
 # IlluMeta exposes cohort and neural cell-type dependence in public dementia methylation IDAT reanalysis
 
-Generated draft: 2026-05-08 20:24 Asia/Seoul
+Generated draft: 2026-05-23 00:37 Asia/Seoul
 
 ## Article type
 
 Full-length research article / methods application manuscript for the Methods special issue "Advancing Mental & Neural Health Assessment - YMETH". The Methods guide for authors lists full-length research articles or reviews as article types; this draft should therefore not be submitted as an application note.
 
 ## Abstract
-Public Alzheimer disease methylation IDAT datasets can benchmark reproducible EWAS workflows, but secondary reuse often fails at import, quality-control, covariate-governance, cell-composition, and reporting boundaries. We reframed the IlluMeta dementia package as a Methods/YMETH-compatible, cell-type-aware neuroepigenomics workflow evaluation. Six completed AD/dementia public-IDAT cohorts showed strong context dependence: GSE208623, GSE125895, and GSE284764 produced nonzero strict consensus DMPs, whereas GSE134379 and GSE105109 produced no consensus DMPs and GSE66351 produced native-only guarded sensitivity evidence. As a neural cell-type reference axis, GSE306226 Neurons_vs_Microglia produced 6398 strict and 6269 native Minfi/SeSAMe consensus DMPs across 20 neurons and 20 microglia, but its lambda guard triggered. IlluMeta therefore supports auditable public-IDAT reuse by preserving successful signal recovery and negative/guarded evidence, while preventing overclaiming of universal Alzheimer disease methylation biomarkers.
+Public Alzheimer disease methylation IDAT datasets can benchmark reproducible EWAS workflows, but secondary reuse often fails at import, quality-control, covariate-governance, cell-composition, and reporting boundaries. We reframed the IlluMeta dementia package as a Methods/YMETH-compatible, cell-type-aware neuroepigenomics workflow evaluation. Six completed AD/dementia public-IDAT cohorts showed strong context dependence: GSE208623, GSE125895, and GSE284764 produced nonzero strict consensus DMPs, whereas GSE134379 and GSE105109 produced no consensus DMPs and GSE66351 produced native-only guarded sensitivity evidence. As a neural cell-type reference axis, GSE306226 Neurons_vs_Microglia [24,25] produced 6398 strict and 6269 native Minfi/SeSAMe consensus DMPs across 20 neurons and 20 microglia, but its lambda guard triggered. IlluMeta therefore supports auditable public-IDAT reuse by preserving successful signal recovery and negative/guarded evidence, while preventing overclaiming of universal Alzheimer disease methylation biomarkers.
 
 ## Keywords
 
@@ -73,9 +73,10 @@ The GSE134379, GSE284764, GSE105109, and GSE66351 extension results are scientif
 
 Before submission, two constraints should remain visible. First, the Methods guide for authors treats computational work cautiously and asks for experimentally validated biological insight; this manuscript should therefore be framed as an analysis-workflow paper supported by public experimental methylation datasets and independent cohort reanalysis, not as a purely theoretical method. Second, the additional candidate exclusions should be handled transparently. GSE197305 is highly relevant and large, but the sample-level disease or neuropathology contrast was not exposed in GEO metadata. GSE76105, GSE109627, GSE80970, and GSE156984 were raw-blocked for the present raw-IDAT lane, while GSE153712 remains a feasible whole-blood extension that should not be pooled with the brain cohorts. Without external phenotype mapping or new raw-IDAT evidence, the current manuscript should state that six completed cohorts were used and that excluded candidates were blocked by explicit data-access or design criteria rather than ignored.
 
+
 ## Cell-type-aware neuroepigenomics reframe
 
-Generated: 2026-05-22T15:02:33.659813+00:00
+Generated: 2026-05-22T15:37:23.496342+00:00
 
 ### Source-grounded conclusion
 
@@ -90,17 +91,18 @@ The current package is strongest as a Methods/YMETH-compatible neuroepigenomics 
 
 ### Neural cell-type reference axis
 
-`GSE306226/Neurons_vs_Microglia_results` provides the local positive-control/reference axis for cell-type-aware framing. It compares 20 neurons with 20 microglia, passed sample QC, and produced 6398 strict plus 6269 native Minfi/SeSAMe consensus DMPs. Branch concordance was strict logFC r=0.791, Jaccard=0.302; native logFC r=0.761, Jaccard=0.304. Because primary=triggered; Minfi=triggered; SeSAMe=triggered; native=triggered, it should be used as a reference axis demonstrating that IlluMeta can recover a large neural cell-type contrast, not as an unqualified discovery claim.
+`GSE306226/Neurons_vs_Microglia_results` provides the local positive-control/reference axis for cell-type-aware framing [24,25]. It compares 20 neurons with 20 microglia, passed sample QC, and produced 6398 strict plus 6269 native Minfi/SeSAMe consensus DMPs. Branch concordance was strict logFC r=0.791, Jaccard=0.302; native logFC r=0.761, Jaccard=0.304. Because primary=triggered; Minfi=triggered; SeSAMe=triggered; native=triggered, it should be used as a reference axis demonstrating that IlluMeta can recover a large neural cell-type contrast, not as an unqualified discovery claim.
 
 
 ### Guarded GSE306227 extension
 
-`GSE306227/Neurons_vs_Microglia_results` is retained as a guarded independent sorted-brain extension, not as a core Figure 3 axis in the current package. It has summary-level evidence for 324706 strict and 334911 native consensus DMPs across 18 microglia/control-axis and 19 neuron/test-axis samples, with primary result mode `tier3_ineligible` and lambda guard `triggered`. However, branch metrics present=False, cell summary present=False, and the run log records RefFreeEWAS unavailable=True. Therefore it should be cited only as guarded extension evidence until branch-level design and cell-adjustment artifacts are synced.
+`GSE306227/Neurons_vs_Microglia_results` is retained as a guarded independent sorted-brain extension, not as a core Figure 3 axis in the current package [24,26]. It has summary-level evidence for 324706 strict and 334911 native consensus DMPs across 18 microglia/control-axis and 19 neuron/test-axis samples, with primary result mode `tier3_ineligible` and lambda guard `triggered`. However, branch metrics present=False, cell summary present=False, and the run log records RefFreeEWAS unavailable=True. Therefore it should be cited only as guarded extension evidence until branch-level design and cell-adjustment artifacts are synced.
 
 
 ### Manuscript claim guardrail
 
 Defensible central claim: IlluMeta exposes context dependence in public neurodegeneration methylation data by making raw-IDAT import, branch-specific covariate/cell/SV adjustment, dual-pipeline agreement, consensus DMP/DMR outputs, and lambda/QC guards auditable. The manuscript should explicitly avoid phrases such as "universal AD biomarker" or "validated AD signature" unless tied to a specific cohort/context and guard status.
+
 
 ## Ethics Statement
 
@@ -108,7 +110,7 @@ This study is a secondary analysis of publicly available, de-identified GEO meth
 
 ## Data and code availability
 
-The raw public datasets are available from GEO under GSE208623 [3], GSE125895 [6], GSE134379 [7], GSE284764 [9], GSE105109 [15], GSE66351 [17], and the metadata-blocked GSE197305 [13]. All derived analysis artifacts are local to the IlluMeta project workspace. The dataset triage table is `benchmarks/dementia_special_issue/dataset_triage.tsv`. Full result directories are `projects/GSE208623/AD_vs_Control_full_long_results`, `projects/GSE125895/AD_vs_Control_all_regions_results_lcC`, `projects/GSE134379/AD_vs_Control_all_regions_results_lcC`, `projects/GSE284764/AD_vs_Ctl_PFC_results_lcC_run2`, `projects/GSE105109/AD_vs_Control_BS_only_results_lcC`, and `projects/GSE66351/AD_vs_CTRL_bulk_results_lcC_run5_limmavp0_skipcompare`; the neural cell-type reference axis is `projects/GSE306226/Neurons_vs_Microglia_results`. GSE306227 is recorded as a guarded extension in `benchmarks/dementia_special_issue/gse306227_guarded_extension.tsv` until branch-level design and cell-adjustment artifacts are synced. Cross-cohort source tables are stored under `benchmarks/dementia_special_issue/cross_cohort`, including `adjustment_summary.tsv` for branch-level covariate, Cell_Latent, SVA, batch, and dropped-term evidence. The cell-type reframe source table is `benchmarks/dementia_special_issue/cell_type_reframe_summary.tsv`. Figure 2, source data, legend, and manifest are stored under `benchmarks/dementia_special_issue/figures/FIG2`; the cell-type-aware Figure 3 package is stored under `benchmarks/dementia_special_issue/figures/FIG3`.
+The raw public datasets are available from GEO under GSE208623 [3], GSE125895 [6], GSE134379 [7], GSE284764 [9], GSE105109 [15], GSE66351 [17], GSE306226 [25], GSE306227 [26], and the metadata-blocked GSE197305 [13]. All derived analysis artifacts are local to the IlluMeta project workspace. The dataset triage table is `benchmarks/dementia_special_issue/dataset_triage.tsv`. Full result directories are `projects/GSE208623/AD_vs_Control_full_long_results`, `projects/GSE125895/AD_vs_Control_all_regions_results_lcC`, `projects/GSE134379/AD_vs_Control_all_regions_results_lcC`, `projects/GSE284764/AD_vs_Ctl_PFC_results_lcC_run2`, `projects/GSE105109/AD_vs_Control_BS_only_results_lcC`, and `projects/GSE66351/AD_vs_CTRL_bulk_results_lcC_run5_limmavp0_skipcompare`; the neural cell-type reference axis is `projects/GSE306226/Neurons_vs_Microglia_results`. GSE306227 is recorded as a guarded extension in `benchmarks/dementia_special_issue/gse306227_guarded_extension.tsv` until branch-level design and cell-adjustment artifacts are synced. Cross-cohort source tables are stored under `benchmarks/dementia_special_issue/cross_cohort`, including `adjustment_summary.tsv` for branch-level covariate, Cell_Latent, SVA, batch, and dropped-term evidence. The cell-type reframe source table is `benchmarks/dementia_special_issue/cell_type_reframe_summary.tsv`. Figure 2, source data, legend, and manifest are stored under `benchmarks/dementia_special_issue/figures/FIG2`; the cell-type-aware Figure 3 package is stored under `benchmarks/dementia_special_issue/figures/FIG3`.
 
 ## Funding
 
@@ -126,7 +128,7 @@ During preparation of this work, OpenAI Codex was used to support code execution
 
 **Figure 2. Cross-cohort IlluMeta evidence from completed public dementia methylation IDAT analyses.** A, sample composition for the six completed cohorts. B, strict and native Minfi/SeSAMe consensus DMP counts, split by direction. C, branch concordance measured by logFC correlation and significant-set Jaccard overlap; zero-consensus cohorts are annotated as no DMP. D, DMR row counts from Minfi, strict SeSAMe, and native SeSAMe branches. E, nonzero pairwise consensus-CpG overlaps across cohorts; zero-overlap pairs remain in the source workbook. F, strict-consensus CpGs shared between the 450K brain validation cohort and the EPIC prefrontal-cortex extension, with mean logFC values from each cohort.
 
-**Figure 3. Cell-type-aware interpretation axis for the IlluMeta dementia reframe.** Consensus DMP counts are shown for the aggregate six-cohort AD/dementia public-IDAT package, the guarded GSE66351 bulk-cortex sensitivity lane, and the GSE306226 neuron-versus-microglia neural cell-type reference axis. The panel shows scale and context dependence and should not be interpreted as a universal Alzheimer disease biomarker figure.
+**Figure 3. Cell-type-aware interpretation axis for the IlluMeta dementia reframe.** Consensus DMP counts are shown for the aggregate six-cohort AD/dementia public-IDAT package, the guarded GSE66351 bulk-cortex sensitivity lane, and the GSE306226 neuron-versus-microglia neural cell-type reference axis [24,25]. The panel shows scale and context dependence and should not be interpreted as a universal Alzheimer disease biomarker figure.
 
 ## References
 
@@ -175,3 +177,9 @@ During preparation of this work, OpenAI Codex was used to support code execution
 [22] J.T. Leek, J.D. Storey, Capturing heterogeneity in gene expression studies by surrogate variable analysis, PLoS Genet. 3 (2007) 1724-1735. https://doi.org/10.1371/journal.pgen.0030161.
 
 [23] T.J. Peters, M.J. Buckley, Y. Chen, G.K. Smyth, C.C. Goodnow, S.J. Clark, Calling differentially methylated regions from whole genome bisulphite sequencing with DMRcate, Nucleic Acids Res. 49 (2021) e109. https://doi.org/10.1093/nar/gkab637.
+
+[24] J. Müller, V.T. Laroche, J. Imm, L. Weymouth, J. Harvey, R.A. Reijnders, A.R. Smith, D. van den Hove, K. Lunnon, R. Cavill, E. Pishva, A cell type enrichment analysis tool for brain DNA methylation data (CEAM), Epigenetics 21 (2026) 2604360. https://doi.org/10.1080/15592294.2025.2604360.
+
+[25] NCBI Gene Expression Omnibus, Cell type enrichment analysis for brain DNA methylation data, cohort 1 [dataset], GEO Series GSE306226, 2026. https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE306226 (accessed 7 May 2026).
+
+[26] NCBI Gene Expression Omnibus, Cell type enrichment analysis for brain DNA methylation data, cohort 2 [dataset], GEO Series GSE306227, 2026. https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE306227 (accessed 7 May 2026).

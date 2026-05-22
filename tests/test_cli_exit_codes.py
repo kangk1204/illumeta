@@ -1,8 +1,11 @@
 """CLI failure paths must return non-zero status codes."""
 
+from types import SimpleNamespace
 import os
+from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 
 
@@ -36,6 +39,43 @@ class CliExitCodeTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 2)
         self.assertIn("Available commands", result.stdout)
+
+    def test_missing_config_does_not_delete_unrelated_failure_markers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            work_dir = root / "work"
+            config_dir = root / "config"
+            output_dir = root / "out"
+            work_dir.mkdir()
+            config_dir.mkdir()
+            old_summary = config_dir / "failure_summary.json"
+            old_reason = config_dir / "failure_reason.txt"
+            old_summary.write_text('{"code":"OLD"}\n', encoding="utf-8")
+            old_reason.write_text("OLD: previous run\n", encoding="utf-8")
+            sys.path.insert(0, BASE_DIR)
+            import illumeta
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(work_dir)
+                with self.assertRaises(SystemExit) as ctx:
+                    illumeta.run_analysis(
+                        SimpleNamespace(
+                            config=str(config_dir / "missing_config.tsv"),
+                            input_dir=None,
+                            output=str(output_dir),
+                            group_con="control",
+                            group_test="case",
+                        )
+                    )
+            finally:
+                os.chdir(old_cwd)
+                if sys.path[0] == BASE_DIR:
+                    sys.path.pop(0)
+
+            self.assertEqual(ctx.exception.code, 1)
+            self.assertEqual(old_summary.read_text(encoding="utf-8"), '{"code":"OLD"}\n')
+            self.assertEqual(old_reason.read_text(encoding="utf-8"), "OLD: previous run\n")
 
 
 if __name__ == "__main__":

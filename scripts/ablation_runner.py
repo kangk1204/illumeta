@@ -28,6 +28,9 @@ EXTRA_VARIANTS = {
 }
 
 PIPELINES = ("Minfi", "Sesame", "Sesame_Native")
+REUSE_REQUIRED_SUMMARY_KEYS = ("n_con", "n_test", "primary_branch")
+PRIMARY_BRANCH_METRIC_FILES = {pipeline: f"{pipeline}_Metrics.csv" for pipeline in PIPELINES}
+REUSE_REQUIRED_METRICS = ("lambda", "pipeline")
 
 
 def parse_args():
@@ -60,7 +63,7 @@ def parse_args():
     parser.add_argument(
         "--reuse-existing",
         action="store_true",
-        help="Skip a variant if its output already contains summary.json",
+        help="Skip a variant only when summary, analysis parameters, and primary metrics are complete",
     )
     parser.add_argument(
         "--dry-run",
@@ -87,6 +90,38 @@ def parse_metrics_csv(path):
                 continue
             metrics[key] = (row.get("value") or "").strip()
     return metrics
+
+
+def has_parseable_primary_metrics(variant_dir, primary_branch):
+    metrics_name = PRIMARY_BRANCH_METRIC_FILES.get(primary_branch)
+    if not metrics_name:
+        return False
+    metrics_path = os.path.join(variant_dir, metrics_name)
+    if not os.path.exists(metrics_path):
+        return False
+    try:
+        metrics = parse_metrics_csv(metrics_path)
+    except OSError:
+        return False
+    return all(metric in metrics for metric in REUSE_REQUIRED_METRICS)
+
+
+def classify_reusable_variant(variant_dir):
+    summary = load_json(os.path.join(variant_dir, "summary.json"))
+    if not isinstance(summary, dict):
+        return False, "missing_or_invalid_summary"
+    missing_summary = [key for key in REUSE_REQUIRED_SUMMARY_KEYS if key not in summary]
+    if missing_summary:
+        return False, "summary_missing_" + "_".join(missing_summary)
+    primary_branch = str(summary.get("primary_branch") or "").strip()
+    if primary_branch not in PRIMARY_BRANCH_METRIC_FILES:
+        return False, "unknown_primary_branch"
+    params = load_json(os.path.join(variant_dir, "analysis_parameters.json"))
+    if not isinstance(params, dict):
+        return False, "missing_or_invalid_analysis_parameters"
+    if not has_parseable_primary_metrics(variant_dir, primary_branch):
+        return False, "missing_or_invalid_primary_metrics"
+    return True, "complete"
 
 
 def load_json(path):
@@ -153,13 +188,26 @@ def main():
         variant_dir = os.path.join(out_root, variant)
         os.makedirs(variant_dir, exist_ok=True)
         summary_path = os.path.join(variant_dir, "summary.json")
-        if args.reuse_existing and os.path.exists(summary_path):
+        collect_outputs = False
+        if args.reuse_existing:
+            reusable, reuse_reason = classify_reusable_variant(variant_dir)
+        else:
+            reusable, reuse_reason = False, ""
+        if args.reuse_existing and reusable:
             status = "reused"
+            collect_outputs = True
         else:
             cmd = base_cmd + ["--output", variant_dir] + all_variants[variant] + extra_args
-            status = "ran"
+            if args.reuse_existing and not reusable:
+                status = f"would_rerun_stale_or_incomplete({reuse_reason})" if args.dry_run else f"reran_stale_or_incomplete({reuse_reason})"
+            else:
+                status = "ran"
             exit_code = run_variant(cmd, args.dry_run)
-            if exit_code != 0 and not args.dry_run:
+            if args.dry_run:
+                collect_outputs = False
+            elif exit_code == 0:
+                collect_outputs = True
+            else:
                 status = f"failed({exit_code})"
 
         manifest_rows.append(
@@ -170,17 +218,17 @@ def main():
             }
         )
 
-        summary = load_json(summary_path)
-        if summary:
+        summary = load_json(summary_path) if collect_outputs else None
+        if isinstance(summary, dict):
             counts_rows.append({"variant": variant, **summary})
 
-        params = load_json(os.path.join(variant_dir, "analysis_parameters.json"))
-        if params:
+        params = load_json(os.path.join(variant_dir, "analysis_parameters.json")) if collect_outputs else None
+        if isinstance(params, dict):
             params_by_variant[variant] = params
 
         for pipeline in PIPELINES:
             metrics_path = os.path.join(variant_dir, f"{pipeline}_Metrics.csv")
-            if not os.path.exists(metrics_path):
+            if not collect_outputs or not os.path.exists(metrics_path):
                 continue
             metrics = parse_metrics_csv(metrics_path)
             for metric, value in metrics.items():

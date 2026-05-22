@@ -1,0 +1,22 @@
+GSE306227 metadata/config summary
+total_samples	75
+cell_type_counts
+Astrocytes	19
+Microglia	18
+Neurons	19
+Oligodendrocytes	19
+sex_counts
+Female	36
+Male	39
+primary_contrast	Neurons_vs_Microglia
+primary_samples	37
+primary_group_counts
+Microglia	18
+Neurons	19
+primary_sex_by_group
+Microglia|Female	9
+Microglia|Male	9
+Neurons|Female	9
+Neurons|Male	10
+unique_sentrix_ids_primary	19
+null_sentrix_fields	0

@@ -1,0 +1,552 @@
+RESTART 2026-05-22T18:04:53+09:00: using leader R-4.4 library symlink to avoid redundant package reinstall
+
+RESTART NOTE: previous run stopped during optional setup_env dependency preparation before analysis outputs; restarting with ILLUMETA_INSTALL_MINIMAL=1.
+RESTART_MINIMAL 2026-05-22T18:25:02+09:00: ILLUMETA_INSTALL_MINIMAL=1 with leader R-4.4 library
+RESTART_DIRECT_R 2026-05-22T18:27:18+09:00: bypass illumeta.py setup_env after verified analyze.R help works
+Error in library(minfi) : there is no package called ‘minfi’
+Calls: suppressPackageStartupMessages -> withCallingHandlers -> library
+Execution halted
+RESTART_DIRECT_SYSTEM_R 2026-05-22T18:28:13+09:00: system R has minfi/sesame/DMRcate/variancePartition
+  [Patch] Set lme4::findbars <- reformulas::findbars to support variancePartition.
+[18:28:21] Setting ExperimentHub/AnnotationHub cache to: /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/cache
+[18:28:21]   - Running sesameDataCache() for essential data...
+[18:28:21] Sesame data caching complete in project cache.
+[18:28:21] Loading configuration...
+[18:28:21] Warning: constant columns will be ignored: tissue
+[18:28:22] Auto tissue selection: no usable tissue column found; using reference-free mode.
+Error: IDAT directory not found: /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/projects/GSE306227/idat
+Execution halted
+RESTART_DIRECT_SYSTEM_R_ABSPATH 2026-05-22T18:28:30+09:00: absolute config/idat/output paths
+  [Patch] Set lme4::findbars <- reformulas::findbars to support variancePartition.
+[18:28:37] Setting ExperimentHub/AnnotationHub cache to: /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/cache
+[18:28:37]   - Cache directory exists; skipping sesameDataCache() to save time.
+[18:28:38] Loading configuration...
+[18:28:38] Warning: constant columns will be ignored: tissue
+[18:28:38] Auto tissue selection: no usable tissue column found; using reference-free mode.
+[18:30:39] Found 37 samples for analysis.
+[18:30:39]   - Control Group: Microglia (n=18)
+[18:30:39]   - Test Group:    Neurons (n=19)
+[18:30:39] 
+--- Sample Preview (Top 5) ---
+[18:30:39]            primary_group   SampleID
+GSM9195116     Microglia GSM9195116
+GSM9195121     Microglia GSM9195121
+GSM9195122     Microglia GSM9195122
+GSM9195129     Microglia GSM9195129
+GSM9195135     Microglia GSM9195135
+                                                                                                                                                       Basename
+GSM9195116 /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/idat/GSM9195116_205854150033_R06C01
+GSM9195121 /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/idat/GSM9195121_206154080074_R08C01
+GSM9195122 /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/idat/GSM9195122_206154080123_R02C01
+GSM9195129 /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/idat/GSM9195129_206154250078_R03C01
+GSM9195135 /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/idat/GSM9195135_206154250088_R04C01
+[18:30:39] ------------------------------
+
+[18:30:39] --- Starting Minfi Analysis ---
+[18:30:39]   Forcing IDAT read despite differing array sizes (force=TRUE).
+[18:33:47] Detected array type: EPIC
+Error: Cross-reactive probe filtering is mandatory for 450K/EPIC arrays, but no list was found. Install the maxprobes package or provide a local list via config cross_reactive.path or references/probe_blacklists. To bypass (unsafe), rerun with --unsafe-skip-cross-reactive.
+Execution halted
+RESTART_DIRECT_SYSTEM_R_CRF 2026-05-22T18:34:11+09:00: explicit mandatory cross-reactive list /home/keunsoo/Projects/23_illumeta/references/probe_blacklists/cross_reactive_EPIC.tsv
+  [Patch] Set lme4::findbars <- reformulas::findbars to support variancePartition.
+[18:34:19] Setting ExperimentHub/AnnotationHub cache to: /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/cache
+[18:34:19]   - Cache directory exists; skipping sesameDataCache() to save time.
+[18:34:19] Loading configuration...
+[18:34:19] Warning: constant columns will be ignored: tissue
+[18:34:19] Auto tissue selection: no usable tissue column found; using reference-free mode.
+[18:34:24] Found 37 samples for analysis.
+[18:34:24]   - Control Group: Microglia (n=18)
+[18:34:24]   - Test Group:    Neurons (n=19)
+[18:34:24] 
+--- Sample Preview (Top 5) ---
+[18:34:24]            primary_group   SampleID
+GSM9195116     Microglia GSM9195116
+GSM9195121     Microglia GSM9195121
+GSM9195122     Microglia GSM9195122
+GSM9195129     Microglia GSM9195129
+GSM9195135     Microglia GSM9195135
+                                                                                                                                                       Basename
+GSM9195116 /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/idat/GSM9195116_205854150033_R06C01
+GSM9195121 /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/idat/GSM9195121_206154080074_R08C01
+GSM9195122 /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/idat/GSM9195122_206154080123_R02C01
+GSM9195129 /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/idat/GSM9195129_206154250078_R03C01
+GSM9195135 /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/idat/GSM9195135_206154250088_R04C01
+[18:34:24] ------------------------------
+
+[18:34:24] --- Starting Minfi Analysis ---
+[18:34:24]   Forcing IDAT read despite differing array sizes (force=TRUE).
+[18:35:12] Detected array type: EPIC
+[18:35:14] Cross-reactive probe list loaded (44571 probes; source: /home/keunsoo/Projects/23_illumeta/references/probe_blacklists/cross_reactive_EPIC.tsv).
+[18:35:14] Saving pre-filter processed matrices (all samples, full probe set for GEO)...
+Loading required package: IlluminaHumanMethylationEPICmanifest
+Loading required package: IlluminaHumanMethylationEPICanno.ilm10b4.hg19
+[18:41:56] Performing Sample QC (Illumina recommendation: median M/U signal > 9.0 log2)...
+[18:41:59] Running sex mismatch QC...
+[18:41:59]   Sex check failed: minfi::getSex() error:  object is of class 'RGChannelSet', but needs to be of class 'GenomicMethylSet' or 'GenomicRatioSet'
+[18:41:59] Samples retained after QC - Control: 18, Test: 19 (total: 37)
+[18:42:04] Estimating cell composition using Reference-Free method (RefFreeEWAS)...
+[18:42:04]   - RefFreeEWAS package not installed. Skipping.
+[18:42:04] Preprocessing (Noob)...
+[18:42:39] Performing Probe QC...
+[18:42:41]   - Removed 4824 probes with high detection P-value (threshold: 0.050).
+[18:42:41]   - Removed 44254 cross-reactive probes (source: list).
+[18:42:42]   - SNP filtering applied (MAF threshold: 0.01 ). Current probes: 790102
+[18:42:43]   - Removed Sex Chromosome probes. Final probes: 772594
+[18:42:44] --- Starting Sesame Analysis ---
+[18:42:44]   Sesame: TypeINorm disabled by default for stability (use --sesame_typeinorm to enable).
+[18:42:44]   Sesame: forcing single-thread BLAS/OMP to avoid pthread errors.
+[18:47:57]   - Sesame: removed 44493 cross-reactive probes (source: list).
+Cluster size 37993 broken into 26962 11031 
+Cluster size 26962 broken into 4286 22676 
+Cluster size 4286 broken into 2189 2097 
+Cluster size 2189 broken into 701 1488 
+Done cluster 701 
+Done cluster 1488 
+Done cluster 2189 
+Cluster size 2097 broken into 795 1302 
+Done cluster 795 
+Done cluster 1302 
+Done cluster 2097 
+Done cluster 4286 
+Cluster size 22676 broken into 3785 18891 
+Cluster size 3785 broken into 2422 1363 
+Cluster size 2422 broken into 702 1720 
+Done cluster 702 
+Cluster size 1720 broken into 1311 409 
+Done cluster 1311 
+Done cluster 409 
+Done cluster 1720 
+Done cluster 2422 
+Done cluster 1363 
+Done cluster 3785 
+Cluster size 18891 broken into 6119 12772 
+Cluster size 6119 broken into 4413 1706 
+Cluster size 4413 broken into 602 3811 
+Done cluster 602 
+Cluster size 3811 broken into 3713 98 
+Cluster size 3713 broken into 2448 1265 
+Cluster size 2448 broken into 863 1585 
+Done cluster 863 
+Cluster size 1585 broken into 843 742 
+Done cluster 843 
+Done cluster 742 
+Done cluster 1585 
+Done cluster 2448 
+Done cluster 1265 
+Done cluster 3713 
+Done cluster 98 
+Done cluster 3811 
+Done cluster 4413 
+Cluster size 1706 broken into 836 870 
+Done cluster 836 
+Done cluster 870 
+Done cluster 1706 
+Done cluster 6119 
+Cluster size 12772 broken into 8398 4374 
+Cluster size 8398 broken into 3283 5115 
+Cluster size 3283 broken into 342 2941 
+Done cluster 342 
+Cluster size 2941 broken into 869 2072 
+Done cluster 869 
+Cluster size 2072 broken into 411 1661 
+Done cluster 411 
+Cluster size 1661 broken into 895 766 
+Done cluster 895 
+Done cluster 766 
+Done cluster 1661 
+Done cluster 2072 
+Done cluster 2941 
+Done cluster 3283 
+Cluster size 5115 broken into 3389 1726 
+Cluster size 3389 broken into 2941 448 
+Cluster size 2941 broken into 2251 690 
+Cluster size 2251 broken into 1417 834 
+Done cluster 1417 
+Done cluster 834 
+Done cluster 2251 
+Done cluster 690 
+Done cluster 2941 
+Done cluster 448 
+Done cluster 3389 
+Cluster size 1726 broken into 1032 694 
+Done cluster 1032 
+Done cluster 694 
+Done cluster 1726 
+Done cluster 5115 
+Done cluster 8398 
+Cluster size 4374 broken into 2739 1635 
+Cluster size 2739 broken into 1539 1200 
+Cluster size 1539 broken into 1406 133 
+Done cluster 1406 
+Done cluster 133 
+Done cluster 1539 
+Done cluster 1200 
+Done cluster 2739 
+Cluster size 1635 broken into 573 1062 
+Done cluster 573 
+Done cluster 1062 
+Done cluster 1635 
+Done cluster 4374 
+Done cluster 12772 
+Done cluster 18891 
+Done cluster 22676 
+Done cluster 26962 
+Cluster size 11031 broken into 7901 3130 
+Cluster size 7901 broken into 5184 2717 
+Cluster size 5184 broken into 2699 2485 
+Cluster size 2699 broken into 2698 1 
+Cluster size 2698 broken into 1257 1441 
+Done cluster 1257 
+Done cluster 1441 
+Done cluster 2698 
+Done cluster 1 
+Done cluster 2699 
+Cluster size 2485 broken into 1183 1302 
+Done cluster 1183 
+Done cluster 1302 
+Done cluster 2485 
+Done cluster 5184 
+Cluster size 2717 broken into 1944 773 
+Cluster size 1944 broken into 1450 494 
+Done cluster 1450 
+Done cluster 494 
+Done cluster 1944 
+Done cluster 773 
+Done cluster 2717 
+Done cluster 7901 
+Cluster size 3130 broken into 1725 1405 
+Cluster size 1725 broken into 996 729 
+Done cluster 996 
+Done cluster 729 
+Done cluster 1725 
+Done cluster 1405 
+Done cluster 3130 
+Done cluster 11031 
+[18:47:58] Sesame native: 822060 probes -> 727688 (dropped all-NA: 68166, dropped NA>0.10: 26206, imputed: 28606; method: knn).
+[18:47:59] Sesame strict: 709695 probes (after NA omit) -> 692080 after QC alignment.
+[18:48:03] Intersection (strict): 692080 CpGs common to Minfi and Sesame.
+[18:48:03] Intersection (native): 708339 CpGs common to Minfi and Sesame.
+[18:48:03]   - Sesame pipelines using minfi-derived cell covariates.
+[18:48:05] Running pipeline for: Minfi
+[18:48:16]   - Removed 190946 probes with beta range < 0.05
+[18:48:21]   Computing PCA on 581648 probes across 37 samples...
+[18:48:33]   Covariate candidates after filtering: sex
+[18:48:49]   PVCA: singular fit warning suppressed; consider reducing covariates.
+[18:48:49]   PVCA saved to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/Neurons_vs_Microglia_results/Minfi_PVCA.csv
+No methods found in package ‘RSQLite’ for request: ‘dbListFields’ when loading ‘lumi’
+[18:48:53] WARNING:  Tier3 confounding detected but eligibility failed (total_n=37, min_stratum_n=1).  Proceeding without Tier3 stratified/meta-analysis.
+[18:48:53]   No eligible batch candidate found after confounding checks.
+[18:48:53]   No eligible batch factor found for batch method comparison.
+[18:48:53]   Running SVA to detect hidden batch effects...
+Number of significant surrogate variables is:  1 
+Iteration (out of 5 ):1  2  3  4  5  [18:49:06]     - Detected and using 1 SVs.
+[18:49:06]   Covariates used in design: sex
+Coefficients not estimable: sexMale 
+[18:49:35]   PVCA: singular fit warning suppressed; consider reducing covariates.
+[18:49:35]   PVCA saved to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/Neurons_vs_Microglia_results/Minfi_AfterCorrection_PVCA.csv
+[18:50:38]   - Contrast: Neurons-Microglia
+[18:52:11]   Genomic Inflation Factor (Lambda): 36.883
+[18:52:11]   WARNING: Lambda guard triggered (lambda=36.883, threshold=1.50).
+[18:52:11] Subsampling top 10000 probes for interactive plots...
+[18:52:14]   Generating Top 100 Heatmap...
+[18:52:23]   Running DMR analysis (dmrff)...
+[dmrff.candidates] Fri May 22 18:53:42 2026 Found  322395  candidate regions. 
+[18:57:11]     - Filtered DMRs by min CpGs >= 2 : 381903 -> 49744
+RESTART_OPTIMIZED_DMR 2026-05-22T19:24:59+09:00: optimized DMR annotation/delta-beta path; previous run was stopped after slow post-DMR filter annotation.
+  [Patch] Set lme4::findbars <- reformulas::findbars to support variancePartition.
+[19:25:10] Setting ExperimentHub/AnnotationHub cache to: /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/cache
+[19:25:10]   - Cache directory exists; skipping sesameDataCache() to save time.
+[19:25:10] Loading configuration...
+[19:25:10] Warning: constant columns will be ignored: tissue
+[19:25:10] Auto tissue selection: no usable tissue column found; using reference-free mode.
+[19:25:21] Found 37 samples for analysis.
+[19:25:21]   - Control Group: Microglia (n=18)
+[19:25:21]   - Test Group:    Neurons (n=19)
+[19:25:21] 
+--- Sample Preview (Top 5) ---
+[19:25:21]            primary_group   SampleID
+GSM9195116     Microglia GSM9195116
+GSM9195121     Microglia GSM9195121
+GSM9195122     Microglia GSM9195122
+GSM9195129     Microglia GSM9195129
+GSM9195135     Microglia GSM9195135
+                                                                                                                                                       Basename
+GSM9195116 /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/idat/GSM9195116_205854150033_R06C01
+GSM9195121 /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/idat/GSM9195121_206154080074_R08C01
+GSM9195122 /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/idat/GSM9195122_206154080123_R02C01
+GSM9195129 /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/idat/GSM9195129_206154250078_R03C01
+GSM9195135 /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/idat/GSM9195135_206154250088_R04C01
+[19:25:21] ------------------------------
+
+[19:25:21] --- Starting Minfi Analysis ---
+[19:25:21]   Forcing IDAT read despite differing array sizes (force=TRUE).
+[19:26:11] Detected array type: EPIC
+[19:26:12] Cross-reactive probe list loaded (44571 probes; source: /home/keunsoo/Projects/23_illumeta/references/probe_blacklists/cross_reactive_EPIC.tsv).
+[19:26:12] Saving pre-filter processed matrices (all samples, full probe set for GEO)...
+Loading required package: IlluminaHumanMethylationEPICmanifest
+Loading required package: IlluminaHumanMethylationEPICanno.ilm10b4.hg19
+[19:33:06] Performing Sample QC (Illumina recommendation: median M/U signal > 9.0 log2)...
+[19:33:09] Running sex mismatch QC...
+[19:33:09]   Sex check failed: minfi::getSex() error:  object is of class 'RGChannelSet', but needs to be of class 'GenomicMethylSet' or 'GenomicRatioSet'
+[19:33:09] Samples retained after QC - Control: 18, Test: 19 (total: 37)
+[19:33:15] Estimating cell composition using Reference-Free method (RefFreeEWAS)...
+[19:33:15]   - RefFreeEWAS package not installed. Skipping.
+[19:33:15] Preprocessing (Noob)...
+[19:33:50] Performing Probe QC...
+[19:33:51]   - Removed 4824 probes with high detection P-value (threshold: 0.050).
+[19:33:52]   - Removed 44254 cross-reactive probes (source: list).
+[19:33:52]   - SNP filtering applied (MAF threshold: 0.01 ). Current probes: 790102
+[19:33:53]   - Removed Sex Chromosome probes. Final probes: 772594
+[19:33:54] --- Starting Sesame Analysis ---
+[19:33:54]   Sesame: TypeINorm disabled by default for stability (use --sesame_typeinorm to enable).
+[19:33:54]   Sesame: forcing single-thread BLAS/OMP to avoid pthread errors.
+[19:39:03]   - Sesame: removed 44493 cross-reactive probes (source: list).
+Cluster size 37993 broken into 26962 11031 
+Cluster size 26962 broken into 4286 22676 
+Cluster size 4286 broken into 2189 2097 
+Cluster size 2189 broken into 701 1488 
+Done cluster 701 
+Done cluster 1488 
+Done cluster 2189 
+Cluster size 2097 broken into 795 1302 
+Done cluster 795 
+Done cluster 1302 
+Done cluster 2097 
+Done cluster 4286 
+Cluster size 22676 broken into 3785 18891 
+Cluster size 3785 broken into 2422 1363 
+Cluster size 2422 broken into 702 1720 
+Done cluster 702 
+Cluster size 1720 broken into 1311 409 
+Done cluster 1311 
+Done cluster 409 
+Done cluster 1720 
+Done cluster 2422 
+Done cluster 1363 
+Done cluster 3785 
+Cluster size 18891 broken into 6119 12772 
+Cluster size 6119 broken into 4413 1706 
+Cluster size 4413 broken into 602 3811 
+Done cluster 602 
+Cluster size 3811 broken into 3713 98 
+Cluster size 3713 broken into 2448 1265 
+Cluster size 2448 broken into 863 1585 
+Done cluster 863 
+Cluster size 1585 broken into 843 742 
+Done cluster 843 
+Done cluster 742 
+Done cluster 1585 
+Done cluster 2448 
+Done cluster 1265 
+Done cluster 3713 
+Done cluster 98 
+Done cluster 3811 
+Done cluster 4413 
+Cluster size 1706 broken into 836 870 
+Done cluster 836 
+Done cluster 870 
+Done cluster 1706 
+Done cluster 6119 
+Cluster size 12772 broken into 8398 4374 
+Cluster size 8398 broken into 3283 5115 
+Cluster size 3283 broken into 342 2941 
+Done cluster 342 
+Cluster size 2941 broken into 869 2072 
+Done cluster 869 
+Cluster size 2072 broken into 411 1661 
+Done cluster 411 
+Cluster size 1661 broken into 895 766 
+Done cluster 895 
+Done cluster 766 
+Done cluster 1661 
+Done cluster 2072 
+Done cluster 2941 
+Done cluster 3283 
+Cluster size 5115 broken into 3389 1726 
+Cluster size 3389 broken into 2941 448 
+Cluster size 2941 broken into 2251 690 
+Cluster size 2251 broken into 1417 834 
+Done cluster 1417 
+Done cluster 834 
+Done cluster 2251 
+Done cluster 690 
+Done cluster 2941 
+Done cluster 448 
+Done cluster 3389 
+Cluster size 1726 broken into 1032 694 
+Done cluster 1032 
+Done cluster 694 
+Done cluster 1726 
+Done cluster 5115 
+Done cluster 8398 
+Cluster size 4374 broken into 2739 1635 
+Cluster size 2739 broken into 1539 1200 
+Cluster size 1539 broken into 1406 133 
+Done cluster 1406 
+Done cluster 133 
+Done cluster 1539 
+Done cluster 1200 
+Done cluster 2739 
+Cluster size 1635 broken into 573 1062 
+Done cluster 573 
+Done cluster 1062 
+Done cluster 1635 
+Done cluster 4374 
+Done cluster 12772 
+Done cluster 18891 
+Done cluster 22676 
+Done cluster 26962 
+Cluster size 11031 broken into 7901 3130 
+Cluster size 7901 broken into 5184 2717 
+Cluster size 5184 broken into 2699 2485 
+Cluster size 2699 broken into 2698 1 
+Cluster size 2698 broken into 1257 1441 
+Done cluster 1257 
+Done cluster 1441 
+Done cluster 2698 
+Done cluster 1 
+Done cluster 2699 
+Cluster size 2485 broken into 1183 1302 
+Done cluster 1183 
+Done cluster 1302 
+Done cluster 2485 
+Done cluster 5184 
+Cluster size 2717 broken into 1944 773 
+Cluster size 1944 broken into 1450 494 
+Done cluster 1450 
+Done cluster 494 
+Done cluster 1944 
+Done cluster 773 
+Done cluster 2717 
+Done cluster 7901 
+Cluster size 3130 broken into 1725 1405 
+Cluster size 1725 broken into 996 729 
+Done cluster 996 
+Done cluster 729 
+Done cluster 1725 
+Done cluster 1405 
+Done cluster 3130 
+Done cluster 11031 
+[19:39:04] Sesame native: 822060 probes -> 727688 (dropped all-NA: 68166, dropped NA>0.10: 26206, imputed: 28606; method: knn).
+[19:39:05] Sesame strict: 709695 probes (after NA omit) -> 692080 after QC alignment.
+[19:39:09] Intersection (strict): 692080 CpGs common to Minfi and Sesame.
+[19:39:09] Intersection (native): 708339 CpGs common to Minfi and Sesame.
+[19:39:09]   - Sesame pipelines using minfi-derived cell covariates.
+[19:39:11] Running pipeline for: Minfi
+[19:39:21]   - Removed 190946 probes with beta range < 0.05
+[19:39:27]   Computing PCA on 581648 probes across 37 samples...
+[19:39:38]   Covariate candidates after filtering: sex
+[19:39:54]   PVCA: singular fit warning suppressed; consider reducing covariates.
+[19:39:54]   PVCA saved to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/Neurons_vs_Microglia_results/Minfi_PVCA.csv
+No methods found in package ‘RSQLite’ for request: ‘dbListFields’ when loading ‘lumi’
+[19:39:58] WARNING:  Tier3 confounding detected but eligibility failed (total_n=37, min_stratum_n=1).  Proceeding without Tier3 stratified/meta-analysis.
+[19:39:58]   No eligible batch candidate found after confounding checks.
+[19:39:58]   No eligible batch factor found for batch method comparison.
+[19:39:58]   Running SVA to detect hidden batch effects...
+Number of significant surrogate variables is:  1 
+Iteration (out of 5 ):1  2  3  4  5  [19:40:09]     - Detected and using 1 SVs.
+[19:40:09]   Covariates used in design: sex
+Coefficients not estimable: sexMale 
+[19:40:42]   PVCA: singular fit warning suppressed; consider reducing covariates.
+[19:40:42]   PVCA saved to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/Neurons_vs_Microglia_results/Minfi_AfterCorrection_PVCA.csv
+[19:41:44]   - Contrast: Neurons-Microglia
+[19:43:17]   Genomic Inflation Factor (Lambda): 36.883
+[19:43:17]   WARNING: Lambda guard triggered (lambda=36.883, threshold=1.50).
+[19:43:18] Subsampling top 10000 probes for interactive plots...
+[19:43:21]   Generating Top 100 Heatmap...
+[19:43:35]   Running DMR analysis (dmrff)...
+[dmrff.candidates] Fri May 22 19:44:54 2026 Found  322395  candidate regions. 
+[19:48:21]     - Filtered DMRs by min CpGs >= 2 : 381903 -> 49744
+[19:48:33]     - Found 49744 DMRs.
+[19:48:40]   Static plot save skipped (Minfi_DMR_Top_Labelled.png): missing value where TRUE/FALSE needed
+[19:48:41]   PDF plot save skipped (Minfi_DMR_Top_Labelled.pdf): missing value where TRUE/FALSE needed
+Coefficients not estimable: sexMale 
+[19:49:10]   Running 20 permutations for null DMP counts (top 5000 CpGs)...
+[19:49:11]     [perm 10/20] elapsed: 0.0 min, ETA: 0.0 min
+[19:49:12]     [perm 20/20] elapsed: 0.0 min, ETA: 0.0 min
+[19:49:12]   Running variancePartition on top 5000 CpGs...
+[19:49:18]     - variancePartition: scaled numeric covariates (SV1)
+[19:49:28]   Tier3 analyses skipped due to ineligible strata.
+[19:50:00] Running pipeline for: Sesame
+[19:50:09]   - Removed 174974 probes with beta range < 0.05
+[19:50:14]   Computing PCA on 517106 probes across 37 samples...
+[19:50:23]   Covariate candidates after filtering: sex
+[19:50:42]   PVCA: singular fit warning suppressed; consider reducing covariates.
+[19:50:42]   PVCA saved to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/Neurons_vs_Microglia_results/Sesame_PVCA.csv
+[19:50:45] WARNING:  Tier3 confounding detected but eligibility failed (total_n=37, min_stratum_n=1).  Proceeding without Tier3 stratified/meta-analysis.
+[19:50:45]   No eligible batch candidate found after confounding checks.
+[19:50:45]   No eligible batch factor found for batch method comparison.
+[19:50:45]   Running SVA to detect hidden batch effects...
+Number of significant surrogate variables is:  2 
+Iteration (out of 5 ):1  2  3  4  5  [19:50:56]     - Detected and using 2 SVs.
+[19:50:56]   Covariates used in design: sex
+Coefficients not estimable: sexMale 
+[19:51:20]   PVCA: singular fit warning suppressed; consider reducing covariates.
+[19:51:20]   PVCA saved to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/Neurons_vs_Microglia_results/Sesame_AfterCorrection_PVCA.csv
+[19:52:15]   - Contrast: Neurons-Microglia
+[19:53:36]   Genomic Inflation Factor (Lambda): 38.012
+[19:53:36]   WARNING: Lambda guard triggered (lambda=38.012, threshold=1.50).
+[19:53:36] Subsampling top 10000 probes for interactive plots...
+[19:53:39]   Generating Top 100 Heatmap...
+[19:53:44]   Running DMR analysis (dmrff)...
+[dmrff.candidates] Fri May 22 19:54:32 2026 Found  286384  candidate regions. 
+[19:57:26]     - Filtered DMRs by min CpGs >= 2 : 340803 -> 43448
+[19:57:37]     - Found 43448 DMRs.
+[19:57:44]   Static plot save skipped (Sesame_DMR_Top_Labelled.png): missing value where TRUE/FALSE needed
+[19:57:44]   PDF plot save skipped (Sesame_DMR_Top_Labelled.pdf): missing value where TRUE/FALSE needed
+Coefficients not estimable: sexMale 
+[19:58:15]   Running 20 permutations for null DMP counts (top 5000 CpGs)...
+[19:58:16]     [perm 10/20] elapsed: 0.0 min, ETA: 0.0 min
+[19:58:17]     [perm 20/20] elapsed: 0.0 min, ETA: 0.0 min
+[19:58:17]   Running variancePartition on top 5000 CpGs...
+[19:58:26]     - variancePartition: scaled numeric covariates (SV1, SV2)
+[19:58:35]   Tier3 analyses skipped due to ineligible strata.
+[19:59:00] Running pipeline for: Sesame_Native
+[19:59:09]   - Removed 175335 probes with beta range < 0.05
+[19:59:13]   Computing PCA on 533004 probes across 37 samples...
+[19:59:23]   Covariate candidates after filtering: sex
+[19:59:37]   PVCA: singular fit warning suppressed; consider reducing covariates.
+[19:59:37]   PVCA saved to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/Neurons_vs_Microglia_results/Sesame_Native_PVCA.csv
+[19:59:39] WARNING:  Tier3 confounding detected but eligibility failed (total_n=37, min_stratum_n=1).  Proceeding without Tier3 stratified/meta-analysis.
+[19:59:39]   No eligible batch candidate found after confounding checks.
+[19:59:39]   No eligible batch factor found for batch method comparison.
+[19:59:39]   Running SVA to detect hidden batch effects...
+Number of significant surrogate variables is:  1 
+Iteration (out of 5 ):1  2  3  4  5  [19:59:50]     - Detected and using 1 SVs.
+[19:59:50]   Covariates used in design: sex
+Coefficients not estimable: sexMale 
+[20:00:15]   PVCA: singular fit warning suppressed; consider reducing covariates.
+[20:00:15]   PVCA saved to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/Neurons_vs_Microglia_results/Sesame_Native_AfterCorrection_PVCA.csv
+[20:01:06]   - Contrast: Neurons-Microglia
+[20:02:40]   Genomic Inflation Factor (Lambda): 35.529
+[20:02:40]   WARNING: Lambda guard triggered (lambda=35.529, threshold=1.50).
+[20:02:41] Subsampling top 10000 probes for interactive plots...
+[20:02:44]   Generating Top 100 Heatmap...
+[20:02:48]   Running DMR analysis (dmrff)...
+[dmrff.candidates] Fri May 22 20:03:38 2026 Found  291402  candidate regions. 
+[20:06:36]     - Filtered DMRs by min CpGs >= 2 : 346279 -> 44498
+[20:06:47]     - Found 44498 DMRs.
+[20:06:54]   Static plot save skipped (Sesame_Native_DMR_Top_Labelled.png): missing value where TRUE/FALSE needed
+[20:06:54]   PDF plot save skipped (Sesame_Native_DMR_Top_Labelled.pdf): missing value where TRUE/FALSE needed
+Coefficients not estimable: sexMale 
+[20:07:24]   Running 20 permutations for null DMP counts (top 5000 CpGs)...
+[20:07:24]     [perm 10/20] elapsed: 0.0 min, ETA: 0.0 min
+[20:07:26]     [perm 20/20] elapsed: 0.0 min, ETA: 0.0 min
+[20:07:26]   Running variancePartition on top 5000 CpGs...
+[20:07:32]     - variancePartition: scaled numeric covariates (SV1)
+[20:07:44]   Tier3 analyses skipped due to ineligible strata.
+[20:08:24] Consensus DMPs saved to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/Neurons_vs_Microglia_results/Intersection_Consensus_DMPs.csv (n= 324706 ).
+[20:08:32] Consensus DMPs saved to /home/keunsoo/Projects/23_illumeta/.omx/team/execute-the-approved-203c3847/worktrees/worker-1/projects/GSE306227/Neurons_vs_Microglia_results/Intersection_Native_Consensus_DMPs.csv (n= 334911 ).
+[20:08:34] Summary statistics saved to summary.json
+[20:08:34] Decision ledger saved to decision_ledger.tsv
+[20:08:34] Analysis parameters saved to analysis_parameters.json
+[20:08:34] Code version saved to code_version.txt
+[20:08:34] Saving session info...
+[1] TRUE
+[1] TRUE
+[1] TRUE
+[1] TRUE
+[20:08:35] Methods summary saved to methods.md
+[1] TRUE
+[20:08:35] Analysis Complete.
+END_OPTIMIZED_DMR 2026-05-22T20:08:36+09:00

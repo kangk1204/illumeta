@@ -75,6 +75,32 @@ retry_run <- function(fn, label = "request", attempts = retry_attempts, wait = r
   stop(sprintf("%s failed after %d attempts: %s", label, attempts, last_msg))
 }
 
+safe_extract_idats_from_tar <- function(tar_file, exdir) {
+  members <- utils::untar(tar_file, list = TRUE)
+  if (length(members) == 0) {
+    return(character(0))
+  }
+  norm_members <- gsub("\\\\", "/", members)
+  unsafe <- grepl("^/", norm_members) |
+    grepl("(^|/)\\.\\.(/|$)", norm_members) |
+    grepl("^[A-Za-z]:", norm_members)
+  if (any(unsafe)) {
+    stop("Unsafe RAW tar member path(s): ", paste(head(members[unsafe], 5), collapse = ", "))
+  }
+  file_members <- norm_members[!grepl("/$", norm_members)]
+  idat_members <- members[!grepl("/$", norm_members) & grepl("\\.idat(\\.gz)?$", norm_members, ignore.case = TRUE)]
+  unexpected <- setdiff(file_members, gsub("\\\\", "/", idat_members))
+  if (length(unexpected) > 0) {
+    message("Ignoring non-IDAT RAW tar member(s): ", paste(head(unexpected, 5), collapse = ", "))
+  }
+  if (length(idat_members) == 0) {
+    return(character(0))
+  }
+  dir.create(exdir, recursive = TRUE, showWarnings = FALSE)
+  utils::untar(tar_file, files = idat_members, exdir = exdir)
+  list.files(exdir, pattern = "\\.idat(\\.gz)?$", full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
+}
+
 # Fetch GEO series (possibly multi-platform)
 gse_list <- retry_run(function() getGEO(gse_id, GSEMatrix = TRUE), label = "getGEO")
 platform_override <- toupper(trimws(opt$platform))
@@ -246,12 +272,13 @@ if (length(existing_idats) > 0) {
             
             if (length(tar_files) > 0) {
                 message(paste("Found RAW tar bundle:", tar_files[1]))
-                message("Extracting TAR file...")
-                # Untar to downloaded_dir
-                untar(tar_files[1], exdir = downloaded_dir)
+                message("Extracting IDAT members from TAR file...")
+                extracted_dir <- tempfile("illumeta_raw_idats_", tmpdir = downloaded_dir)
+                dir.create(extracted_dir, recursive = TRUE)
+                extracted_idats <- safe_extract_idats_from_tar(tar_files[1], exdir = extracted_dir)
                 
                 # Now check for IDATs again (they might be compressed or not)
-                files <- list.files(downloaded_dir, pattern = "idat", full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
+                files <- extracted_idats
             }
         }
         

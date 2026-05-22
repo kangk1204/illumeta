@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import sys
 from collections import Counter
 from pathlib import Path
 
@@ -41,6 +42,8 @@ FIELD_MAP = {
     "Sentrix_ID": "characteristics_ch1.7",
     "Sentrix_Position": "characteristics_ch1.8",
 }
+REQUIRED_SOURCE_COLUMNS = sorted(set(FIELD_MAP.values()) | {"geo_accession", "source_name_ch1", "description"})
+EXPECTED_GROUPS = {"AD", "CTRL"}
 
 
 def normalise_row(row: dict[str, str]) -> dict[str, str]:
@@ -50,6 +53,28 @@ def normalise_row(row: dict[str, str]) -> dict[str, str]:
     out["source_name_ch1"] = row["source_name_ch1"]
     out["description"] = row["description"]
     return out
+
+
+def validate_source_headers(headers: list[str] | None) -> None:
+    present = set(headers or [])
+    missing = [col for col in REQUIRED_SOURCE_COLUMNS if col not in present]
+    if missing:
+        raise ValueError("source metadata missing required column(s): " + ", ".join(missing))
+
+
+def validate_stratum(label: str, rows: list[dict[str, str]], min_per_group: int = 1) -> None:
+    if not rows:
+        raise ValueError(f"{label}: no rows matched expected cell_type/brain_region filter")
+    counts = Counter(r["primary_group"] for r in rows)
+    unexpected = sorted(set(counts) - EXPECTED_GROUPS)
+    if unexpected:
+        raise ValueError(f"{label}: unexpected diagnosis label(s): {', '.join(unexpected)}")
+    low = [group for group in sorted(EXPECTED_GROUPS) if counts.get(group, 0) < min_per_group]
+    if low:
+        raise ValueError(
+            f"{label}: insufficient AD/CTRL counts; "
+            + ", ".join(f"{group}={counts.get(group, 0)}" for group in sorted(EXPECTED_GROUPS))
+        )
 
 
 def write_config(rows: list[dict[str, str]], path: Path) -> None:
@@ -68,13 +93,27 @@ def main() -> int:
 
     source = Path(args.source)
     out_dir = Path(args.out_dir)
-    with source.open(newline="") as handle:
-        rows = [normalise_row(r) for r in csv.DictReader(handle, delimiter="\t")]
+    try:
+        with source.open(newline="") as handle:
+            reader = csv.DictReader(handle, delimiter="\t")
+            validate_source_headers(reader.fieldnames)
+            rows = [normalise_row(r) for r in reader]
 
-    neuron = [r for r in rows if r["cell_type"] == "Neuron" and r["brain_region"] == "Occipital cortex"]
-    glia = [r for r in rows if r["cell_type"] == "Glia" and r["brain_region"] == "Occipital cortex"]
-    frontal_bulk = [r for r in rows if r["cell_type"] == "bulk" and r["brain_region"] == "Frontal cortex"]
-    temporal_bulk = [r for r in rows if r["cell_type"] == "bulk" and r["brain_region"] == "Temporal cortex"]
+        neuron = [r for r in rows if r["cell_type"] == "Neuron" and r["brain_region"] == "Occipital cortex"]
+        glia = [r for r in rows if r["cell_type"] == "Glia" and r["brain_region"] == "Occipital cortex"]
+        frontal_bulk = [r for r in rows if r["cell_type"] == "bulk" and r["brain_region"] == "Frontal cortex"]
+        temporal_bulk = [r for r in rows if r["cell_type"] == "bulk" and r["brain_region"] == "Temporal cortex"]
+
+        for label, config_rows in [
+            ("Occipital cortex / Neuron", neuron),
+            ("Occipital cortex / Glia", glia),
+            ("Frontal cortex / bulk", frontal_bulk),
+            ("Temporal cortex / bulk", temporal_bulk),
+        ]:
+            validate_stratum(label, config_rows)
+    except (OSError, ValueError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
 
     configs = {
         "configure_AD_vs_CTRL_neuron_occipital.tsv": neuron,

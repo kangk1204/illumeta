@@ -468,12 +468,10 @@ merge_config_defaults <- function(base, override) {
 load_yaml_config <- function(path) {
   if (!nzchar(path) || !file.exists(path)) return(NULL)
   if (!requireNamespace("yaml", quietly = TRUE)) {
-    message("Warning: yaml package not available; config.yaml ignored.")
-    return(NULL)
+    stop("config.yaml exists but the yaml package is not installed; install yaml or remove the config file.")
   }
   tryCatch(yaml::read_yaml(path), error = function(e) {
-    message("Warning: failed to parse config.yaml: ", e$message)
-    NULL
+    stop("Failed to parse config.yaml: ", e$message)
   })
 }
 
@@ -499,10 +497,12 @@ write_yaml_safe <- function(obj, path) {
   invisible(TRUE)
 }
 
-normalize_preset <- function(preset) {
+normalize_preset <- function(preset, source = "config") {
   if (is.null(preset) || !nzchar(preset)) return("conservative")
   preset <- tolower(trimws(preset))
-  if (!preset %in% c("conservative", "aggressive")) preset <- "conservative"
+  if (!preset %in% c("conservative", "aggressive")) {
+    stop(sprintf("Invalid scoring preset '%s' from %s; expected conservative or aggressive.", preset, source))
+  }
   preset
 }
 
@@ -599,9 +599,9 @@ if (!nzchar(config_yaml_path)) {
 }
 config_raw <- load_yaml_config(config_yaml_path)
 config_settings <- merge_config_defaults(CONFIG_DEFAULTS, config_raw)
-preset_name <- normalize_preset(config_settings$preset)
+preset_name <- normalize_preset(config_settings$preset, source = config_yaml_path)
 if (!is.null(opt$preset) && nzchar(trimws(opt$preset))) {
-  preset_name <- normalize_preset(opt$preset)
+  preset_name <- normalize_preset(opt$preset, source = "--preset")
 }
 config_settings$preset <- preset_name
 scoring_preset <- config_settings$scoring_presets[[preset_name]]
@@ -740,6 +740,10 @@ tissue_source <- "arg"
 cell_covariates <- character(0)
 cell_counts_df <- NULL
 sesame_native_impute_method <- "none"
+sesame_native_dropped_all_na <- 0L
+sesame_native_dropped_na <- 0L
+sesame_native_imputed <- 0L
+sesame_native_retained <- 0L
 sesame_cell_est <- NULL
 sesame_cell_reference <- "minfi-derived"
 id_col_override <- opt$id_column
@@ -5798,26 +5802,55 @@ check_tier3_eligibility <- function(targets, batch_col, group_col,
     names(grp_per_batch)[grp_per_batch >= n_groups]
   } else character(0)
   overlap_counts <- counts[counts$Batch %in% overlap_batches, , drop = FALSE]
-  min_stratum_n <- if (nrow(overlap_counts) > 0) min(overlap_counts$N) else 0
-  batch_ok <- tapply(overlap_counts$Pass_Group_Min, overlap_counts$Batch, all)
+  min_overlap_group_n <- if (nrow(overlap_counts) > 0) min(overlap_counts$N) else 0
+  batch_min_n <- if (nrow(overlap_counts) > 0) {
+    tapply(overlap_counts$N, overlap_counts$Batch, min)
+  } else {
+    setNames(numeric(0), character(0))
+  }
+  batch_ok <- if (nrow(overlap_counts) > 0) {
+    tapply(overlap_counts$Pass_Group_Min, overlap_counts$Batch, all)
+  } else {
+    setNames(logical(0), character(0))
+  }
+  eligible_strata <- names(batch_ok)[isTRUE(length(batch_ok) > 0) & batch_ok]
+  failed_strata <- names(batch_ok)[isTRUE(length(batch_ok) > 0) & !batch_ok]
+  min_eligible_stratum_n <- if (length(eligible_strata) > 0) {
+    min(batch_min_n[eligible_strata])
+  } else {
+    0
+  }
   pass_total <- total_n >= min_total_n
-  pass_strata <- length(batch_ok) > 0 && all(batch_ok)
+  pass_strata <- length(eligible_strata) >= 2
   eligible <- isTRUE(pass_total && pass_strata)
-  counts$Batch_Pass <- batch_ok[match(counts$Batch, names(batch_ok))]
+  counts$Batch_Min_Group_N <- batch_min_n[match(counts$Batch, names(batch_min_n))]
+  counts$Batch_Eligible <- batch_ok[match(counts$Batch, names(batch_ok))]
+  counts$Batch_Pass <- counts$Batch_Eligible
   counts$Total_N <- total_n
-  counts$Min_Group_N <- min_stratum_n
+  counts$Min_Group_N <- min_overlap_group_n
+  counts$Min_Overlap_Group_N <- min_overlap_group_n
+  counts$Min_Eligible_Stratum_N <- min_eligible_stratum_n
+  counts$Eligible_Strata_N <- length(eligible_strata)
+  counts$Eligible_Strata <- paste(eligible_strata, collapse = ";")
+  counts$Failed_Strata <- paste(failed_strata, collapse = ";")
   counts$Eligible <- eligible
   counts$Fail_Reason <- ""
   if (!pass_total) counts$Fail_Reason <- "total_n_lt_min"
   if (!pass_strata) {
-    counts$Fail_Reason <- paste0(counts$Fail_Reason, ifelse(nzchar(counts$Fail_Reason), ";", ""), "stratum_group_lt_min")
+    counts$Fail_Reason <- paste0(counts$Fail_Reason, ifelse(nzchar(counts$Fail_Reason), ";", ""), "eligible_strata_lt_2")
   }
   if (!is.null(out_dir)) {
     write.csv(counts, file.path(out_dir, "Tier3_Eligibility.csv"), row.names = FALSE)
   }
-  list(eligible = eligible, total_n = total_n, min_stratum_n = min_stratum_n,
+  list(eligible = eligible, total_n = total_n,
+       min_stratum_n = min_eligible_stratum_n,
+       min_overlap_group_n = min_overlap_group_n,
+       min_eligible_stratum_n = min_eligible_stratum_n,
+       n_eligible_strata = length(eligible_strata),
+       eligible_strata = eligible_strata,
+       failed_strata = failed_strata,
        counts = counts, reason = ifelse(eligible, "eligible",
-                                        ifelse(!pass_total, "total_n_lt_min", "stratum_group_lt_min")))
+                                        ifelse(!pass_total, "total_n_lt_min", "eligible_strata_lt_2")))
 }
 
 emit_tier3_primary_outputs <- function(meta_res, betas, targets, curr_anno, prefix, out_dir,
@@ -7526,6 +7559,10 @@ if (opt$skip_sesame) {
     native_res <- prepare_sesame_native(beta_sesame_raw, SESAME_NATIVE_NA_MAX_FRAC)
     beta_sesame_native <- native_res$mat
     if (!is.null(beta_sesame_native) && nrow(beta_sesame_native) == 0) beta_sesame_native <- NULL
+    sesame_native_dropped_all_na <- native_res$dropped_all_na
+    sesame_native_dropped_na <- native_res$dropped_na
+    sesame_native_imputed <- native_res$imputed
+    sesame_native_retained <- if (is.null(beta_sesame_native)) 0L else nrow(beta_sesame_native)
     if (!is.null(native_res$impute_method)) {
       sesame_native_impute_method <<- native_res$impute_method
     }
@@ -8028,7 +8065,10 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
                  ifelse(isTRUE(tier3_eligibility$eligible), "pass", "fail"),
                  reason = tier3_eligibility$reason,
                  metrics = list(total_n = tier3_eligibility$total_n,
-                                min_stratum_n = tier3_eligibility$min_stratum_n))
+                                min_stratum_n = tier3_eligibility$min_stratum_n,
+                                min_overlap_group_n = tier3_eligibility$min_overlap_group_n,
+                                n_eligible_strata = tier3_eligibility$n_eligible_strata,
+                                failed_strata = paste(tier3_eligibility$failed_strata, collapse = ";")))
     if (!isTRUE(tier3_eligibility$eligible)) {
       tier3_ineligible <- TRUE
       msg <- sprintf("Tier3 confounding detected but eligibility failed (total_n=%s, min_stratum_n=%s).",
@@ -9878,6 +9918,12 @@ tryCatch({
     primary_branch_reason = primary_branch_reason,
     sesame_dyebias_mode = sesame_dyebias_mode,
     sesame_dyebias_note = sesame_dyebias_note,
+    sesame_native_before = sesame_native_before,
+    sesame_native_retained = sesame_native_retained,
+    sesame_native_dropped_all_na = sesame_native_dropped_all_na,
+    sesame_native_dropped_na = sesame_native_dropped_na,
+    sesame_native_imputed = sesame_native_imputed,
+    sesame_native_impute_method = sesame_native_impute_method,
     crf_enabled = crf_enabled,
     crf_sample_tier = crf_tier
   )

@@ -154,6 +154,37 @@ class PreflightTests(unittest.TestCase):
             self.assertTrue(result["config_path"].endswith("_groupfiltered.tsv"))
             self.assertTrue(any("Excluded 1 sample" in w for w in result["warnings"]))
 
+    def test_preflight_ignores_non_target_missing_idat_when_fail_on_missing(self):
+        """Missing IDATs in excluded groups must not fail a target contrast."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            idat_dir = os.path.join(tmpdir, "idat")
+            os.makedirs(idat_dir, exist_ok=True)
+            for sample in ("S1_R01C01", "S2_R01C01"):
+                open(os.path.join(idat_dir, f"{sample}_Grn.idat"), "wb").close()
+                open(os.path.join(idat_dir, f"{sample}_Red.idat"), "wb").close()
+
+            config_path = os.path.join(tmpdir, "configure.tsv")
+            headers = ["Basename", "primary_group"]
+            rows = [
+                {"Basename": "S1_R01C01", "primary_group": "control"},
+                {"Basename": "S2_R01C01", "primary_group": "test"},
+                {"Basename": "S3_R01C01", "primary_group": "other"},
+            ]
+            write_config(config_path, headers, rows)
+
+            result = preflight_analysis(
+                config_path=config_path,
+                idat_dir=idat_dir,
+                group_con="control",
+                group_test="test",
+                min_total_size=2,
+                id_column=None,
+                drop_missing_idat=False,
+            )
+            self.assertEqual(result["sample_count"], 2)
+            self.assertEqual(result["missing_idat_pairs"], 0)
+            self.assertTrue(result["config_path"].endswith("_groupfiltered.tsv"))
+
     def test_preflight_normalizes_group_labels(self):
         """Group matching should tolerate underscores/hyphens vs spaces."""
         with tempfile.TemporaryDirectory() as tmpdir:

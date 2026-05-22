@@ -5,17 +5,20 @@ Generated: 2026-05-22T08:54:01.986795+00:00
 ## Scope guard
 
 - Worker-4 owns integration/verification notes and derived summary artifacts only; live result directories remain owned by their dataset workers.
-- Do not update `cell_type_reframe_summary.tsv`, reports, figures, source-data workbooks, or manuscript text with GSE306227/GSE203332/GSE226298/GSE153712 until the responsible task reaches a terminal state with auditable result evidence.
+- Do not update `cell_type_reframe_summary.tsv`, reports, figures, source-data workbooks, or manuscript text with GSE306227/GSE203332/GSE226298/GSE153712 unless the responsible task has terminal auditable evidence and the downstream builder/schema explicitly supports that evidence class.
 - Preserve the Methods/YMETH workflow framing: reproducible, guarded, negative, blocked, and deferred evidence must remain distinct; no universal AD biomarker claim is allowed.
 
-## Current team gate
+## Final team gate
 
 | Task | Owner | Status | Lease | Integration action |
 | --- | --- | --- | --- | --- |
 | 1: GSE306227 independent CEAM neural cell-type reference analysis | worker-1 | completed |  | integrate as guarded neural cell-type reference evidence |
 | 2: GSE203332 frontal cortex AD specificity/stress-test lane | worker-2 | completed |  | integrate completed evidence |
 | 3: Optional extension readiness: GSE226298 and GSE153712 | worker-3 | completed |  | record readiness/deferred evidence; do not pool with brain/neural cohorts |
-| 4: Integration and verification for manuscript upgrade evidence | worker-4 | completed in task state; checklist committed as durable handoff |  | maintain this checklist until task 1 terminal evidence arrives |
+| 4: Initial integration and verification for manuscript upgrade evidence | worker-4 | completed |  | preserved guarded handoff and blocker checklist |
+| 5: GSE203332 launch or explicit blocker after metadata gate | worker-2 | completed |  | classified as blocked readiness/stress-test only |
+| 6: Final manuscript integration after prerequisite evidence | worker-4 | completed |  | recorded prerequisite blocker before task 1 terminal evidence existed |
+| 7: Final guarded integration after GSE306227 terminal and GSE203332 blocker evidence | worker-4 | completed |  | integrated terminal guarded notes in `task7_guarded_integration_summary.md` |
 
 ## Baseline derived evidence already reproducible
 
@@ -90,7 +93,7 @@ For every completed or failed dataset lane, record the dataset-specific decision
 - Subagents spawned: 2 (`019e4ee0-cdd7-7260-99ca-3b9978a49ceb` test/coverage probe; `019e4ee0-e321-7a30-9e18-0c2a21955a04` change-slice/blocker probe).
 - Existing coverage to reuse: `tests/test_benchmark_table.py` for artifact consumers, `tests/test_dashboard_warnings.py`, `tests/test_integration.py`, `tests/test_preflight.py`, and `tests/test_run_smoke_pipeline.py`; downstream readers include `scripts/build_benchmark_table.py`, `scripts/build_intersection_report.py`, `scripts/build_signal_preservation_report.py`, `scripts/prepare_geo_submission.py`, and `scripts/build_supplementary_data_docx.py`.
 - Regression gaps to preserve in final audit: no direct schema/golden test for `summary.json`; no automatic row-count parity check between `summary.json` and strict/native consensus CSVs; no direct lambda/status parity check between `*_Metrics.csv`, dashboards, and `summary.json`; no enforced source-data/manuscript drift test.
-- Change-slice finding: final cross-cohort and cell-type-reframe edits are blocked until task 1 reaches a terminal state; task 2 contributes readiness/contrast-design evidence and task 3 contributes optional readiness/deferred evidence only at this point.
+- Change-slice finding: final generated cross-cohort and cell-type-reframe table/figure edits are still deferred because the builder schema does not yet model GSE306227 as an additional reference-axis row and GSE203332 has no terminal analysis counts. Task 2 contributes readiness/contrast-design evidence and task 3 contributes optional readiness/deferred evidence only.
 
 ## Task 7 final guarded integration update
 

@@ -1154,6 +1154,7 @@ Note: For EPIC v2 (~936k) datasets, IlluMeta requires EPICv2 manifest/annotation
 ```bash
 python illumeta.py analysis -i my_project --group_con Untreated --group_test Treated
 ```
+If IDAT files are stored outside the project directory, pass `--idat-dir` as an absolute path or verify the resolved directory reported in the run log.
 
 ### Auto-grouping (optional)
 If your metadata already contains a reliable group column, IlluMeta can populate `primary_group` automatically:

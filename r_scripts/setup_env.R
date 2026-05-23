@@ -772,6 +772,7 @@ cran_pkgs <- c(
     "xml2",
     "XML",
     "rlang",
+    "fastmap",
     "stringi",
     "glue",
     "digest",

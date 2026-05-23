@@ -228,6 +228,23 @@ class RDesignInvariantTests(unittest.TestCase):
         missing = [field for field in required if field not in summary_block]
         self.assertEqual(missing, [])
 
+    def test_skip_sesame_initializes_absent_branch_summaries(self):
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+
+        start_marker = "sesame_out <- NULL"
+        end_marker = "# --- Consensus (Intersection) between Minfi and Sesame ---"
+        start = source.find(start_marker)
+        end = source.find(end_marker)
+        self.assertNotEqual(start, -1, f"Missing marker: {start_marker}")
+        self.assertNotEqual(end, -1, f"Missing marker: {end_marker}")
+        self.assertLess(start, end)
+        sesame_block = source[start:end]
+        self.assertIn("sesame_summary <- NULL", sesame_block)
+        self.assertLess(sesame_block.index("sesame_summary <- NULL"), sesame_block.index("if (!is.null(beta_sesame_strict))"))
+        self.assertIn("sesame_native_summary <- NULL", sesame_block)
+        self.assertLess(sesame_block.index("sesame_native_summary <- NULL"), sesame_block.index("if (!is.null(beta_sesame_native))"))
+
     def test_config_loading_fails_fast_on_invalid_existing_config(self):
         with open(ANALYZE_R, "r", encoding="utf-8") as handle:
             source = handle.read()

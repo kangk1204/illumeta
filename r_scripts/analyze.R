@@ -9749,6 +9749,7 @@ invisible(gc())
 
 sesame_out <- NULL
 res_sesame <- NULL
+sesame_summary <- NULL
 if (!is.null(beta_sesame_strict)) {
   sesame_out <- run_pipeline(beta_sesame_strict, "Sesame", anno_df, targets_override = targets_sesame)
   res_sesame <- if (!is.null(sesame_out)) sesame_out$res else NULL
@@ -9764,6 +9765,7 @@ if (!is.null(beta_sesame_strict)) {
 
 sesame_native_out <- NULL
 res_sesame_native <- NULL
+sesame_native_summary <- NULL
 if (!is.null(beta_sesame_native)) {
   sesame_native_out <- run_pipeline(beta_sesame_native, "Sesame_Native", anno_df, targets_override = targets_sesame)
   res_sesame_native <- if (!is.null(sesame_native_out)) sesame_native_out$res else NULL

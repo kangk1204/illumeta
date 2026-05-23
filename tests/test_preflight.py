@@ -2,7 +2,7 @@ import os
 import tempfile
 import unittest
 
-from illumeta import preflight_analysis
+from illumeta import preflight_analysis, resolve_idat_dir_argument
 
 
 def write_config(path, headers, rows):
@@ -13,6 +13,39 @@ def write_config(path, headers, rows):
 
 
 class PreflightTests(unittest.TestCase):
+    def test_explicit_project_idat_dir_resolves_from_cwd_when_config_relative_is_wrong(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = os.path.join(tmpdir, "repo")
+            config_dir = os.path.join(root, "projects", "GSE000001")
+            idat_dir = os.path.join(config_dir, "idat")
+            os.makedirs(idat_dir, exist_ok=True)
+            config_path = os.path.join(config_dir, "configure.tsv")
+            open(config_path, "w", encoding="utf-8").close()
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(root)
+                resolved, checked = resolve_idat_dir_argument("projects/GSE000001/idat", config_path)
+            finally:
+                os.chdir(old_cwd)
+
+            self.assertEqual(resolved, idat_dir)
+            self.assertIn(os.path.join(config_dir, "projects", "GSE000001", "idat"), checked)
+            self.assertIn(idat_dir, checked)
+
+    def test_explicit_plain_idat_dir_prefers_config_relative_path(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_dir = os.path.join(tmpdir, "project")
+            idat_dir = os.path.join(config_dir, "idat")
+            os.makedirs(idat_dir, exist_ok=True)
+            config_path = os.path.join(config_dir, "configure.tsv")
+            open(config_path, "w", encoding="utf-8").close()
+
+            resolved, checked = resolve_idat_dir_argument("idat", config_path)
+
+            self.assertEqual(resolved, idat_dir)
+            self.assertEqual(checked[0], idat_dir)
+
     def test_preflight_ok(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             idat_dir = os.path.join(tmpdir, "idat")

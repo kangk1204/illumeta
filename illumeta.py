@@ -860,6 +860,29 @@ def strip_idat_suffix(path: str) -> str:
             return path[: -len(suffix)]
     return path
 
+
+def resolve_idat_dir_argument(idat_dir_arg: str, config_path: str):
+    """Resolve an explicit --idat-dir path without duplicating config prefixes."""
+    if not idat_dir_arg:
+        return None, []
+    if os.path.isabs(idat_dir_arg):
+        return idat_dir_arg, [idat_dir_arg]
+
+    config_dir = os.path.dirname(os.path.abspath(config_path))
+    candidates = [
+        os.path.abspath(os.path.join(config_dir, idat_dir_arg)),
+        os.path.abspath(idat_dir_arg),
+    ]
+    deduped = []
+    for candidate in candidates:
+        if candidate not in deduped:
+            deduped.append(candidate)
+    for candidate in deduped:
+        if os.path.isdir(candidate):
+            return candidate, deduped
+    return deduped[0], deduped
+
+
 def resolve_basename(candidate: str, sample_id: str, basename_index, project_dir: str, idat_dir: str):
     cand = strip_idat_suffix(candidate or "")
     if not cand:
@@ -1154,6 +1177,7 @@ CORE_R_PACKAGES = [
     "Biobase",
     "reformulas",
     "ggplot2",
+    "fastmap",
     "plotly",
     "DT",
     "data.table",
@@ -2152,13 +2176,20 @@ def run_analysis(args):
         cmd.extend(["--cell-adjustment-on-high-eta2", args.cell_adjustment_on_high_eta2])
     idat_dir = None
     if args.idat_dir:
-        idat_dir = args.idat_dir
-        if not os.path.isabs(idat_dir):
-            idat_dir = os.path.join(os.path.dirname(os.path.abspath(config_path)), idat_dir)
+        idat_dir, idat_checked_paths = resolve_idat_dir_argument(args.idat_dir, config_path)
         if not os.path.isdir(idat_dir):
-            log_err(f"[!] IDAT directory not found: {idat_dir}")
-            write_failure_summary(output_dir, "idat", "IDAT_DIR_MISSING", f"IDAT directory not found: {idat_dir}")
+            checked = ", ".join(idat_checked_paths)
+            detail = f"IDAT directory not found: {idat_dir}"
+            if checked and checked != idat_dir:
+                detail = f"{detail} (checked: {checked})"
+            log_err(f"[!] {detail}")
+            write_failure_summary(output_dir, "idat", "IDAT_DIR_MISSING", detail)
             sys.exit(1)
+        checked = ", ".join(idat_checked_paths)
+        if checked and checked != idat_dir:
+            log(f"[*] Resolved --idat-dir to: {idat_dir} (checked: {checked})")
+        else:
+            log(f"[*] Resolved --idat-dir to: {idat_dir}")
         cmd.extend(["--idat_dir", idat_dir])
 
     try:

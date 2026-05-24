@@ -113,6 +113,19 @@ class CliExitCodeTests(unittest.TestCase):
             self.assertIn("Configuration file", result.stderr)
             self.assertNotIn("Ensuring R dependencies", result.stdout + result.stderr)
 
+    def test_analysis_timeout_parser_accepts_unlimited_values(self):
+        sys.path.insert(0, BASE_DIR)
+        try:
+            import illumeta
+
+            for value in ("0", "-1", "none", "off", "unlimited"):
+                with self.subTest(value=value):
+                    self.assertIsNone(illumeta.parse_analysis_timeout(value))
+            self.assertEqual(illumeta.parse_analysis_timeout("123"), 123)
+        finally:
+            if sys.path[0] == BASE_DIR:
+                sys.path.pop(0)
+
 
 if __name__ == "__main__":
     unittest.main()

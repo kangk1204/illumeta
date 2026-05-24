@@ -344,6 +344,18 @@ def cleanup_failure_markers(base_dirs):
                 log_err(f"[!] Failed to remove stale failure marker: {path} ({e})")
     return removed
 
+
+def parse_analysis_timeout(value=None, default=86400):
+    """Parse ILLUMETA_TIMEOUT; non-positive or explicit off values disable it."""
+    raw = str(default if value is None else value).strip()
+    if raw.lower() in {"0", "none", "null", "off", "false", "no", "unlimited"}:
+        return None
+    timeout_sec = int(raw)
+    if timeout_sec <= 0:
+        return None
+    return timeout_sec
+
+
 def profile_values(values):
     cleaned = []
     for v in values:
@@ -2307,11 +2319,13 @@ def run_analysis(args):
         log(f"[*] Using custom temporary directory: {env['TMPDIR']}")
 
     try:
-        timeout_sec = int(os.environ.get("ILLUMETA_TIMEOUT", 86400))
+        timeout_sec = parse_analysis_timeout(os.environ.get("ILLUMETA_TIMEOUT", 86400))
     except (ValueError, TypeError):
-        log_err("[!] ILLUMETA_TIMEOUT must be an integer (seconds). Using default 86400.")
+        log_err("[!] ILLUMETA_TIMEOUT must be an integer seconds value or one of: 0, none, off, unlimited. Using default 86400.")
         timeout_sec = 86400
     try:
+        if timeout_sec is None:
+            log("[*] Analysis timeout disabled (ILLUMETA_TIMEOUT).")
         subprocess.run(cmd, check=True, env=env, timeout=timeout_sec)
         log(f"[*] Analysis complete. Results are in: {output_dir}")
 

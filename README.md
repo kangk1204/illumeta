@@ -1223,6 +1223,10 @@ python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_tes
 # Permutation-based null test ("perm")
 # Note: there is no `illumeta perm` command; use --permutations with analysis.
 python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --permutations 50
+
+# Disable the Python wrapper timeout for manuscript-scale cohorts.
+# Default analysis timeout is 86400 seconds; use this only when another monitor controls the job.
+ILLUMETA_TIMEOUT=0 python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case
 ```
 
 ### Cell Composition Estimation

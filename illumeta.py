@@ -1352,11 +1352,11 @@ def add_conda_paths(env: dict) -> dict:
 
 def log(msg: str):
     """Prints a timestamped info message."""
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
 def log_err(msg: str):
     """Prints a timestamped error message to stderr."""
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", file=sys.stderr)
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", file=sys.stderr, flush=True)
 
 def check_r_installation():
     """Checks if R is available in the path."""

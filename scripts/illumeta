@@ -33,4 +33,9 @@ if ! "${CONDA_BIN}" env list | awk '{print $1}' | grep -qx "${ENV_NAME}"; then
   exit 1
 fi
 
-exec "${CONDA_BIN}" run -n "${ENV_NAME}" python "${ROOT_DIR}/illumeta.py" "$@"
+CONDA_RUN_ARGS=(run -n "${ENV_NAME}")
+if "${CONDA_BIN}" run --help 2>&1 | grep -q -- "--no-capture-output"; then
+  CONDA_RUN_ARGS+=(--no-capture-output)
+fi
+
+exec "${CONDA_BIN}" "${CONDA_RUN_ARGS[@]}" python "${ROOT_DIR}/illumeta.py" "$@"

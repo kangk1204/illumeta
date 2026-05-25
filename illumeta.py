@@ -4526,6 +4526,41 @@ def main():
                                  help="Logit offset for M-value transform (default: 1e-4 or config).")
     parser_analysis.add_argument("--force-idat", action="store_true", help="Force reading IDATs if array sizes differ but types are similar")
 
+    # Cross-cohort meta-analysis command
+    parser_meta = subparsers.add_parser(
+        "meta",
+        help="Run CpG-level cross-cohort meta-analysis from completed IlluMeta result directories",
+    )
+    parser_meta.add_argument("result_dirs", nargs="*", help="Completed IlluMeta result directories")
+    parser_meta.add_argument("-m", "--manifest", type=str,
+                             help="TSV/CSV manifest with a result_dir/path column and optional cohort metadata")
+    parser_meta.add_argument("-o", "--output", type=str, default="meta_analysis_results",
+                             help="Output directory for meta-analysis results (default: meta_analysis_results)")
+    parser_meta.add_argument("--project-root", type=str, default=os.getcwd(),
+                             help="Base directory for relative result paths (default: current working directory)")
+    parser_meta.add_argument("--branches", type=str, default="minfi,sesame_strict,sesame_native",
+                             help="Comma-separated branches to analyze (default: minfi,sesame_strict,sesame_native)")
+    parser_meta.add_argument("--branch-file", action="append", default=[],
+                             help="Override a branch input filename as NAME=FILENAME; may be repeated")
+    parser_meta.add_argument("--allow-missing-branches", action="store_true",
+                             help="Skip missing branch tables instead of failing")
+    parser_meta.add_argument("--min-cohorts", type=int, default=3,
+                             help="Minimum cohorts required per CpG (default: 3)")
+    parser_meta.add_argument("--meta-fdr", type=float, default=0.05,
+                             help="Random-effects FDR cutoff for core candidates (default: 0.05)")
+    parser_meta.add_argument("--min-direction-fraction", type=float, default=0.70,
+                             help="Minimum within-branch cohort direction fraction (default: 0.70)")
+    parser_meta.add_argument("--min-loo-direction-fraction", type=float, default=0.80,
+                             help="Minimum leave-one-cohort-out direction fraction (default: 0.80)")
+    parser_meta.add_argument("--max-i2", type=float, default=60.0,
+                             help="Maximum I2 percent for core candidates (default: 60)")
+    parser_meta.add_argument("--min-abs-delta-beta", type=float, default=0.01,
+                             help="Minimum absolute sample-size-weighted pooled delta beta (default: 0.01)")
+    parser_meta.add_argument("--partial-conjunction-r", type=int, default=3,
+                             help="Directional partial-conjunction r threshold (default: 3)")
+    parser_meta.add_argument("--top-n", type=int, default=1000,
+                             help="Number of top rows to export per branch (default: 1000)")
+
     # Doctor Command
     parser_doctor = subparsers.add_parser("doctor", help="Check system and R dependencies (does not install)")
     parser_doctor.add_argument("--skip-pandoc", action="store_true", help="Skip pandoc check")
@@ -4551,6 +4586,13 @@ def main():
         return
     if args.command == "search":
         sys.exit(run_search(args))
+    if args.command == "meta":
+        try:
+            from illumeta_meta import run_meta_cli
+            sys.exit(run_meta_cli(args))
+        except Exception as exc:
+            log_err(f"[!] Meta-analysis failed: {exc}")
+            sys.exit(1)
 
     if args.command == "analysis":
         config_path = resolve_analysis_config_path(args)

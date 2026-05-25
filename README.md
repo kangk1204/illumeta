@@ -1332,6 +1332,40 @@ python3 scripts/ablation_runner.py \
   --variants baseline,sesame_typeinorm
 ```
 
+### Cross-cohort CpG meta-analysis
+Use `illumeta meta` after completing multiple IlluMeta runs for the same biological contrast. This command performs CpG-level meta-analysis across cohorts while keeping preprocessing branches separate.
+
+```bash
+python illumeta.py meta \
+  projects/cohort_a/Case_vs_Control_results \
+  projects/cohort_b/Case_vs_Control_results \
+  projects/cohort_c/Case_vs_Control_results \
+  --output benchmarks/cross_cohort_meta \
+  --branches minfi,sesame_strict,sesame_native
+```
+
+For larger studies, use a TSV/CSV manifest with a `result_dir` column and optional `cohort`, `label`, `platform`, and `tissue` columns:
+
+```bash
+python illumeta.py meta \
+  --manifest benchmarks/cross_cohort_meta_manifest.tsv \
+  --output benchmarks/cross_cohort_meta \
+  --min-cohorts 3 \
+  --meta-fdr 0.05 \
+  --max-i2 60 \
+  --min-abs-delta-beta 0.01
+```
+
+Outputs include:
+- `meta_branch_summary.tsv`: per-branch counts and heterogeneity summaries
+- `<branch>_meta_full.tsv.gz`: full CpG-level fixed/random-effects meta-analysis table
+- `<branch>_core_candidates.tsv`: FDR-, direction-, I2-, delta-beta-, and leave-one-out-filtered candidates
+- `<branch>_pc_candidates.tsv`: directional partial-conjunction candidates
+- `branch_concordant_core_candidates.tsv`: candidates reproduced across preprocessing branches
+- `meta_analysis_report.md`, `meta_methods.md`, and `meta_input_manifest.json`
+
+Statistical contract: cohorts are the independent units. Minfi, Sesame strict, and Sesame native are analyzed separately and used for branch-concordance sensitivity; they are not pooled as independent studies. Random-effects FDR is the primary screen, with fixed-effect estimates, I2, tau2, direction fraction, sample-size-weighted delta beta, and leave-one-cohort-out directional stability reported for interpretation.
+
 Notes:
 - **TypeINorm is disabled by default** for stability (thread errors observed on some systems). Enable with `--sesame-typeinorm` when needed.
 - **Sesame runs single-thread by default** for stability. If you want multi-threading, set `ILLUMETA_SESAME_SINGLE_THREAD=0` in your shell.

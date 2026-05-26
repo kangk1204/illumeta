@@ -290,6 +290,33 @@ class MetaCliTests(unittest.TestCase):
             concordant = (out_dir / "branch_concordant_core_candidates.tsv").read_text(encoding="utf-8")
             self.assertIn("cg_good", concordant)
 
+    def test_meta_cli_rejects_branch_file_path_escape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / "meta_path_escape"
+
+            result = self.run_illumeta(
+                "meta",
+                "--branches",
+                "minfi",
+                "--branch-file",
+                "minfi=../Minfi_DMPs_full.csv",
+                "--output",
+                str(out_dir),
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("--branch-file filename must be a file name", result.stderr)
+            payload = json.loads((out_dir / "failure_summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["code"], "META_ANALYSIS_FAILED")
+
+    def test_meta_branch_file_override_must_be_plain_filename(self):
+        import illumeta_meta
+
+        for override in ("minfi=/tmp/Minfi_DMPs_full.csv", "minfi=subdir/Minfi_DMPs_full.csv"):
+            with self.subTest(override=override):
+                with self.assertRaisesRegex(ValueError, "file name inside each cohort result directory"):
+                    illumeta_meta.parse_branch_selection("minfi", [override])
+
     def test_meta_cli_reused_output_removes_stale_owned_branch_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -1,7 +1,8 @@
-import math
 import unittest
 
-from illumeta_meta import _chi2_sf_even
+import math
+
+from illumeta_meta import _chi2_sf_even, _directional_pc_p
 
 
 class MetaMathTests(unittest.TestCase):
@@ -17,6 +18,16 @@ class MetaMathTests(unittest.TestCase):
         self.assertTrue(math.isfinite(value))
         self.assertGreater(value, 0.45)
         self.assertLess(value, 0.55)
+
+    def test_directional_partial_conjunction_pays_for_direction_choice(self):
+        value = _directional_pc_p([1.0], [0.04], [True], 1)
+
+        self.assertAlmostEqual(value, 0.04, places=15)
+
+    def test_directional_partial_conjunction_caps_two_direction_correction(self):
+        value = _directional_pc_p([1.0], [0.90], [True], 1)
+
+        self.assertAlmostEqual(value, 0.90, places=15)
 
 
 if __name__ == "__main__":

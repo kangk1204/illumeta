@@ -236,10 +236,18 @@ def parse_branch_selection(branches: str, branch_file_overrides: list[str] | Non
         name = BRANCH_ALIASES.get(name.strip().lower(), name.strip().lower())
         if name not in selected:
             raise ValueError(f"--branch-file override names an unselected branch: {name}")
-        if not filename.strip():
-            raise ValueError("--branch-file filename cannot be empty")
-        selected[name] = filename.strip()
+        selected[name] = _validate_branch_filename(filename)
     return selected
+
+
+def _validate_branch_filename(filename: str) -> str:
+    cleaned = filename.strip()
+    if not cleaned:
+        raise ValueError("--branch-file filename cannot be empty")
+    path = Path(cleaned)
+    if path.is_absolute() or len(path.parts) != 1 or any(part in ("..", ".") for part in path.parts):
+        raise ValueError("--branch-file filename must be a file name inside each cohort result directory")
+    return cleaned
 
 
 def _validate_thresholds(thresholds: MetaThresholds) -> None:
@@ -428,7 +436,11 @@ def _directional_pc_p(effects: list[float], p_values: list[float], valid: list[b
     pc_up = _fisher_partial_conjunction(p_up, valid, r)
     pc_down = _fisher_partial_conjunction(p_down, valid, r)
     candidates = [p for p in (pc_up, pc_down) if math.isfinite(p)]
-    return min(candidates) if candidates else math.nan
+    if not candidates:
+        return math.nan
+    # The reported direction is selected from the data, so account for testing
+    # the up and down one-sided families before using this as a p-value.
+    return min(1.0, 2.0 * min(candidates))
 
 
 def _read_branch_records(
@@ -880,7 +892,7 @@ def _write_report(
             f"- Leave-one-cohort-out direction fraction >= {thresholds.min_loo_direction_fraction:g}",
             f"- I2 <= {thresholds.max_i2:g}%",
             f"- Absolute sample-size-weighted pooled delta beta >= {thresholds.min_abs_delta_beta:g}",
-            f"- Directional partial-conjunction screen uses r={thresholds.partial_conjunction_r}",
+            f"- Directional partial-conjunction screen uses r={thresholds.partial_conjunction_r} with two-direction correction",
             "",
             "## Branch Summary",
             "",
@@ -939,7 +951,8 @@ def _write_report(
         "For each preprocessing branch, cohort-level logFC estimates and standard errors were combined per CpG.",
         "When an SE column was absent, SE was reconstructed as abs(logFC / t) from the limma moderated t-statistic.",
         "Fixed-effect estimates used inverse-variance weights. Random-effects estimates used a DerSimonian-Laird tau2 estimator.",
-        "Benjamini-Hochberg FDR was applied within each branch. Directional consistency, I2, sample-size-weighted delta beta, and leave-one-cohort-out directional stability were used as robustness filters.",
+        "Benjamini-Hochberg FDR was applied within each branch. Directional partial-conjunction p-values used a two-direction correction for selecting up or down replication.",
+        "Directional consistency, I2, sample-size-weighted delta beta, and leave-one-cohort-out directional stability were used as robustness filters.",
         "Minfi, Sesame strict, and Sesame native branches were not pooled as independent cohorts; branch concordance was used only as a preprocessing sensitivity criterion.",
         "",
     ]

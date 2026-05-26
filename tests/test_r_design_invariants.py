@@ -245,6 +245,13 @@ class RDesignInvariantTests(unittest.TestCase):
         self.assertIn("sesame_native_summary <- NULL", sesame_block)
         self.assertLess(sesame_block.index("sesame_native_summary <- NULL"), sesame_block.index("if (!is.null(beta_sesame_native))"))
 
+    def test_manuscript_facing_effect_labels_use_m_value_scale(self):
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+
+        self.assertNotIn("log2FC", source)
+        self.assertIn("limma logFC on M-value scale", source)
+
     def test_config_loading_fails_fast_on_invalid_existing_config(self):
         with open(ANALYZE_R, "r", encoding="utf-8") as handle:
             source = handle.read()

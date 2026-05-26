@@ -184,6 +184,39 @@ class MetaCliTests(unittest.TestCase):
             payload = json.loads((out_dir / "meta_input_manifest.json").read_text(encoding="utf-8"))
             self.assertEqual([c["cohort_id"] for c in payload["cohorts"]], ["C1", "C2", "C3", "C4"])
 
+    def test_meta_cli_accepts_gzipped_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result_dirs = [
+                make_result_dir(root, "GSE_A", 1.0),
+                make_result_dir(root, "GSE_B", 1.1),
+                make_result_dir(root, "GSE_C", 0.95),
+            ]
+            manifest = root / "manifest.tsv.gz"
+            with gzip.open(manifest, "wt", encoding="utf-8", newline="") as handle:
+                handle.write("cohort\tresult_dir\tplatform\ttissue\n")
+                for idx, result_dir in enumerate(result_dirs, start=1):
+                    handle.write(f"C{idx}\t{result_dir}\t450K\tbrain\n")
+            out_dir = root / "meta_manifest_gz_out"
+
+            result = self.run_illumeta(
+                "meta",
+                "--manifest",
+                str(manifest),
+                "--branches",
+                "minfi",
+                "--min-cohorts",
+                "2",
+                "--partial-conjunction-r",
+                "2",
+                "--output",
+                str(out_dir),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            payload = json.loads((out_dir / "meta_input_manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual([c["cohort_id"] for c in payload["cohorts"]], ["C1", "C2", "C3"])
+
     def test_meta_cli_keeps_duplicate_cohort_columns_distinct(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -161,7 +161,7 @@ def _truthy_include(value: object) -> bool:
 def load_meta_manifest(manifest: Path, project_root: Path) -> list[MetaCohort]:
     delimiter = _sniff_delimiter(manifest)
     rows: list[dict[str, str]] = []
-    with manifest.open("r", encoding="utf-8", errors="replace", newline="") as handle:
+    with _open_text(manifest) as handle:
         reader = csv.DictReader(handle, delimiter=delimiter)
         if not reader.fieldnames:
             raise ValueError(f"Manifest has no header: {manifest}")

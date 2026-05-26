@@ -9679,8 +9679,8 @@ run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
       labs(
         title = sprintf("Minfi vs %s logFC concordance", sesame_label),
         subtitle = sprintf("Pearson r = %.3f (points subsampled to max_plots=%d for rendering)", r_val, max_points),
-        x = "log2FC (Minfi)",
-        y = "log2FC (Sesame)",
+        x = "limma logFC on M-value scale (Minfi)",
+        y = "limma logFC on M-value scale (Sesame)",
         color = "Consensus"
       )
     save_interactive_plot(p_conc, paste0(prefix, "_LogFC_Concordance.html"), out_dir)
@@ -10193,7 +10193,7 @@ tryCatch({
   } else {
     "default references (fallback to RefFreeEWAS when unavailable)"
   }
-  sig_line <- sprintf("- Significance thresholds: BH FDR < %.3f and |log2FC| > %.2f", pval_thresh, lfc_thresh)
+  sig_line <- sprintf("- Significance thresholds: BH FDR < %.3f and |limma logFC on M-value scale| > %.2f", pval_thresh, lfc_thresh)
   if (delta_beta_thresh > 0) {
     sig_line <- paste0(sig_line, sprintf(" and |DeltaBeta| >= %.3f", delta_beta_thresh))
   }

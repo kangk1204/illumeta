@@ -2356,7 +2356,7 @@ def run_analysis(args):
     try:
         timeout_sec = parse_analysis_timeout(os.environ.get("ILLUMETA_TIMEOUT", 86400))
     except (ValueError, TypeError):
-        log_err("[!] ILLUMETA_TIMEOUT must be an integer seconds value or one of: 0, none, off, unlimited. Using default 86400.")
+        log_err("[!] ILLUMETA_TIMEOUT must be a finite number of seconds or one of: 0, none, off, unlimited. Using default 86400.")
         timeout_sec = 86400
     try:
         if timeout_sec is None:
@@ -4146,7 +4146,7 @@ def generate_dashboard(output_dir, group_test, group_con):
         if analysis_params:
             html_parts.append('        <div class="metrics-card">\n')
             html_parts.append('            <div class="metrics-title">Analysis Parameters</div>\n')
-            html_parts.append(f'            <div class="metrics-row" title="FDR (False Discovery Rate): adjusted p-value threshold controlling for multiple testing. |logFC|: minimum log2 fold-change in methylation M-values. |DeltaBeta|: minimum absolute difference in beta-values (0-1 scale). Stricter thresholds yield fewer but more confident results."><span>FDR / |logFC| / |DeltaBeta|</span><span>{_h(analysis_params.get("pval_threshold", "N/A"))} / {_h(analysis_params.get("lfc_threshold", "N/A"))} / {_h(analysis_params.get("delta_beta_threshold", "N/A"))}</span></div>\n')
+            html_parts.append(f'            <div class="metrics-row" title="FDR (False Discovery Rate): adjusted p-value threshold controlling for multiple testing. |logFC|: minimum absolute limma effect on the methylation M-value scale. |DeltaBeta|: minimum absolute difference in beta-values (0-1 scale). Stricter thresholds yield fewer but more confident results."><span>FDR / |logFC| / |DeltaBeta|</span><span>{_h(analysis_params.get("pval_threshold", "N/A"))} / {_h(analysis_params.get("lfc_threshold", "N/A"))} / {_h(analysis_params.get("delta_beta_threshold", "N/A"))}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Tissue</span><span>{_h(analysis_params.get("tissue", "N/A"))} ({_h(analysis_params.get("tissue_source", "N/A"))})</span></div>\n')
             html_parts.append(f'            <div class="metrics-row"><span>Array type</span><span>{_h(analysis_params.get("array_type", "N/A"))}</span></div>\n')
             html_parts.append(f'            <div class="metrics-row" title="Correction Robustness Framework tier. Minimal (<12): exploratory only, SVA disabled. Small (12-23): limited power. Moderate (24-49): full pipeline. Large (>=50): all checks powered."><span>CRF sample tier</span><span>{_h(analysis_params.get("crf_sample_tier", "N/A"))}</span></div>\n')

@@ -1,6 +1,9 @@
 import unittest
+from pathlib import Path
 
 from illumeta import collect_dashboard_warnings
+
+BASE_DIR = Path(__file__).resolve().parents[1]
 
 
 class DashboardWarningsTests(unittest.TestCase):
@@ -31,6 +34,11 @@ class DashboardWarningsTests(unittest.TestCase):
         self.assertIn("Tier3 confounding detected but eligibility failed", joined)
         self.assertIn("Reference-based cell-type deconvolution was used", joined)
         self.assertIn("Cell composition strongly associated with group", joined)
+
+    def test_dashboard_effect_threshold_label_uses_m_value_scale(self):
+        source = (BASE_DIR / "illumeta.py").read_text(encoding="utf-8")
+        self.assertNotIn("minimum log2 fold-change in methylation M-values", source)
+        self.assertIn("minimum absolute limma effect on the methylation M-value scale", source)
 
 
 if __name__ == "__main__":

@@ -95,6 +95,33 @@ class PreflightTests(unittest.TestCase):
                 )
 
 
+    def test_preflight_rechecks_group_counts_after_missing_idat_filter(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            idat_dir = os.path.join(tmpdir, "idat")
+            os.makedirs(idat_dir, exist_ok=True)
+            open(os.path.join(idat_dir, "S2_R01C01_Grn.idat"), "wb").close()
+            open(os.path.join(idat_dir, "S2_R01C01_Red.idat"), "wb").close()
+
+            config_path = os.path.join(tmpdir, "configure.tsv")
+            headers = ["Basename", "primary_group"]
+            rows = [
+                {"Basename": "S1_R01C01", "primary_group": "control"},
+                {"Basename": "S2_R01C01", "primary_group": "test"},
+            ]
+            write_config(config_path, headers, rows)
+
+            with self.assertRaisesRegex(ValueError, "After filtering missing IDAT pairs"):
+                preflight_analysis(
+                    config_path=config_path,
+                    idat_dir=idat_dir,
+                    group_con="control",
+                    group_test="test",
+                    min_total_size=1,
+                    id_column=None,
+                    drop_missing_idat=True,
+                )
+
+
     def test_preflight_basename_with_idat_suffix(self):
         """Basename already ending with _Grn.idat should still resolve correctly."""
         with tempfile.TemporaryDirectory() as tmpdir:

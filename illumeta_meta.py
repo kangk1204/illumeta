@@ -302,12 +302,29 @@ def _chi2_sf_even(stat: float, df: int) -> float:
         return math.nan
     half = stat / 2.0
     m = df // 2
-    term = 1.0
-    total = 1.0
-    for j in range(1, m):
-        term *= half / j
-        total += term
-    sf = math.exp(-half) * total
+    if half == 0:
+        return 1.0
+
+    log_half = math.log(half)
+    max_log = -math.inf
+    scaled_sum = 0.0
+    for j in range(m):
+        log_term = (j * log_half) - math.lgamma(j + 1)
+        if log_term > max_log:
+            scaled_sum = (
+                scaled_sum * math.exp(max_log - log_term) + 1.0
+                if math.isfinite(max_log)
+                else 1.0
+            )
+            max_log = log_term
+        else:
+            scaled_sum += math.exp(log_term - max_log)
+    log_sf = -half + max_log + math.log(scaled_sum)
+    if log_sf >= 0:
+        return 1.0
+    if log_sf < -745:
+        return 0.0
+    sf = math.exp(log_sf)
     return min(1.0, max(0.0, sf))
 
 

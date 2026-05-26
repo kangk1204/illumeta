@@ -1062,6 +1062,19 @@ def preflight_analysis(config_path: str, idat_dir: str, group_con: str, group_te
             f"Filtered out {len(missing_ids)} samples with missing IDAT pairs; "
             f"using {filtered_config_path}"
         )
+        filtered_group_norms = [normalize_group_value(row.get("primary_group") or "") for row in rows]
+        n_con = sum(1 for g in filtered_group_norms if g == con_norm)
+        n_test = sum(1 for g in filtered_group_norms if g == test_norm)
+        n_total = n_con + n_test
+        if n_con == 0 or n_test == 0:
+            raise ValueError(
+                "After filtering missing IDAT pairs, at least one group has zero samples "
+                f"(Control: {n_con}, Test: {n_test})."
+            )
+        if min_total_size and n_total < min_total_size:
+            raise ValueError(
+                f"Too few samples after filtering missing IDAT pairs: {n_total} < min_total_size ({min_total_size})."
+            )
     batch_patterns = r"(sentrix|slide|array|plate|chip|batch)"
     batch_candidates = [h for h in headers if re.search(batch_patterns, h, flags=re.IGNORECASE)]
     if not batch_candidates:

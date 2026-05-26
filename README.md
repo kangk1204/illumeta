@@ -92,6 +92,8 @@ New to DNA methylation analysis? Here are the key terms you'll encounter:
 > - Recommended memory: **8 GB+ RAM** (large cohorts benefit from 16 GB+).
 > - First install time: typically **30-60 minutes**.
 > - macOS: install Xcode Command Line Tools first (`xcode-select --install`).
+> - Windows: use **Ubuntu in WSL2**. Run the bash commands inside the Ubuntu
+>   terminal, not in PowerShell or CMD.
 
 <details>
 <summary><strong>Install conda (Miniforge) - macOS / Ubuntu (fresh machine)</strong></summary>
@@ -141,6 +143,10 @@ cd illumeta
 ./scripts/install_full.sh --preflight
 ./scripts/install_full.sh
 ```
+On Windows, run these commands inside the **Ubuntu (WSL2)** terminal and clone
+under the Linux home directory (for example `~/illumeta`). Avoid cloning under
+`/mnt/c`, OneDrive, or other Windows-mounted folders; those paths are slower and
+can cause permission/symlink problems during R package installation.
 This takes **30-60 minutes** (downloads R packages). Grab a coffee! ☕
 `--preflight` only checks prerequisites; it does **not** install the conda
 environment or R packages. The second command must finish before `doctor` is
@@ -231,7 +237,10 @@ Run the self-check doctor:
 <summary><strong>Windows (WSL2 required)</strong></summary>
 
 1. Install WSL2 (Ubuntu).
-2. Follow the **Ubuntu** section in Installation below.
+2. Open the **Ubuntu** terminal.
+3. Clone IlluMeta under the WSL Linux home directory (for example `~/illumeta`),
+   not under `/mnt/c` or OneDrive.
+4. Follow the **Ubuntu** section in Installation below.
 </details>
 
 <details>
@@ -846,6 +855,11 @@ In **PowerShell (Admin)**:
 wsl --install -d Ubuntu
 ```
 Reboot if prompted, then open **Ubuntu (WSL2)**.
+
+> **Important:** IlluMeta is not installed directly in native Windows
+> PowerShell/CMD. After WSL2 is installed, use the **Ubuntu** terminal for all
+> commands below. Keep the repository under the WSL Linux filesystem, such as
+> `~/illumeta`; avoid `/mnt/c`, Desktop, Documents, or OneDrive paths.
 
 In the Ubuntu terminal, install Git + curl:
 ```bash

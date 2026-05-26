@@ -255,6 +255,47 @@ class CliExitCodeTests(unittest.TestCase):
             self.assertEqual(payload["code"], "CROSS_REACTIVE_PREP_FAILED")
             self.assertEqual(payload["stage"], "cross_reactive")
 
+    def test_output_path_file_writes_failure_marker_to_parent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / "configure.tsv"
+            config_path.write_text("Basename\tprimary_group\n", encoding="utf-8")
+            output_file = root / "out.html"
+            output_file.write_text("not a directory\n", encoding="utf-8")
+            illumeta = self.import_illumeta()
+
+            with self.assertRaises(SystemExit) as ctx:
+                illumeta.run_analysis(self.make_analysis_args(config_path, output_file))
+
+            self.assertEqual(ctx.exception.code, 1)
+            payload = json.loads((root / "failure_summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["code"], "OUTPUT_PATH_IS_FILE")
+            self.assertEqual(payload["stage"], "output")
+
+    def test_tmp_dir_file_fails_before_launch_and_writes_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / "configure.tsv"
+            config_path.write_text("Basename\tprimary_group\n", encoding="utf-8")
+            output_dir = root / "out"
+            tmp_file = root / "tmpfile"
+            tmp_file.write_text("not a directory\n", encoding="utf-8")
+            illumeta = self.import_illumeta()
+
+            with mock.patch.object(illumeta, "preflight_analysis", return_value=self.preflight_payload(config_path)) as preflight_mock:
+                with mock.patch.object(illumeta, "ensure_r_lib_env", side_effect=lambda env: env):
+                    with mock.patch.object(illumeta, "add_conda_paths", side_effect=lambda env: env):
+                        with mock.patch.object(illumeta.subprocess, "run") as run_mock:
+                            with self.assertRaises(SystemExit) as ctx:
+                                illumeta.run_analysis(self.make_analysis_args(config_path, output_dir, tmp_dir=str(tmp_file)))
+
+            self.assertEqual(ctx.exception.code, 1)
+            preflight_mock.assert_not_called()
+            run_mock.assert_not_called()
+            payload = json.loads((output_dir / "failure_summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["code"], "TMP_DIR_NOT_DIRECTORY")
+            self.assertEqual(payload["stage"], "tmp_dir")
+
     def test_dashboard_failure_is_nonfatal_after_successful_analysis(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

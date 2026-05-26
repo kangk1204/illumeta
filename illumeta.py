@@ -2130,17 +2130,37 @@ def run_analysis(args):
     
     # Ensure output directory exists
     if os.path.isfile(output_dir):
-        log_err(f"[!] --output path is a file, not a directory: {output_dir}")
+        message = f"--output path is a file, not a directory: {output_dir}"
+        log_err(f"[!] {message}")
+        write_failure_summary(output_dir, "output", "OUTPUT_PATH_IS_FILE", message)
         sys.exit(1)
     try:
         os.makedirs(output_dir, exist_ok=True)
     except OSError as e:
-        log_err(f"[!] Cannot create output directory: {output_dir} ({e})")
+        message = f"Cannot create output directory: {output_dir} ({e})"
+        log_err(f"[!] {message}")
+        write_failure_summary(output_dir, "output", "OUTPUT_DIR_CREATE_FAILED", message)
         sys.exit(1)
 
     stale_markers = cleanup_failure_markers([output_dir])
     if stale_markers:
         log(f"[*] Removed stale failure markers: {', '.join(stale_markers)}")
+
+    tmp_dir_abs = None
+    if args.tmp_dir:
+        if os.path.exists(args.tmp_dir) and not os.path.isdir(args.tmp_dir):
+            message = f"--tmp-dir path is not a directory: {args.tmp_dir}"
+            log_err(f"[!] {message}")
+            write_failure_summary(output_dir, "tmp_dir", "TMP_DIR_NOT_DIRECTORY", message)
+            sys.exit(1)
+        try:
+            os.makedirs(args.tmp_dir, exist_ok=True)
+        except OSError as e:
+            message = f"Cannot create temporary directory: {args.tmp_dir} ({e})"
+            log_err(f"[!] {message}")
+            write_failure_summary(output_dir, "tmp_dir", "TMP_DIR_CREATE_FAILED", message)
+            sys.exit(1)
+        tmp_dir_abs = os.path.abspath(args.tmp_dir)
 
     # Snapshot the analysis script into the output directory so long-running runs
     # are not affected by local edits (e.g., while a tmux batch is still running).
@@ -2360,10 +2380,8 @@ def run_analysis(args):
                     "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS"):
             env[key] = "1"
         log("[*] Sesame: forcing single-thread BLAS/OMP to avoid pthread errors.")
-    if args.tmp_dir:
-        if not os.path.exists(args.tmp_dir):
-            os.makedirs(args.tmp_dir)
-        env["TMPDIR"] = os.path.abspath(args.tmp_dir)
+    if tmp_dir_abs:
+        env["TMPDIR"] = tmp_dir_abs
         log(f"[*] Using custom temporary directory: {env['TMPDIR']}")
 
     try:

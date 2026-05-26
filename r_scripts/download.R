@@ -76,7 +76,17 @@ retry_run <- function(fn, label = "request", attempts = retry_attempts, wait = r
 }
 
 safe_extract_idats_from_tar <- function(tar_file, exdir) {
-  members <- utils::untar(tar_file, list = TRUE)
+  list_warnings <- character(0)
+  members <- withCallingHandlers(
+    utils::untar(tar_file, list = TRUE),
+    warning = function(w) {
+      list_warnings <<- c(list_warnings, conditionMessage(w))
+      invokeRestart("muffleWarning")
+    }
+  )
+  if (length(list_warnings) > 0) {
+    stop("Unsafe RAW tar listing failed: ", paste(list_warnings, collapse = "; "))
+  }
   if (length(members) == 0) {
     return(character(0))
   }
@@ -97,7 +107,24 @@ safe_extract_idats_from_tar <- function(tar_file, exdir) {
     return(character(0))
   }
   dir.create(exdir, recursive = TRUE, showWarnings = FALSE)
-  utils::untar(tar_file, files = idat_members, exdir = exdir)
+  untar_warnings <- character(0)
+  untar_status <- withCallingHandlers(
+    utils::untar(tar_file, files = idat_members, exdir = exdir),
+    warning = function(w) {
+      untar_warnings <<- c(untar_warnings, conditionMessage(w))
+      invokeRestart("muffleWarning")
+    }
+  )
+  bad_status <- is.numeric(untar_status) &&
+    length(untar_status) > 0 &&
+    any(!is.na(untar_status) & untar_status != 0)
+  if (bad_status || length(untar_warnings) > 0) {
+    detail <- untar_warnings
+    if (is.numeric(untar_status) && length(untar_status) > 0) {
+      detail <- c(detail, paste("status", paste(untar_status, collapse = ",")))
+    }
+    stop("Unsafe RAW tar extraction failed: ", detail)
+  }
   extracted <- list.files(exdir, pattern = "\\.idat(\\.gz)?$", full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
   if (length(extracted) == 0) {
     return(character(0))

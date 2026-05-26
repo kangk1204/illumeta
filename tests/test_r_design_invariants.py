@@ -364,6 +364,36 @@ class RDesignInvariantTests(unittest.TestCase):
                 )
             )
 
+    def test_download_treats_untar_warnings_as_failed_extraction(self):
+        with open(DOWNLOAD_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+        safe_extract_fn = extract_r_function(source, "safe_extract_idats_from_tar")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tar_path = os.path.join(tmpdir, "GSE999_RAW.tar")
+            payload_path = os.path.join(tmpdir, "sample_Grn.idat")
+            with open(payload_path, "wb") as handle:
+                handle.write(b"mock")
+            info = tarfile.TarInfo("linked_Grn.idat")
+            info.type = tarfile.LNKTYPE
+            info.linkname = "/etc/passwd"
+            with tarfile.open(tar_path, "w") as tar:
+                tar.add(payload_path, arcname="sample_Grn.idat")
+                tar.addfile(info)
+
+            self.run_r(
+                textwrap.dedent(
+                    f"""
+                    {safe_extract_fn}
+                    stopped <- tryCatch({{
+                      safe_extract_idats_from_tar("{tar_path}", exdir = tempfile("extract_"))
+                      FALSE
+                    }}, error = function(e) grepl("Unsafe RAW tar extraction failed", conditionMessage(e)))
+                    if (!isTRUE(stopped)) stop("untar warning/failure was not fatal")
+                    """
+                )
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

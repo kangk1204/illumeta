@@ -4630,7 +4630,7 @@ def main():
     parser_meta.add_argument("--branches", type=str, default="minfi,sesame_strict,sesame_native",
                              help="Comma-separated branches to analyze (default: minfi,sesame_strict,sesame_native)")
     parser_meta.add_argument("--branch-file", action="append", default=[],
-                             help="Override a branch input filename as NAME=FILENAME; may be repeated")
+                             help="Override a branch input file name as NAME=FILENAME; FILENAME must be a plain file name inside each result directory")
     parser_meta.add_argument("--allow-missing-branches", action="store_true",
                              help="Skip missing branch tables instead of failing")
     parser_meta.add_argument("--min-cohorts", type=int, default=3,

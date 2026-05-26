@@ -1403,6 +1403,7 @@ Outputs include:
 - `meta_analysis_report.md`, `meta_methods.md`, and `meta_input_manifest.json`
 
 Statistical contract: cohorts are the independent units. Minfi, Sesame strict, and Sesame native are analyzed separately and used for branch-concordance sensitivity; they are not pooled as independent studies. Random-effects FDR is the primary screen, with fixed-effect estimates, I2, tau2, direction fraction, sample-size-weighted delta beta, and leave-one-cohort-out directional stability reported for interpretation. Directional partial-conjunction p-values are corrected for selecting either up or down replication.
+If you override branch inputs with `--branch-file NAME=FILENAME`, `FILENAME` must be a plain file name present inside every cohort result directory, not an absolute or relative path.
 
 Notes:
 - **TypeINorm is disabled by default** for stability (thread errors observed on some systems). Enable with `--sesame-typeinorm` when needed.

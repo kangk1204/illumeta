@@ -312,7 +312,12 @@ class MetaCliTests(unittest.TestCase):
     def test_meta_branch_file_override_must_be_plain_filename(self):
         import illumeta_meta
 
-        for override in ("minfi=/tmp/Minfi_DMPs_full.csv", "minfi=subdir/Minfi_DMPs_full.csv"):
+        for override in (
+            "minfi=/tmp/Minfi_DMPs_full.csv",
+            "minfi=subdir/Minfi_DMPs_full.csv",
+            "minfi=subdir\\Minfi_DMPs_full.csv",
+            "minfi=.",
+        ):
             with self.subTest(override=override):
                 with self.assertRaisesRegex(ValueError, "file name inside each cohort result directory"):
                     illumeta_meta.parse_branch_selection("minfi", [override])

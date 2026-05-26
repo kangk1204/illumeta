@@ -245,7 +245,13 @@ def _validate_branch_filename(filename: str) -> str:
     if not cleaned:
         raise ValueError("--branch-file filename cannot be empty")
     path = Path(cleaned)
-    if path.is_absolute() or len(path.parts) != 1 or any(part in ("..", ".") for part in path.parts):
+    if (
+        "\x00" in cleaned
+        or "/" in cleaned
+        or "\\" in cleaned
+        or path.is_absolute()
+        or cleaned in {".", ".."}
+    ):
         raise ValueError("--branch-file filename must be a file name inside each cohort result directory")
     return cleaned
 

@@ -482,7 +482,7 @@ def _read_branch_records(
                 if not cpg:
                     continue
                 if cpg in seen_cpgs:
-                    continue
+                    raise ValueError(f"{table_path} contains duplicate CpG entry: {cpg}")
                 seen_cpgs.add(cpg)
                 rec = records.get(cpg)
                 if rec is None:

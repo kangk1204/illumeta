@@ -60,6 +60,21 @@ def rewrite_p_values(path: Path, value: str) -> None:
         writer.writerows(rows)
 
 
+def append_duplicate_cpg_row(path: Path, cpg: str) -> None:
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+        fieldnames = reader.fieldnames
+    if fieldnames is None:
+        raise AssertionError(f"Missing header in {path}")
+    duplicate = next(dict(row) for row in rows if row["CpG"] == cpg)
+    duplicate["logFC"] = "999"
+    duplicate["P.Value"] = "1e-300"
+    with path.open("a", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writerow(duplicate)
+
+
 def make_result_dir(root: Path, name: str, effect_scale: float = 1.0) -> Path:
     result_dir = root / name / "Case_vs_Control_results"
     result_dir.mkdir(parents=True)
@@ -289,6 +304,35 @@ class MetaCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             concordant = (out_dir / "branch_concordant_core_candidates.tsv").read_text(encoding="utf-8")
             self.assertIn("cg_good", concordant)
+
+    def test_meta_cli_rejects_duplicate_cpg_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result_dirs = [
+                make_result_dir(root, "GSE_A", 1.0),
+                make_result_dir(root, "GSE_B", 1.1),
+                make_result_dir(root, "GSE_C", 0.95),
+            ]
+            append_duplicate_cpg_row(result_dirs[0] / "Minfi_DMPs_full.csv", "cg_good")
+            out_dir = root / "meta_duplicate_cpg"
+
+            result = self.run_illumeta(
+                "meta",
+                *[str(path) for path in result_dirs],
+                "--branches",
+                "minfi",
+                "--min-cohorts",
+                "2",
+                "--partial-conjunction-r",
+                "2",
+                "--output",
+                str(out_dir),
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("duplicate CpG", result.stderr)
+            payload = json.loads((out_dir / "failure_summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["code"], "META_ANALYSIS_FAILED")
 
     def test_meta_cli_rejects_branch_file_path_escape(self):
         with tempfile.TemporaryDirectory() as tmp:

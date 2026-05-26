@@ -1,6 +1,7 @@
 """CLI failure paths must return non-zero status codes."""
 
 from types import SimpleNamespace
+import io
 import json
 import os
 from pathlib import Path
@@ -131,6 +132,66 @@ class CliExitCodeTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 2)
         self.assertIn("Available commands", result.stdout)
+
+    def test_download_rscript_launch_failure_is_clean_exit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output_dir = root / "download"
+            illumeta = self.import_illumeta()
+            args = SimpleNamespace(gse_id="GSE12345", out_dir=str(output_dir), platform="")
+
+            with mock.patch.object(illumeta, "ensure_r_lib_env", side_effect=lambda env: env):
+                with mock.patch.object(illumeta, "add_conda_paths", side_effect=lambda env: env):
+                    with mock.patch.object(illumeta.subprocess, "run", side_effect=FileNotFoundError("Rscript")):
+                        with mock.patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                            with self.assertRaises(SystemExit) as ctx:
+                                illumeta.run_download(args)
+
+            self.assertEqual(ctx.exception.code, 1)
+            self.assertIn("Failed to prepare or launch download step", stderr.getvalue())
+            self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_download_output_directory_oserror_is_clean_exit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output_dir = root / "download"
+            illumeta = self.import_illumeta()
+            args = SimpleNamespace(gse_id="GSE12345", out_dir=str(output_dir), platform="")
+
+            with mock.patch.object(illumeta, "ensure_r_lib_env", side_effect=lambda env: env):
+                with mock.patch.object(illumeta, "add_conda_paths", side_effect=lambda env: env):
+                    with mock.patch.object(illumeta.os, "makedirs", side_effect=PermissionError("readonly")):
+                        with mock.patch.object(illumeta.subprocess, "run") as run_mock:
+                            with mock.patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                                with self.assertRaises(SystemExit) as ctx:
+                                    illumeta.run_download(args)
+
+            self.assertEqual(ctx.exception.code, 1)
+            run_mock.assert_not_called()
+            self.assertIn("Failed to prepare or launch download step", stderr.getvalue())
+            self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_r_dependency_setup_launch_failure_is_clean_exit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            marker = root / ".r_setup_done"
+            marker.write_text("stale marker\n", encoding="utf-8")
+            illumeta = self.import_illumeta()
+
+            with mock.patch.dict(os.environ, {"ILLUMETA_FORCE_SETUP": "1"}):
+                with mock.patch.object(illumeta, "SETUP_MARKER", str(marker)):
+                    with mock.patch.object(illumeta, "ensure_r_lib_env", side_effect=lambda env: env):
+                        with mock.patch.object(illumeta, "add_conda_paths", side_effect=lambda env: env):
+                            with mock.patch.object(illumeta, "detect_r_major_minor", return_value=None):
+                                with mock.patch.object(illumeta.subprocess, "run", side_effect=FileNotFoundError("Rscript")):
+                                    with mock.patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                                        with self.assertRaises(SystemExit) as ctx:
+                                            illumeta.ensure_r_dependencies()
+
+            self.assertEqual(ctx.exception.code, 1)
+            self.assertFalse(marker.exists())
+            self.assertIn("Failed to launch R dependency setup", stderr.getvalue())
+            self.assertNotIn("Traceback", stderr.getvalue())
 
     def test_missing_config_does_not_delete_unrelated_failure_markers(self):
         with tempfile.TemporaryDirectory() as tmp:

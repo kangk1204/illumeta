@@ -1576,6 +1576,15 @@ def ensure_r_dependencies():
             except OSError:
                 pass
         sys.exit(1)
+    except OSError as e:
+        log_err(f"[!] Failed to launch R dependency setup: {e}")
+        log_err("    Try running manually: Rscript r_scripts/setup_env.R")
+        if os.path.exists(SETUP_MARKER):
+            try:
+                os.remove(SETUP_MARKER)
+            except OSError:
+                pass
+        sys.exit(1)
 
 def run_doctor(args):
     """Checks system and R dependencies without installing anything."""
@@ -1637,10 +1646,7 @@ def run_download(args):
     out_dir = args.out_dir if args.out_dir else os.path.abspath(args.gse_id)
     log(f"[*] Starting download pipeline for {args.gse_id}...")
     log(f"[*] Output directory: {out_dir}")
-    
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
-    
+
     cmd = ["Rscript", DOWNLOAD_SCRIPT, "--gse", args.gse_id, "--out", out_dir]
     if args.platform:
         cmd += ["--platform", args.platform]
@@ -1649,6 +1655,7 @@ def run_download(args):
     env = add_conda_paths(env)
 
     try:
+        os.makedirs(out_dir, exist_ok=True)
         subprocess.run(cmd, check=True, env=env, timeout=3600)
         log(f"[*] Download complete. Fill 'primary_group' in: {os.path.join(out_dir, 'configure.tsv')}")
         log("[*] Tip: you can auto-fill it during analysis with --auto-group/--group-column/--group-key.")
@@ -1660,6 +1667,9 @@ def run_download(args):
         sys.exit(1)
     except subprocess.CalledProcessError as e:
         log_err(f"[!] Error during download step: {e}")
+        sys.exit(1)
+    except OSError as e:
+        log_err(f"[!] Failed to prepare or launch download step: {e}")
         sys.exit(1)
 
 

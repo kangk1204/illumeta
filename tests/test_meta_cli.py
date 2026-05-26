@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -288,6 +289,172 @@ class MetaCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             concordant = (out_dir / "branch_concordant_core_candidates.tsv").read_text(encoding="utf-8")
             self.assertIn("cg_good", concordant)
+
+    def test_meta_cli_reused_output_removes_stale_owned_branch_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result_dirs = [
+                make_result_dir(root, "GSE_A", 1.0),
+                make_result_dir(root, "GSE_B", 1.1),
+                make_result_dir(root, "GSE_C", 0.95),
+            ]
+            out_dir = root / "meta_reused"
+
+            first = self.run_illumeta(
+                "meta",
+                *[str(path) for path in result_dirs],
+                "--branches",
+                "minfi,sesame_strict",
+                "--min-cohorts",
+                "2",
+                "--partial-conjunction-r",
+                "2",
+                "--top-n",
+                "1",
+                "--output",
+                str(out_dir),
+            )
+            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+            self.assertTrue((out_dir / "sesame_strict_meta_full.tsv.gz").exists())
+            self.assertTrue((out_dir / "minfi_meta_top1.tsv").exists())
+
+            second = self.run_illumeta(
+                "meta",
+                *[str(path) for path in result_dirs],
+                "--branches",
+                "minfi",
+                "--min-cohorts",
+                "2",
+                "--partial-conjunction-r",
+                "2",
+                "--top-n",
+                "2",
+                "--output",
+                str(out_dir),
+            )
+
+            self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+            self.assertFalse((out_dir / "sesame_strict_meta_full.tsv.gz").exists())
+            self.assertFalse((out_dir / "sesame_strict_meta_top1.tsv").exists())
+            self.assertFalse((out_dir / "sesame_strict_core_candidates.tsv").exists())
+            self.assertFalse((out_dir / "sesame_strict_pc_candidates.tsv").exists())
+            self.assertFalse((out_dir / "minfi_meta_top1.tsv").exists())
+            self.assertTrue((out_dir / "minfi_meta_top2.tsv").exists())
+            self.assertFalse(any(path.name.startswith(".illumeta_meta_tmp_") for path in out_dir.iterdir()))
+            payload = json.loads((out_dir / "meta_input_manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["branches"], {"minfi": "Minfi_DMPs_full.csv"})
+
+    def test_meta_cli_failed_reuse_keeps_previous_success_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result_dirs = [
+                make_result_dir(root, "GSE_A", 1.0),
+                make_result_dir(root, "GSE_B", 1.1),
+                make_result_dir(root, "GSE_C", 0.95),
+            ]
+            out_dir = root / "meta_failed_reuse"
+
+            first = self.run_illumeta(
+                "meta",
+                *[str(path) for path in result_dirs],
+                "--branches",
+                "minfi",
+                "--min-cohorts",
+                "2",
+                "--partial-conjunction-r",
+                "2",
+                "--top-n",
+                "1",
+                "--output",
+                str(out_dir),
+            )
+            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+            before = json.loads((out_dir / "meta_input_manifest.json").read_text(encoding="utf-8"))
+
+            second = self.run_illumeta(
+                "meta",
+                *[str(path) for path in result_dirs],
+                "--branches",
+                "minfi,sesame_native",
+                "--min-cohorts",
+                "2",
+                "--partial-conjunction-r",
+                "2",
+                "--top-n",
+                "2",
+                "--output",
+                str(out_dir),
+            )
+
+            self.assertNotEqual(second.returncode, 0)
+            after = json.loads((out_dir / "meta_input_manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(after["branches"], before["branches"])
+            self.assertTrue((out_dir / "minfi_meta_top1.tsv").exists())
+            self.assertFalse((out_dir / "minfi_meta_top2.tsv").exists())
+            self.assertFalse(any(path.name.startswith(".illumeta_meta_tmp_") for path in out_dir.iterdir()))
+            failure = json.loads((out_dir / "failure_summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(failure["code"], "META_ANALYSIS_FAILED")
+
+    def test_meta_cli_success_removes_stale_failure_markers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result_dirs = [
+                make_result_dir(root, "GSE_A", 1.0),
+                make_result_dir(root, "GSE_B", 1.1),
+                make_result_dir(root, "GSE_C", 0.95),
+            ]
+            out_dir = root / "meta_stale_failure"
+            out_dir.mkdir()
+            (out_dir / "failure_summary.json").write_text('{"code":"OLD"}\n', encoding="utf-8")
+            (out_dir / "failure_reason.txt").write_text("OLD\n", encoding="utf-8")
+
+            result = self.run_illumeta(
+                "meta",
+                *[str(path) for path in result_dirs],
+                "--branches",
+                "minfi",
+                "--min-cohorts",
+                "2",
+                "--partial-conjunction-r",
+                "2",
+                "--output",
+                str(out_dir),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse((out_dir / "failure_summary.json").exists())
+            self.assertFalse((out_dir / "failure_reason.txt").exists())
+            self.assertTrue((out_dir / "meta_input_manifest.json").exists())
+
+    def test_meta_publish_rolls_back_when_file_replace_fails(self):
+        import illumeta_meta
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out_dir = root / "out"
+            stage_dir = root / "stage"
+            out_dir.mkdir()
+            stage_dir.mkdir()
+            (out_dir / "meta_input_manifest.json").write_text('{"branches":{"minfi":"old"}}\n', encoding="utf-8")
+            (out_dir / "minfi_meta_top1.tsv").write_text("old\n", encoding="utf-8")
+            (stage_dir / "meta_input_manifest.json").write_text('{"branches":{"minfi":"new"}}\n', encoding="utf-8")
+            (stage_dir / "minfi_meta_top2.tsv").write_text("new\n", encoding="utf-8")
+            real_replace = illumeta_meta.os.replace
+
+            def flaky_replace(src, dst):
+                if Path(src).name == "minfi_meta_top2.tsv":
+                    raise OSError("simulated publish failure")
+                return real_replace(src, dst)
+
+            with mock.patch.object(illumeta_meta.os, "replace", side_effect=flaky_replace):
+                with self.assertRaises(OSError):
+                    illumeta_meta._publish_meta_outputs(stage_dir, out_dir, ["minfi"])
+
+            manifest = (out_dir / "meta_input_manifest.json").read_text(encoding="utf-8")
+            self.assertIn('"old"', manifest)
+            self.assertEqual((out_dir / "minfi_meta_top1.tsv").read_text(encoding="utf-8"), "old\n")
+            self.assertFalse((out_dir / "minfi_meta_top2.tsv").exists())
+            self.assertFalse(any(path.name.startswith(".illumeta_meta_backup_") for path in out_dir.iterdir()))
 
     def test_meta_cli_rejects_invalid_thresholds(self):
         with tempfile.TemporaryDirectory() as tmp:

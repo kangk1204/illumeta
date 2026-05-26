@@ -9,6 +9,7 @@ import json
 import math
 import os
 import re
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -689,6 +690,67 @@ def _write_tsv(path: Path, rows: list[dict[str, object]], fieldnames: list[str],
             writer.writerow({key: _format_float(row.get(key)) for key in fieldnames})
 
 
+def _meta_owned_files(out_dir: Path, branch_names: Iterable[str]) -> list[Path]:
+    branches = set(DEFAULT_BRANCH_FILES)
+    branches.update(branch_names)
+    owned = {
+        out_dir / "meta_branch_summary.tsv",
+        out_dir / "branch_concordant_core_candidates.tsv",
+        out_dir / "meta_input_manifest.json",
+        out_dir / "meta_analysis_report.md",
+        out_dir / "meta_methods.md",
+    }
+    for branch in branches:
+        owned.add(out_dir / f"{branch}_meta_full.tsv.gz")
+        owned.add(out_dir / f"{branch}_core_candidates.tsv")
+        owned.add(out_dir / f"{branch}_pc_candidates.tsv")
+        owned.update(out_dir.glob(f"{branch}_meta_top*.tsv"))
+    return sorted(path for path in owned if path.is_file())
+
+
+def _publish_meta_outputs(stage_dir: Path, out_dir: Path, branch_names: Iterable[str]) -> None:
+    produced = {path.name for path in stage_dir.iterdir() if path.is_file()}
+    manifest_name = "meta_input_manifest.json"
+    if manifest_name not in produced:
+        raise ValueError("Internal error: staged meta outputs are missing meta_input_manifest.json")
+    with tempfile.TemporaryDirectory(prefix=".illumeta_meta_backup_", dir=out_dir) as backup_text:
+        backup_dir = Path(backup_text)
+        moved_old: list[str] = []
+        published: list[str] = []
+        try:
+            for old_path in _meta_owned_files(out_dir, branch_names):
+                os.replace(old_path, backup_dir / old_path.name)
+                moved_old.append(old_path.name)
+            for name in sorted(produced - {manifest_name}):
+                os.replace(stage_dir / name, out_dir / name)
+                published.append(name)
+            if manifest_name in produced:
+                os.replace(stage_dir / manifest_name, out_dir / manifest_name)
+                published.append(manifest_name)
+        except Exception:
+            for name in reversed(published):
+                try:
+                    (out_dir / name).unlink()
+                except FileNotFoundError:
+                    pass
+            for name in reversed(moved_old):
+                backup_path = backup_dir / name
+                if backup_path.exists():
+                    os.replace(backup_path, out_dir / name)
+            raise
+
+
+def _cleanup_meta_failure_markers(out_dir: Path) -> list[str]:
+    removed: list[str] = []
+    for name in ("failure_summary.json", "failure_reason.txt"):
+        path = out_dir / name
+        if not path.exists():
+            continue
+        path.unlink()
+        removed.append(name)
+    return removed
+
+
 def _summarize_branch_concordance(candidate_rows: list[dict[str, object]]) -> list[dict[str, object]]:
     grouped: dict[str, list[dict[str, object]]] = {}
     for row in candidate_rows:
@@ -894,6 +956,20 @@ def run_meta_analysis(
     _validate_thresholds(thresholds)
     _validate_cohort_count(thresholds, len(cohorts))
     out_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".illumeta_meta_tmp_", dir=out_dir) as stage_text:
+        stage_dir = Path(stage_text)
+        manifest = _run_meta_analysis_to_dir(cohorts, branch_files, stage_dir, thresholds, allow_missing_branches)
+        _publish_meta_outputs(stage_dir, out_dir, branch_files.keys())
+        return manifest
+
+
+def _run_meta_analysis_to_dir(
+    cohorts: list[MetaCohort],
+    branch_files: dict[str, str],
+    out_dir: Path,
+    thresholds: MetaThresholds,
+    allow_missing_branches: bool = False,
+) -> dict[str, object]:
     all_summaries: list[dict[str, object]] = []
     all_candidate_rows: list[dict[str, object]] = []
     warnings: list[str] = [warning for cohort in cohorts for warning in cohort.warnings]
@@ -979,6 +1055,10 @@ def run_meta_analysis(
 def run_meta_cli(args) -> int:
     project_root = Path(args.project_root or os.getcwd()).expanduser().resolve()
     out_dir = _resolve_path(args.output, project_root)
+    if out_dir.exists():
+        removed_markers = _cleanup_meta_failure_markers(out_dir)
+        if removed_markers:
+            _log(f"Removed stale meta failure markers: {', '.join(removed_markers)}")
     branch_files = parse_branch_selection(args.branches, args.branch_file)
     thresholds = MetaThresholds(
         min_cohorts=args.min_cohorts,

@@ -333,7 +333,12 @@ def cleanup_failure_markers(base_dirs):
         seen_dirs.add(target)
         if not os.path.isdir(target):
             continue
-        for name in ("failure_summary.json", "failure_reason.txt"):
+        for name in (
+            "failure_summary.json",
+            "failure_reason.txt",
+            "dashboard_failure_summary.json",
+            "dashboard_failure_reason.txt",
+        ):
             path = os.path.join(target, name)
             if not os.path.isfile(path):
                 continue
@@ -350,10 +355,12 @@ def parse_analysis_timeout(value=None, default=86400):
     raw = str(default if value is None else value).strip()
     if raw.lower() in {"0", "none", "null", "off", "false", "no", "unlimited"}:
         return None
-    timeout_sec = int(raw)
+    timeout_sec = float(raw)
+    if not math.isfinite(timeout_sec):
+        raise ValueError("timeout must be finite")
     if timeout_sec <= 0:
         return None
-    return timeout_sec
+    return int(timeout_sec) if timeout_sec.is_integer() else timeout_sec
 
 
 def profile_values(values):
@@ -1930,7 +1937,15 @@ def run_search(args):
     log("[*] Done.")
     return 0
 
-def write_failure_summary(base_dir: str, stage: str, code: str, message: str, details=None):
+def write_failure_summary(
+    base_dir: str,
+    stage: str,
+    code: str,
+    message: str,
+    details=None,
+    summary_filename: str = "failure_summary.json",
+    reason_filename: str = "failure_reason.txt",
+):
     if not base_dir:
         base_dir = os.getcwd()
     base_dir = os.path.abspath(base_dir)
@@ -1952,12 +1967,20 @@ def write_failure_summary(base_dir: str, stage: str, code: str, message: str, de
         "details": details or {},
     }
     try:
-        with open(os.path.join(base_dir, "failure_summary.json"), "w", encoding="utf-8") as handle:
+        with open(os.path.join(base_dir, summary_filename), "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, ensure_ascii=True)
-        with open(os.path.join(base_dir, "failure_reason.txt"), "w", encoding="utf-8") as handle:
+        with open(os.path.join(base_dir, reason_filename), "w", encoding="utf-8") as handle:
             handle.write(f"{code}: {message}\n")
     except OSError as e:
         log_err(f"[!] Failed to write failure summary: {e}")
+
+
+def resolve_meta_output_dir(args):
+    project_root = os.path.abspath(os.path.expanduser(args.project_root or os.getcwd()))
+    output = os.path.expanduser(args.output or "meta_analysis_results")
+    if not os.path.isabs(output):
+        output = os.path.join(project_root, output)
+    return os.path.abspath(output)
 
 def resolve_analysis_config_path(args):
     if args.config:
@@ -2125,7 +2148,19 @@ def run_analysis(args):
     )
     if should_prepare_cross:
         cross_dir = resolve_cross_reactive_dir(config_path, args.config_yaml)
-        created, status = ensure_cross_reactive_lists(cross_dir, allow_network=True)
+        try:
+            created, status = ensure_cross_reactive_lists(cross_dir, allow_network=True)
+        except OSError as e:
+            message = f"Failed to prepare cross-reactive probe lists in {cross_dir}: {e}"
+            log_err(f"[!] {message}")
+            write_failure_summary(
+                output_dir,
+                "cross_reactive",
+                "CROSS_REACTIVE_PREP_FAILED",
+                message,
+                details={"cross_reactive_dir": cross_dir, "exception_type": type(e).__name__},
+            )
+            sys.exit(1)
         if status == "downloaded":
             log(f"[*] Downloaded cross-reactive probe lists to {cross_dir}")
         elif status == "built_local":
@@ -2328,10 +2363,6 @@ def run_analysis(args):
             log("[*] Analysis timeout disabled (ILLUMETA_TIMEOUT).")
         subprocess.run(cmd, check=True, env=env, timeout=timeout_sec)
         log(f"[*] Analysis complete. Results are in: {output_dir}")
-
-        # Generate Dashboard
-        generate_dashboard(output_dir, args.group_test, args.group_con)
-
     except KeyboardInterrupt:
         log_err("\n[!] Interrupted by user.")
         write_failure_summary(output_dir, "analysis", "INTERRUPTED", "User interrupted analysis (Ctrl+C).")
@@ -2350,6 +2381,33 @@ def run_analysis(args):
             details={"returncode": e.returncode, "cmd": getattr(e, "cmd", cmd)},
         )
         sys.exit(1)
+    except OSError as e:
+        code = "R_BINARY_MISSING" if isinstance(e, FileNotFoundError) else "R_SCRIPT_LAUNCH_FAILED"
+        message = f"Failed to launch R analysis command: {e}"
+        log_err(f"[!] {message}")
+        write_failure_summary(
+            output_dir,
+            "analysis",
+            code,
+            message,
+            details={"cmd": cmd, "exception_type": type(e).__name__},
+        )
+        sys.exit(1)
+
+    try:
+        generate_dashboard(output_dir, args.group_test, args.group_con)
+    except Exception as e:
+        message = f"Dashboard generation failed after successful analysis: {e}"
+        log_err(f"[!] {message}")
+        write_failure_summary(
+            output_dir,
+            "dashboard",
+            "DASHBOARD_FAILED",
+            message,
+            details={"exception_type": type(e).__name__},
+            summary_filename="dashboard_failure_summary.json",
+            reason_filename="dashboard_failure_reason.txt",
+        )
 
 def safe_int(val):
     if val is None:
@@ -4590,8 +4648,15 @@ def main():
         try:
             from illumeta_meta import run_meta_cli
             sys.exit(run_meta_cli(args))
-        except Exception as exc:
+        except (ValueError, FileNotFoundError, OSError, csv.Error) as exc:
             log_err(f"[!] Meta-analysis failed: {exc}")
+            write_failure_summary(
+                resolve_meta_output_dir(args),
+                "meta",
+                "META_ANALYSIS_FAILED",
+                str(exc),
+                details={"exception_type": type(exc).__name__},
+            )
             sys.exit(1)
 
     if args.command == "analysis":

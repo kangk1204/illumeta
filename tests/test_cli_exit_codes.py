@@ -1,12 +1,14 @@
 """CLI failure paths must return non-zero status codes."""
 
 from types import SimpleNamespace
+import json
 import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -21,6 +23,96 @@ class CliExitCodeTests(unittest.TestCase):
             text=True,
             timeout=30,
         )
+
+    def make_analysis_args(self, config_path: Path, output_dir: Path, **overrides):
+        values = {
+            "config": str(config_path),
+            "input_dir": None,
+            "output": str(output_dir),
+            "group_con": "Control",
+            "group_test": "Case",
+            "beginner_safe": False,
+            "min_total_size": 2,
+            "delta_beta": 0.0,
+            "disable_auto_covariates": False,
+            "auto_covariates_enabled": None,
+            "skip_sesame": False,
+            "sesame_typeinorm": False,
+            "beginner_safe_delta_beta": None,
+            "auto_group": False,
+            "group_column": None,
+            "group_key": None,
+            "group_map": None,
+            "auto_group_output": None,
+            "auto_group_overwrite": False,
+            "auto_group_allow_technical": False,
+            "cross_reactive_list": str(output_dir / "cross_reactive.tsv"),
+            "unsafe_skip_cross_reactive": False,
+            "config_yaml": None,
+            "max_plots": 10000,
+            "pval": 0.05,
+            "lfc": 0.5,
+            "permutations": 0,
+            "qc_intensity_threshold": 9.0,
+            "marker_list": None,
+            "sex_mismatch_action": None,
+            "sex_check_column": None,
+            "batch_column": None,
+            "batch_method": None,
+            "tier3_min_total_n": None,
+            "tier3_min_per_group_per_stratum": None,
+            "tier3_on_fail": None,
+            "auto_covariates_exclude_group_associated": None,
+            "auto_covariates_group_assoc_p_threshold": None,
+            "auto_covariates_max_cor": None,
+            "cell_adjustment_on_high_eta2": None,
+            "idat_dir": None,
+            "fail_on_missing_idat": False,
+            "force_idat": False,
+            "disable_sva": False,
+            "include_covariates": None,
+            "include_clock_covariates": False,
+            "tissue": "Auto",
+            "cell_reference": None,
+            "cell_reference_platform": None,
+            "positive_controls": None,
+            "preset": None,
+            "qc_detection_p_threshold": None,
+            "qc_sample_fail_frac": None,
+            "dmr_min_cpgs": None,
+            "dmr_maxgap": None,
+            "logit_offset": None,
+            "vp_top": None,
+            "id_column": None,
+            "tmp_dir": None,
+        }
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
+    def preflight_payload(self, config_path: Path):
+        return {
+            "config_path": str(config_path),
+            "idat_dir": None,
+            "sample_count_raw": 4,
+            "sample_count": 4,
+            "group_con": 2,
+            "group_test": 2,
+            "missing_idat_pairs": 0,
+            "missing_idat_preview": [],
+            "group_labels": {},
+            "batch_candidates": [],
+            "warnings": [],
+            "column_profile": [],
+        }
+
+    def import_illumeta(self):
+        sys.path.insert(0, BASE_DIR)
+        try:
+            import illumeta
+        finally:
+            if sys.path[0] == BASE_DIR:
+                sys.path.pop(0)
+        return illumeta
 
     def test_search_empty_keywords_is_nonzero(self):
         result = self.run_illumeta("search", "--keywords", "", "--no-check-suppl")
@@ -122,9 +214,65 @@ class CliExitCodeTests(unittest.TestCase):
                 with self.subTest(value=value):
                     self.assertIsNone(illumeta.parse_analysis_timeout(value))
             self.assertEqual(illumeta.parse_analysis_timeout("123"), 123)
+            self.assertEqual(illumeta.parse_analysis_timeout("100.5"), 100.5)
         finally:
             if sys.path[0] == BASE_DIR:
                 sys.path.pop(0)
+
+    def test_analysis_rscript_launch_failure_writes_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / "configure.tsv"
+            config_path.write_text("Basename\tprimary_group\n", encoding="utf-8")
+            output_dir = root / "out"
+            illumeta = self.import_illumeta()
+
+            with mock.patch.object(illumeta, "preflight_analysis", return_value=self.preflight_payload(config_path)):
+                with mock.patch.object(illumeta.subprocess, "run", side_effect=FileNotFoundError("Rscript")):
+                    with self.assertRaises(SystemExit) as ctx:
+                        illumeta.run_analysis(self.make_analysis_args(config_path, output_dir))
+
+            self.assertEqual(ctx.exception.code, 1)
+            payload = json.loads((output_dir / "failure_summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["code"], "R_BINARY_MISSING")
+            self.assertEqual(payload["stage"], "analysis")
+
+    def test_cross_reactive_prep_failure_writes_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / "configure.tsv"
+            config_path.write_text("Basename\tprimary_group\n", encoding="utf-8")
+            output_dir = root / "out"
+            illumeta = self.import_illumeta()
+            args = self.make_analysis_args(config_path, output_dir, cross_reactive_list=None)
+
+            with mock.patch.object(illumeta, "ensure_cross_reactive_lists", side_effect=OSError("readonly")):
+                with self.assertRaises(SystemExit) as ctx:
+                    illumeta.run_analysis(args)
+
+            self.assertEqual(ctx.exception.code, 1)
+            payload = json.loads((output_dir / "failure_summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["code"], "CROSS_REACTIVE_PREP_FAILED")
+            self.assertEqual(payload["stage"], "cross_reactive")
+
+    def test_dashboard_failure_is_nonfatal_after_successful_analysis(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / "configure.tsv"
+            config_path.write_text("Basename\tprimary_group\n", encoding="utf-8")
+            output_dir = root / "out"
+            illumeta = self.import_illumeta()
+
+            with mock.patch.object(illumeta, "preflight_analysis", return_value=self.preflight_payload(config_path)):
+                with mock.patch.object(illumeta, "ensure_r_lib_env", side_effect=lambda env: env):
+                    with mock.patch.object(illumeta.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
+                        with mock.patch.object(illumeta, "generate_dashboard", side_effect=RuntimeError("bad dashboard")):
+                            illumeta.run_analysis(self.make_analysis_args(config_path, output_dir))
+
+            self.assertFalse((output_dir / "failure_summary.json").exists())
+            payload = json.loads((output_dir / "dashboard_failure_summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["code"], "DASHBOARD_FAILED")
+            self.assertEqual(payload["stage"], "dashboard")
 
 
 if __name__ == "__main__":

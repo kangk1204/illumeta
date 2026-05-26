@@ -8,6 +8,7 @@ import gzip
 import json
 import math
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -52,6 +53,7 @@ class MetaCohort:
     n_test: int = 0
     primary_result_mode: str = ""
     primary_lambda_guard_status: str = ""
+    warnings: tuple[str, ...] = ()
 
     @property
     def sample_weight(self) -> float:
@@ -87,6 +89,11 @@ def _safe_float(value: object) -> float:
     return out if math.isfinite(out) else math.nan
 
 
+def _safe_p_value(value: object) -> float:
+    out = _safe_float(value)
+    return out if math.isfinite(out) and 0.0 <= out <= 1.0 else math.nan
+
+
 def _safe_int(value: object) -> int:
     val = _safe_float(value)
     return int(val) if math.isfinite(val) else 0
@@ -108,7 +115,8 @@ def _format_float(value: object) -> str:
 
 
 def _sniff_delimiter(path: Path) -> str:
-    with path.open("r", encoding="utf-8", errors="replace", newline="") as handle:
+    opener = gzip.open if path.suffix == ".gz" else open
+    with opener(path, "rt", encoding="utf-8", errors="replace", newline="") as handle:
         sample = handle.read(4096)
     try:
         dialect = csv.Sniffer().sniff(sample, delimiters=",\t")
@@ -123,16 +131,18 @@ def _open_text(path: Path):
     return path.open("r", encoding="utf-8", errors="replace", newline="")
 
 
-def _read_summary(result_dir: Path) -> dict[str, object]:
+def _read_summary(result_dir: Path) -> tuple[dict[str, object], list[str]]:
     summary_path = result_dir / "summary.json"
     if not summary_path.exists():
-        return {}
+        return {}, [f"{result_dir}: summary.json missing; sample-size weighting defaults to 1"]
     try:
         with summary_path.open("r", encoding="utf-8") as handle:
             payload = json.load(handle)
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
+    except (OSError, json.JSONDecodeError) as exc:
+        return {}, [f"{summary_path}: unreadable summary.json ({type(exc).__name__}); sample-size weighting defaults to 1"]
+    if not isinstance(payload, dict):
+        return {}, [f"{summary_path}: summary.json is not an object; sample-size weighting defaults to 1"]
+    return payload, []
 
 
 def _resolve_path(path_text: str, root: Path) -> Path:
@@ -166,7 +176,7 @@ def load_meta_manifest(manifest: Path, project_root: Path) -> list[MetaCohort]:
         if not result_dir_text:
             raise ValueError("Manifest must contain a result_dir/path column.")
         result_dir = _resolve_path(result_dir_text, project_root)
-        summary = _read_summary(result_dir)
+        summary, summary_warnings = _read_summary(result_dir)
         cohort_id = _first_nonempty(
             row.get(col) for col in ("cohort", "cohort_id", "gse", "id", "name")
         ) or result_dir.parent.name or f"cohort_{i}"
@@ -181,6 +191,7 @@ def load_meta_manifest(manifest: Path, project_root: Path) -> list[MetaCohort]:
                 n_test=_safe_int(summary.get("n_test")),
                 primary_result_mode=str(summary.get("primary_result_mode") or ""),
                 primary_lambda_guard_status=str(summary.get("primary_lambda_guard_status") or ""),
+                warnings=tuple(summary_warnings),
             )
         )
     return cohorts
@@ -190,7 +201,7 @@ def load_positional_cohorts(result_dirs: list[str], project_root: Path) -> list[
     cohorts: list[MetaCohort] = []
     for i, result_dir_text in enumerate(result_dirs, start=1):
         result_dir = _resolve_path(result_dir_text, project_root)
-        summary = _read_summary(result_dir)
+        summary, summary_warnings = _read_summary(result_dir)
         cohorts.append(
             MetaCohort(
                 cohort_id=result_dir.parent.name or f"cohort_{i}",
@@ -199,6 +210,7 @@ def load_positional_cohorts(result_dirs: list[str], project_root: Path) -> list[
                 n_test=_safe_int(summary.get("n_test")),
                 primary_result_mode=str(summary.get("primary_result_mode") or ""),
                 primary_lambda_guard_status=str(summary.get("primary_lambda_guard_status") or ""),
+                warnings=tuple(summary_warnings),
             )
         )
     return cohorts
@@ -227,6 +239,56 @@ def parse_branch_selection(branches: str, branch_file_overrides: list[str] | Non
             raise ValueError("--branch-file filename cannot be empty")
         selected[name] = filename.strip()
     return selected
+
+
+def _validate_thresholds(thresholds: MetaThresholds) -> None:
+    if thresholds.min_cohorts < 2:
+        raise ValueError("--min-cohorts must be at least 2")
+    if not 0 <= thresholds.meta_fdr <= 1:
+        raise ValueError("--meta-fdr must be between 0 and 1")
+    if not 0 <= thresholds.min_direction_fraction <= 1:
+        raise ValueError("--min-direction-fraction must be between 0 and 1")
+    if not 0 <= thresholds.min_loo_direction_fraction <= 1:
+        raise ValueError("--min-loo-direction-fraction must be between 0 and 1")
+    if not 0 <= thresholds.max_i2 <= 100:
+        raise ValueError("--max-i2 must be between 0 and 100")
+    if thresholds.min_abs_delta_beta < 0:
+        raise ValueError("--min-abs-delta-beta must be non-negative")
+    if thresholds.partial_conjunction_r < 1:
+        raise ValueError("--partial-conjunction-r must be at least 1")
+    if thresholds.top_n < 1:
+        raise ValueError("--top-n must be at least 1")
+
+
+def _validate_cohort_count(thresholds: MetaThresholds, n_cohorts: int) -> None:
+    if n_cohorts < thresholds.min_cohorts:
+        raise ValueError(
+            f"Need at least {thresholds.min_cohorts} cohorts for this meta-analysis; got {n_cohorts}"
+        )
+    if thresholds.partial_conjunction_r > n_cohorts:
+        raise ValueError("--partial-conjunction-r cannot exceed the number of cohorts")
+
+
+def _safe_column_id(text: str, fallback: str) -> str:
+    value = re.sub(r"\s+", "_", str(text or "").strip())
+    value = re.sub(r"[^A-Za-z0-9._-]+", "_", value)
+    value = value.strip("._-")
+    return value or fallback
+
+
+def _cohort_column_ids(cohorts: list[MetaCohort]) -> list[str]:
+    ids: list[str] = []
+    used: set[str] = set()
+    for idx, cohort in enumerate(cohorts, start=1):
+        base = _safe_column_id(cohort.cohort_id, f"cohort_{idx}")
+        candidate = base
+        suffix = 2
+        while candidate in used:
+            candidate = f"{base}_{suffix}"
+            suffix += 1
+        used.add(candidate)
+        ids.append(candidate)
+    return ids
 
 
 def _normal_two_sided_p(z: float) -> float:
@@ -412,8 +474,10 @@ def _read_branch_records(
                     se = math.nan
                 rec["effects"][cohort_idx] = effect
                 rec["ses"][cohort_idx] = se
-                rec["p_values"][cohort_idx] = _safe_float(row.get("P.Value"))
+                rec["p_values"][cohort_idx] = _safe_p_value(row.get("P.Value"))
                 rec["deltas"][cohort_idx] = _safe_float(row.get("Delta_Beta"))
+    if not records:
+        warnings.append(f"{branch}: no CpG records loaded from {filename}; branch output is empty")
     return records, warnings
 
 
@@ -450,6 +514,7 @@ def _loo_direction_fraction(effects: list[float], ses: list[float], valid: list[
 
 def _analyze_branch(
     cohorts: list[MetaCohort],
+    cohort_column_ids: list[str],
     branch: str,
     filename: str,
     thresholds: MetaThresholds,
@@ -511,8 +576,7 @@ def _analyze_branch(
             "pc_fisher_p": pc_fisher if enough else math.nan,
             "pc_directional_p": pc_directional if enough else math.nan,
         }
-        for cohort, effect, p_val, delta in zip(cohorts, effects, p_values, deltas):
-            safe_id = cohort.cohort_id.replace(" ", "_")
+        for safe_id, effect, p_val, delta in zip(cohort_column_ids, effects, p_values, deltas):
             row[f"effect_{safe_id}"] = effect
             row[f"p_{safe_id}"] = p_val
             row[f"delta_{safe_id}"] = delta
@@ -658,7 +722,7 @@ def _min(values: Iterable[object]) -> float:
     return min(vals) if vals else math.nan
 
 
-def _base_fieldnames(cohorts: list[MetaCohort]) -> list[str]:
+def _base_fieldnames(cohort_column_ids: list[str]) -> list[str]:
     fields = [
         "CpG",
         "Gene",
@@ -694,8 +758,7 @@ def _base_fieldnames(cohorts: list[MetaCohort]) -> list[str]:
         "core_candidate",
         "replicable_pc_candidate",
     ]
-    for cohort in cohorts:
-        safe_id = cohort.cohort_id.replace(" ", "_")
+    for safe_id in cohort_column_ids:
         fields.extend([f"effect_{safe_id}", f"p_{safe_id}", f"delta_{safe_id}"])
     return fields
 
@@ -811,20 +874,19 @@ def run_meta_analysis(
     thresholds: MetaThresholds,
     allow_missing_branches: bool = False,
 ) -> dict[str, object]:
-    if len(cohorts) < thresholds.min_cohorts:
-        raise ValueError(
-            f"Need at least {thresholds.min_cohorts} cohorts for this meta-analysis; got {len(cohorts)}"
-        )
+    _validate_thresholds(thresholds)
+    _validate_cohort_count(thresholds, len(cohorts))
     out_dir.mkdir(parents=True, exist_ok=True)
     all_summaries: list[dict[str, object]] = []
     all_candidate_rows: list[dict[str, object]] = []
-    warnings: list[str] = []
-    fieldnames = _base_fieldnames(cohorts)
+    warnings: list[str] = [warning for cohort in cohorts for warning in cohort.warnings]
+    cohort_column_ids = _cohort_column_ids(cohorts)
+    fieldnames = _base_fieldnames(cohort_column_ids)
 
     for branch, filename in branch_files.items():
         _log(f"Running {branch} meta-analysis from {filename}...")
         rows, summary, branch_warnings = _analyze_branch(
-            cohorts, branch, filename, thresholds, allow_missing_branches
+            cohorts, cohort_column_ids, branch, filename, thresholds, allow_missing_branches
         )
         warnings.extend(branch_warnings)
         rows.sort(key=_sort_key)
@@ -911,10 +973,7 @@ def run_meta_cli(args) -> int:
         partial_conjunction_r=args.partial_conjunction_r,
         top_n=args.top_n,
     )
-    if thresholds.min_cohorts < 2:
-        raise ValueError("--min-cohorts must be at least 2")
-    if thresholds.partial_conjunction_r < 1:
-        raise ValueError("--partial-conjunction-r must be at least 1")
+    _validate_thresholds(thresholds)
     cohorts: list[MetaCohort] = []
     if args.manifest:
         cohorts.extend(load_meta_manifest(_resolve_path(args.manifest, project_root), project_root))

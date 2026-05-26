@@ -152,6 +152,8 @@ After install, run IlluMeta via the wrapper below to avoid Python/R path mix-ups
 ```bash
 ./scripts/illumeta doctor
 ```
+When following Option A, use `./scripts/illumeta ...` for beginner commands unless
+you have explicitly activated the conda environment with `conda activate illumeta`.
 
 Faster core-only install (skips optional cell references/RefFreeEWAS/planet; some features disabled):
 ```bash
@@ -474,6 +476,13 @@ python -m pip install -r requirements-paper.txt
 - `-h, --help` shows script help.
 
 Logs are saved to `projects/illumeta_install_full_*.log`.
+
+If you install with `--r45`, the conda environment is named `illumeta-r45`.
+Use the wrapper with:
+```bash
+ILLUMETA_ENV_NAME=illumeta-r45 ./scripts/illumeta doctor
+ILLUMETA_ENV_NAME=illumeta-r45 ./scripts/illumeta analysis ...
+```
 </details>
 
 <details>
@@ -488,6 +497,11 @@ which R
 R -q -e 'cat(R.version.string, "\n"); cat(R.home(), "\n")'
 ```
 - If you previously installed with a different R version, the installer auto-cleans mismatched packages.
+- IlluMeta pins tested R/Bioconductor combinations through `setup_env.R`
+  (`environment.yml`: R 4.4, `environment-r45.yml`: R 4.5). Do not blindly
+  switch to the current Bioconductor release unless you also update and test the
+  matching R version; Bioconductor releases are tied to specific R versions
+  (see the official release table: https://www.bioconductor.org/about/release-announcements/).
 </details>
 
 ---
@@ -643,8 +657,10 @@ Then rerun the setup command.
 
 #### 4) Check your environment (recommended)
 ```bash
-python illumeta.py doctor
+./scripts/illumeta doctor
 ```
+If you are using the manual venv/system-R path instead of the conda installer,
+use `python illumeta.py doctor` inside the activated environment.
 
 </details>
 
@@ -812,8 +828,10 @@ Then rerun the setup command.
 
 #### 4) Check your environment (recommended)
 ```bash
-python illumeta.py doctor
+./scripts/illumeta doctor
 ```
+If you are using the manual venv/system-R path instead of the conda installer,
+use `python illumeta.py doctor` inside the activated environment.
 
 </details>
 
@@ -974,8 +992,10 @@ Then rerun the setup command.
 
 #### 4) Check your environment (recommended)
 ```bash
-python illumeta.py doctor
+./scripts/illumeta doctor
 ```
+If you are using the manual venv/system-R path instead of the conda installer,
+use `python illumeta.py doctor` inside the activated environment.
 
 </details>
 
@@ -997,11 +1017,13 @@ docker build -t illumeta .
 ```
 Run a quick environment check:
 ```bash
-docker run --rm -it -v "$PWD":/app illumeta doctor
+docker run --rm -it illumeta doctor
 ```
-Run analysis (mount your project directory):
+Run analysis by mounting only your project data/output folders. Avoid mounting
+the repository root over `/app`, because that can hide files installed in the
+image.
 ```bash
-docker run --rm -it -v "$PWD":/app illumeta analysis \
+docker run --rm -it -v "$PWD/projects":/app/projects illumeta analysis \
   -i projects/GSE125605 \
   --group_con Control \
   --group_test Case \
@@ -1020,11 +1042,11 @@ docker run --rm -it -v "$PWD":/app illumeta analysis \
 # Activate your environment (choose one)
 # - Conda: conda activate illumeta
 # - venv:  source .venv/bin/activate
-# - Conda beginner shortcut: ./scripts/illumeta <subcommand> ...
+# - Recommended after Option A installer: ./scripts/illumeta <subcommand> ...
 
-python illumeta.py download GSE125605 -o projects/GSE125605
+./scripts/illumeta download GSE125605 -o projects/GSE125605
 # If a GEO series has multiple platforms, force one by GPL ID:
-python illumeta.py download GSE125605 -o projects/GSE125605 --platform GPL13534
+./scripts/illumeta download GSE125605 -o projects/GSE125605 --platform GPL13534
 ```
 
 ### 2) Assign groups (manual or auto)
@@ -1035,7 +1057,7 @@ Edit `projects/GSE125605/configure.tsv` and fill in `primary_group` (e.g., `Cont
 Option B (auto-group on analysis):
 If your dataset's `primary_group` is empty, IlluMeta can populate it from metadata:
 ```bash
-python illumeta.py analysis \
+./scripts/illumeta analysis \
   -i projects/GSE12345 \
   --group_con Control \
   --group_test Case \
@@ -1046,7 +1068,7 @@ If your grouping is encoded in GEO characteristics, you can use `--group-key` (e
 
 ### 3) Run analysis
 ```bash
-python illumeta.py analysis \
+./scripts/illumeta analysis \
   -i projects/GSE125605 \
   --group_con Control \
   --group_test Case \
@@ -1058,7 +1080,7 @@ Note: the default output folder name is derived from the group labels. If it con
 Optional (signal preservation checks):
 ```bash
 # Provide a CpG marker list (TSV/CSV with CpG column or one CpG per line)
-python illumeta.py analysis \
+./scripts/illumeta analysis \
   -i projects/GSE125605 \
   --group_con Control \
   --group_test Case \
@@ -1128,8 +1150,10 @@ If you see `Error: Python package 'requests' is missing`, install it via:
 ### Check installation (illumeta doctor)
 Use this before a first run or when something looks wrong. It does not install anything.
 ```bash
-python illumeta.py doctor
+./scripts/illumeta doctor
 ```
+If you are using the manual venv/system-R path instead of the conda installer,
+use `python illumeta.py doctor` inside the activated environment.
 How to read the output:
 - **Core R packages: OK** = ready to run analysis.
 - **Optional R packages missing** = optional features only are disabled; core analysis still runs. Typical examples are tissue-specific references such as `FlowSorted.CordBlood.EPIC` or `FlowSorted.Saliva.450k`.
@@ -1524,8 +1548,10 @@ For each pipeline (`Minfi`, `Sesame` = strict/Minfi-aligned, `Sesame_Native` = n
 
 Start here:
 ```bash
-python illumeta.py doctor
+./scripts/illumeta doctor
 ```
+Use `python illumeta.py doctor` only if you manually activated the intended
+conda/venv environment.
 
 Common issues:
 - **Missing system libraries** (R packages fail to compile): install the OS prerequisites above, then rerun `ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.
@@ -1549,6 +1575,12 @@ Common issues:
 - **Segfaults or “package built under R x.y” warnings**: you likely switched R versions. Rerun setup and, if needed, clean mismatched packages:
   `ILLUMETA_CLEAN_MISMATCHED_RLIB=1 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.
 - **`pandoc: command not found`**: install `pandoc` (Ubuntu: `sudo apt-get install pandoc`, macOS: `brew install pandoc`).
+- **Installed with `--r45` but wrapper says env not found**: run commands with
+  `ILLUMETA_ENV_NAME=illumeta-r45 ./scripts/illumeta ...` or reinstall/update the
+  default R 4.4 environment without `--r45`.
+- **Docker `doctor` reports missing R packages after using `-v "$PWD":/app`**:
+  do not mount over `/app`; mount only data/output folders such as
+  `-v "$PWD/projects":/app/projects`.
 - **Too few samples after QC**: IlluMeta stops if total n is too small for reliable stats; inspect `QC_Summary.csv` and consider adjusting `--qc-intensity-threshold` (or disable by setting `--qc-intensity-threshold 0`).
 - **ComBat covariate confounding** (`At least one covariate is confounded with batch`): IlluMeta now auto-drops batch-confounded covariates for ComBat and falls back to limma/none if needed. Check `*_BatchMethodComparison.csv` and `*_Metrics.csv` to see the applied method.
 - **Model matrix errors** (`contrasts can be applied only to factors with 2 or more levels`): IlluMeta drops single-level covariates after NA filtering and during batch evaluation. Check `decision_ledger.tsv` for dropped covariates; remove or merge constant columns in `configure.tsv` if the issue persists.

@@ -839,6 +839,31 @@ if (!is.finite(dmr_p_cutoff) || dmr_p_cutoff <= 0) {
 
 if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
 if (!dir.exists(out_dir)) stop(paste("Cannot create output directory:", out_dir))
+stale_success_files <- c(
+  "summary.json",
+  "methods.md",
+  "analysis_parameters.json",
+  "sessionInfo.txt",
+  "decision_ledger.tsv",
+  "Correction_Adequacy_Report.txt",
+  "Correction_Adequacy_Summary.csv",
+  "Correction_Robustness_Report.txt",
+  "CRF_MMC_Summary.csv",
+  "CRF_NCS_Summary.csv",
+  "CRF_RSS_Summary.csv",
+  "Intersection_Consensus_DMPs.csv",
+  "Intersection_Native_Consensus_DMPs.csv",
+  "Intersection_Discordant_Probes.csv",
+  "Intersection_Native_Discordant_Probes.csv",
+  "Intersection_Comparison_Metrics.csv",
+  "Intersection_Native_Comparison_Metrics.csv"
+)
+stale_success_paths <- file.path(out_dir, stale_success_files)
+stale_success_paths <- stale_success_paths[file.exists(stale_success_paths)]
+if (length(stale_success_paths) > 0) {
+  unlink(stale_success_paths, force = TRUE)
+  message(sprintf("Removed %d stale top-level success artifact(s) before rerun.", length(stale_success_paths)))
+}
 results_root <- file.path(out_dir, "results")
 results_dirs <- list(
   minfi = file.path(results_root, "minfi"),
@@ -2015,7 +2040,7 @@ fmt_val <- function(x, digits = 3) {
 }
 
 resolve_caf_weights <- function(caf_cfg, preset_name = "conservative") {
-  # Conservative default keeps the original 3-term CAI definition.
+  # Conservative default keeps the original 3-term CAF weighting.
   # NCS is optional and contributes only when explicitly given a non-zero weight.
   # If any component is unavailable, finite components are renormalized in compute_caf_scores().
   default_weights <- c(calibration = 0.40, preservation = 0.35, batch = 0.25, ncs = 0.00)
@@ -5972,6 +5997,13 @@ emit_tier3_primary_outputs <- function(meta_res, betas, targets, curr_anno, pref
   if (nrow(plot_res) > max_points) {
     plot_res <- plot_res[1:max_points, ]
   }
+  plot_res$Gene_Label <- if ("Gene_Display" %in% colnames(plot_res)) {
+    plot_res$Gene_Display
+  } else if ("Gene" %in% colnames(plot_res)) {
+    plot_res$Gene
+  } else {
+    ""
+  }
   plot_res$diffexpressed <- "NO"
   delta_pass <- delta_beta_pass(plot_res$Delta_Beta)
   plot_res$diffexpressed[plot_res$adj.P.Val < pval_thresh & plot_res$logFC > lfc_thresh & delta_pass] <- "UP"
@@ -5979,7 +6011,7 @@ emit_tier3_primary_outputs <- function(meta_res, betas, targets, curr_anno, pref
   subtitle_str <- paste0("Control: ", group_con_in, " vs Test: ", group_test_in, " (Tier3 stratified)")
   p_vol <- ggplot(plot_res, aes(x = logFC, y = -log10(P.Value), color = diffexpressed,
                                 text = paste("CpG:", CpG,
-                                             "<br>Gene:", Gene,
+                                             "<br>Gene:", Gene_Label,
                                              "<br>DeltaBeta:", round(Delta_Beta, 4),
                                              "<br>Region:", Region,
                                              "<br>Island:", Island_Context))) +
@@ -6011,7 +6043,7 @@ emit_tier3_primary_outputs <- function(meta_res, betas, targets, curr_anno, pref
       chr_labels <- names(chr_vals)[match(axis_set$chr_num, chr_vals)]
       p_man <- ggplot(plot_res_man, aes(x = pos_cum, y = -log10(P.Value), color = as.factor(chr_num),
                                         text = paste("CpG:", CpG,
-                                                     "<br>Gene:", Gene,
+                                                     "<br>Gene:", Gene_Label,
                                                      "<br>DeltaBeta:", round(Delta_Beta, 4),
                                                      "<br>Region:", Region,
                                                      "<br>Island:", Island_Context))) +
@@ -6151,7 +6183,17 @@ run_lambda_guard <- function(betas, targets, group_col, prefix, out_dir, max_poi
   if (is.null(betas) || is.null(targets)) return(list(status = "failed", lambda = NA_real_))
   if (!(group_col %in% colnames(targets))) return(list(status = "failed", lambda = NA_real_))
   targets_use <- targets
-  targets_use[[group_col]] <- factor(as.character(targets_use[[group_col]]))
+  group_values <- as.character(targets_use[[group_col]])
+  if (is.factor(targets[[group_col]])) {
+    group_levels <- levels(targets[[group_col]])
+  } else {
+    group_levels <- unique(group_values)
+  }
+  group_levels <- group_levels[group_levels %in% unique(group_values)]
+  if (length(group_levels) < 2) {
+    group_levels <- unique(group_values[nzchar(group_values)])
+  }
+  targets_use[[group_col]] <- factor(group_values, levels = group_levels)
   if (length(levels(targets_use[[group_col]])) < 2) {
     return(list(status = "failed", lambda = NA_real_))
   }
@@ -8801,6 +8843,13 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
       message(paste("Subsampling top", max_points, "probes for interactive plots..."))
       plot_res <- plot_res[1:max_points, ]
   }
+  plot_res$Gene_Label <- if ("Gene_Display" %in% colnames(plot_res)) {
+    plot_res$Gene_Display
+  } else if ("Gene" %in% colnames(plot_res)) {
+    plot_res$Gene
+  } else {
+    ""
+  }
   
   plot_res$diffexpressed <- "NO"
   delta_pass <- delta_beta_pass(plot_res$Delta_Beta)
@@ -8811,7 +8860,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   
   p_vol <- ggplot(plot_res, aes(x=logFC, y=-log10(P.Value), color=diffexpressed, 
                   text=paste("CpG:", CpG,
-                             "<br>Gene:", Gene,
+                             "<br>Gene:", Gene_Label,
                              "<br>DeltaBeta:", round(Delta_Beta, 4),
                              "<br>Region:", Region,
                              "<br>Island:", Island_Context))) +
@@ -8854,7 +8903,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
       
       p_man <- ggplot(plot_res_man, aes(x=pos_cum, y=-log10(P.Value), color=as.factor(chr_num), 
                         text=paste("CpG:", CpG,
-                                   "<br>Gene:", Gene,
+                                   "<br>Gene:", Gene_Label,
                                    "<br>DeltaBeta:", round(Delta_Beta, 4),
                                    "<br>Region:", Region,
                                    "<br>Island:", Island_Context))) +
@@ -8888,7 +8937,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
       
       if (nrow(top_betas) >= 2) {
           top_betas_scaled <- t(scale(t(top_betas)))
-          gene_map <- top_100$Gene
+          gene_map <- if ("Gene_Display" %in% colnames(top_100)) top_100$Gene_Display else top_100$Gene
           names(gene_map) <- top_100$CpG
           
           hc_r <- hclust(dist(top_betas_scaled))
@@ -9017,6 +9066,17 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     dmr_reason <- dmr_out$reason
   }
 
+  make_batch_eval_heatmap <- function(pvals_melt, label, n_pcs, fill_limits = NULL) {
+     if (nrow(pvals_melt) == 0 || all(!is.finite(pvals_melt$LogP))) {
+         return(ggplot() + theme_void() + ggtitle(paste(label, "- PCA skipped (insufficient variance)")))
+     }
+     ggplot(pvals_melt, aes(x=PC, y=Variable, fill=LogP, text=P_Value)) +
+         geom_tile() +
+         scale_fill_gradient(low="white", high="red", limits=fill_limits) +
+         theme_minimal() +
+         ggtitle(paste(label, "- PC-Covariate Association (Top", n_pcs, "PCs)"))
+  }
+
   evaluate_batch <- function(data_betas, meta, label, file_suffix, allowed_vars) {
      allowed <- unique(c("primary_group", allowed_vars))
      allowed <- intersect(allowed, colnames(meta))
@@ -9037,8 +9097,11 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
          colnames(empty_pvals) <- "PC1"
          csv_name <- paste0(prefix, "_Batch_Evaluation_", file_suffix, "_Table.csv")
          write.csv(empty_pvals, file.path(out_dir, csv_name))
-         p_heat <- ggplot() + theme_void() + ggtitle(paste(label, "- PCA skipped (insufficient variance)"))
-         return(list(plot = p_heat, pvals = empty_pvals))
+         empty_melt <- as.data.frame(as.table(empty_pvals))
+         colnames(empty_melt) <- c("Variable", "PC", "P_Value")
+         empty_melt$LogP <- NA_real_
+         p_heat <- make_batch_eval_heatmap(empty_melt, label, 1)
+         return(list(plot = p_heat, pvals = empty_pvals, plot_data = empty_melt, n_pcs = 1, label = label))
      }
      
      eig <- (pca$sdev)^2
@@ -9081,21 +9144,15 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
      colnames(pvals_melt) <- c("Variable", "PC", "P_Value")
      pvals_melt$LogP <- -log10(pmax(pvals_melt$P_Value, .Machine$double.xmin))
      
-     p_heat <- ggplot(pvals_melt, aes(x=PC, y=Variable, fill=LogP, text=P_Value)) +
-         geom_tile() +
-         scale_fill_gradient(low="white", high="red") +
-         theme_minimal() +
-         ggtitle(paste(label, "- PC-Covariate Association (Top", n_pcs, "PCs)"))
+     p_heat <- make_batch_eval_heatmap(pvals_melt, label, n_pcs)
          
-     return(list(plot = p_heat, pvals = pvals))
+     return(list(plot = p_heat, pvals = pvals, plot_data = pvals_melt, n_pcs = n_pcs, label = label))
   }
   
   used_covariates <- setdiff(covariates, unique(drop_log$Variable))
   allowed_vars <- unique(c(used_covariates, sv_cols))
   
   p_eval_before <- evaluate_batch(betas, targets, paste(prefix, "Before"), "Before", allowed_vars)
-  save_interactive_plot(p_eval_before$plot, paste0(prefix, "_Batch_Evaluation_Before.html"), out_dir)
-  save_static_plot(p_eval_before$plot, paste0(prefix, "_Batch_Evaluation_Before.png"), out_dir, width = 7, height = 5)
   pvals_before <- p_eval_before$pvals
   
   p_eval_after <- NULL
@@ -9111,6 +9168,27 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
       
       p_eval_after <- evaluate_batch(clean_betas, targets, paste(prefix, "After"), "After", allowed_vars)
       pvals_after <- p_eval_after$pvals
+  }
+  batch_eval_logp <- p_eval_before$plot_data$LogP
+  if (!is.null(p_eval_after)) {
+      batch_eval_logp <- c(batch_eval_logp, p_eval_after$plot_data$LogP)
+  }
+  batch_eval_logp <- batch_eval_logp[is.finite(batch_eval_logp)]
+  batch_fill_limits <- NULL
+  if (length(batch_eval_logp) > 0) {
+      batch_fill_limits <- c(0, max(1, max(batch_eval_logp, na.rm = TRUE)))
+  }
+  p_eval_before$plot <- make_batch_eval_heatmap(
+      p_eval_before$plot_data, p_eval_before$label, p_eval_before$n_pcs,
+      fill_limits = batch_fill_limits
+  )
+  save_interactive_plot(p_eval_before$plot, paste0(prefix, "_Batch_Evaluation_Before.html"), out_dir)
+  save_static_plot(p_eval_before$plot, paste0(prefix, "_Batch_Evaluation_Before.png"), out_dir, width = 7, height = 5)
+  if (!is.null(p_eval_after)) {
+      p_eval_after$plot <- make_batch_eval_heatmap(
+          p_eval_after$plot_data, p_eval_after$label, p_eval_after$n_pcs,
+          fill_limits = batch_fill_limits
+      )
       save_interactive_plot(p_eval_after$plot, paste0(prefix, "_Batch_Evaluation_After.html"), out_dir)
       save_static_plot(p_eval_after$plot, paste0(prefix, "_Batch_Evaluation_After.png"), out_dir, width = 7, height = 5)
   }
@@ -9465,7 +9543,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
 	                                               observed_lambda_vp_top = lambda_vp_top)
 	    if (!is.null(caf_res)) {
 	      caf_df <- data.frame(
-	        metric = c("calibration_score", "preservation_score", "batch_removal_score", "ncs_score", "cai",
+	        metric = c("calibration_score", "preservation_score", "batch_removal_score", "ncs_score", "caf_score",
 	                   "null_fpr", "null_lambda", "null_ks_p",
 	                   "lambda_observed_all", "lambda_observed_vp_top", "lambda_ratio",
 	                   "marker_retention", "effect_concordance",
@@ -9631,8 +9709,10 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
 #' Dual-Pipeline Consensus Intersection Analysis
 #'
 #' Identifies high-confidence differentially methylated positions by requiring
-#' significance in both Minfi and Sesame pipelines. Applies Fisher's method for
-#' combined p-values and generates concordance visualizations.
+#' significance in both Minfi and Sesame pipelines. Primary reported consensus
+#' p-values use the conservative selection-rule maximum across pipelines because
+#' Minfi and Sesame are run on the same samples and are not independent. Fisher's
+#' combined p-value is retained as an auxiliary ranking statistic.
 #'
 #' @param res_minfi Data frame of Minfi DMP results (CpG, logFC, P.Value, adj.P.Val)
 #' @param res_sesame Data frame of Sesame DMP results with matching columns
@@ -9673,6 +9753,8 @@ run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
     p2 <- pmin(pmax(concord$P.Value.Sesame, .Machine$double.xmin), 1)
     concord$P.Fisher <- pchisq(-2 * (log(p1) + log(p2)), df = 4, lower.tail = FALSE)
     concord$adj.P.Fisher <- p.adjust(concord$P.Fisher, "BH")
+    concord$P.Selection <- pmax(concord$P.Value.Minfi, concord$P.Value.Sesame)
+    concord$adj.P.Selection <- pmax(concord$adj.P.Val.Minfi, concord$adj.P.Val.Sesame)
 
     is_up <- concord$adj.P.Val.Minfi < pval_thresh &
       concord$adj.P.Val.Sesame < pval_thresh &
@@ -9693,19 +9775,18 @@ run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
 
     consensus_df <- concord[is_up | is_down, , drop = FALSE]
     consensus_df$logFC_mean <- rowMeans(consensus_df[, c("logFC.Minfi", "logFC.Sesame")], na.rm = TRUE)
-    # Use Fisher combined p-value as the consensus ranking statistic.
-    # Selection itself is still based on per-pipeline significance + direction
-    # (is_up / is_down defined above).
-    consensus_df$P.Value <- consensus_df$P.Fisher
-    # Use genome-wide BH-corrected Fisher p-values (computed on the full
-    # concordance table, not just the consensus subset) for proper FDR control.
-    consensus_df$adj.P.Val <- consensus_df$adj.P.Fisher
-    # Retain selection-rule p-values explicitly for transparency/back-compat.
-    consensus_df$P.Value.max <- pmax(consensus_df$P.Value.Minfi, consensus_df$P.Value.Sesame, na.rm = TRUE)
-    consensus_df$adj.P.Val.max <- pmax(consensus_df$adj.P.Val.Minfi, consensus_df$adj.P.Val.Sesame, na.rm = TRUE)
-    consensus_df$P.Value.selection <- consensus_df$P.Value.max
-    consensus_df$adj.P.Val.selection <- consensus_df$adj.P.Val.max
-    consensus_df <- consensus_df[order(consensus_df$P.Value, consensus_df$adj.P.Val), , drop = FALSE]
+    # The two pipelines share samples and therefore violate Fisher independence.
+    # Report conservative selection-rule p-values as primary and keep Fisher only
+    # as an auxiliary ranking field for backward inspection.
+    consensus_df$P.Value.fisher_ranking <- consensus_df$P.Fisher
+    consensus_df$adj.P.Val.fisher_ranking <- consensus_df$adj.P.Fisher
+    consensus_df$P.Value.max <- consensus_df$P.Selection
+    consensus_df$adj.P.Val.max <- consensus_df$adj.P.Selection
+    consensus_df$P.Value.selection <- consensus_df$P.Selection
+    consensus_df$adj.P.Val.selection <- consensus_df$adj.P.Selection
+    consensus_df$P.Value <- consensus_df$P.Value.selection
+    consensus_df$adj.P.Val <- consensus_df$adj.P.Val.selection
+    consensus_df <- consensus_df[order(consensus_df$adj.P.Val, consensus_df$P.Value, consensus_df$P.Value.fisher_ranking), , drop = FALSE]
 
     out_cons_csv <- file.path(out_dir, paste0(prefix, "_Consensus_DMPs.csv"))
     write.csv(consensus_df, out_cons_csv, row.names = FALSE)
@@ -9714,12 +9795,15 @@ run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
 
     # Concordance plot (logFC Minfi vs Sesame)
     concord$Consensus <- (is_up | is_down)
-    plot_df <- concord
-    if (nrow(plot_df) > max_points) {
+    consensus_plot_df <- concord[concord$Consensus %in% TRUE, , drop = FALSE]
+    background_df <- concord[!(concord$Consensus %in% TRUE), , drop = FALSE]
+    n_background <- max(0, max_points - nrow(consensus_plot_df))
+    if (nrow(background_df) > n_background) {
       set.seed(seed_value)
-      idx <- sample(seq_len(nrow(plot_df)), max_points)
-      plot_df <- plot_df[idx, , drop = FALSE]
+      idx <- sample(seq_len(nrow(background_df)), n_background)
+      background_df <- background_df[idx, , drop = FALSE]
     }
+    plot_df <- rbind(background_df, consensus_plot_df)
     r_val <- suppressWarnings(cor(concord$logFC.Minfi, concord$logFC.Sesame, use = "complete.obs"))
     p_conc <- ggplot(plot_df, aes(x = logFC.Minfi, y = logFC.Sesame, color = Consensus)) +
       geom_point(alpha = 0.4, size = 1) +
@@ -9729,7 +9813,7 @@ run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
       theme_minimal() +
       labs(
         title = sprintf("Minfi vs %s logFC concordance", sesame_label),
-        subtitle = sprintf("Pearson r = %.3f (points subsampled to max_plots=%d for rendering)", r_val, max_points),
+        subtitle = sprintf("Pearson r = %.3f (background subsampled to max_plots=%d; all consensus points retained)", r_val, max_points),
         x = "limma logFC on M-value scale (Minfi)",
         y = "limma logFC on M-value scale (Sesame)",
         color = "Consensus"
@@ -10374,7 +10458,7 @@ tryCatch({
     "## Consensus (intersection) call set",
     "- Consensus DMPs are defined as CpGs significant in **both** minfi and sesame with the **same direction** under the same thresholds.",
     "- Intersection is intended as a high-confidence subset; pipeline-specific results may capture additional true positives and are reported as sensitivity/discovery sets.",
-    "- Consensus table ranking uses Fisher's combined probability test (chi-squared, df=4) with genome-wide Benjamini-Hochberg FDR (`P.Value`/`adj.P.Val`). Selection-rule p-values are retained as `P.Value.selection` and `adj.P.Val.selection` (also mirrored in `*.max` legacy columns).",
+    "- Consensus table `P.Value`/`adj.P.Val` use the conservative selection rule (`max` of the two pipeline p-values/FDR values) because minfi and sesame share samples and are statistically dependent. Fisher's combined probability test is retained only as auxiliary `P.Value.fisher_ranking` / `adj.P.Val.fisher_ranking` columns.",
     "- Consensus is computed for both the strict (Minfi-aligned) and native Sesame views.",
     "- Consensus outputs: `Intersection_Consensus_DMPs.*` and `Intersection_Native_Consensus_DMPs.*`, plus concordance/overlap plots.",
     "- Primary branch is selected by the optimization score (see `results/consensus/primary_branch.txt`); the other branch is reported as sensitivity.",

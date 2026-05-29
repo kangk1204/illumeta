@@ -269,7 +269,7 @@ Run the self-check doctor:
 
 ### For Experts
 - **Dual-pipeline design**: Runs **Minfi** and **SeSAMe** preprocessing independently with strict/native SeSAMe views
-- **Consensus calling**: High-confidence results where both methods agree (Fisher's combined P-value)
+- **Consensus calling**: High-confidence results where both methods agree; primary consensus p-values use a conservative selection rule, with Fisher's method retained only as an auxiliary ranking field.
 - **Adaptive batch correction**: Automatically selects optimal method (SVA/ComBat/limma)
 - **Bonferroni-corrected covariate selection**: PC-association screening with per-variable α/n_tested_PCs correction
 - **CRF (Correction Robustness Framework)**: Sample-size-adaptive quality assessment (MMC, NCS, RSS, CVD — see below)
@@ -279,7 +279,7 @@ Run the self-check doctor:
 <summary><strong>🔬 Technical highlights (click to expand)</strong></summary>
 
 - **Two independent pipelines**: Minfi (Noob) and Sesame run side-by-side; Sesame reports both strict (Minfi-aligned) and native (pOOBAH-preserving) views.
-- **High-confidence consensus**: CpGs significant in BOTH pipelines with the SAME direction; consensus P-values via Fisher's combined probability test (χ², df=4) with genome-wide BH FDR correction.
+- **High-confidence consensus**: CpGs significant in BOTH pipelines with the SAME direction; primary consensus `P.Value`/`adj.P.Val` are the conservative maximum of the two pipeline p-values/FDR values, and Fisher's combined probability test is retained only as an auxiliary ranking field.
 - **Batch handling**: Evaluates correction strategies (SVA/ComBat/limma) when a batch factor exists.
 - **CRF**: Correction Robustness Framework — four assessment axes: Multi-Method Concordance (MMC), Negative-Control Stability (NCS), Resampling Stability Score (RSS), Confounding Variance Decomposition (CVD). Reports tiered warnings adapted to sample size.
 - **Covariate selection**: PC-association screening uses Bonferroni-corrected α per variable (`alpha / n_tested_PCs`) to control false covariate inclusion.
@@ -1531,7 +1531,7 @@ Outputs:
 - `decision_ledger.tsv`: automated decision log (covariates, batch strategy, consensus branch).
 - `preflight_report.json`: preflight summary (includes auto-group info when used).
 - `Correction_Adequacy_Report.txt`: Correction Adequacy Framework (CAF) report for the primary branch.
-- `Correction_Adequacy_Summary.csv`: CAF component scores for the primary branch (calibration/preservation/batch/NCS) plus the overall CAF score (stored in the backward-compatible `cai` column and surfaced as `caf_score` in pipeline metrics) and `lambda_ratio`.
+- `Correction_Adequacy_Summary.csv`: CAF component scores for the primary branch (calibration/preservation/batch/NCS) plus the overall CAF score (`caf_score`; older runs may show the legacy metric name `cai`) and `lambda_ratio`.
   `lambda_ratio` is a heuristic observed-vs-null context metric, not a causal confounding classifier by itself.
 
 ### QC
@@ -1557,7 +1557,7 @@ For each pipeline (`Minfi`, `Sesame` = strict/Minfi-aligned, `Sesame_Native` = n
 - `Intersection*_Significant_Overlap.html/.png` (significant counts and overlap)
 > Tip: treat `Intersection_Native_*` as the primary consensus call set, and `Intersection_Consensus_*` (strict) as a conservative sensitivity set. The intersection is intentionally conservative.
 >
-> **Column note**: `P.Value` and `adj.P.Val` in the consensus CSV are Fisher's combined probability (χ², df=4) across both pipelines, BH FDR-adjusted genome-wide. Selection-rule p-values are provided as `P.Value.selection` / `adj.P.Val.selection` (and mirrored as legacy `P.Value.max` / `adj.P.Val.max`).
+> **Column note**: `P.Value` and `adj.P.Val` in the consensus CSV are the conservative selection-rule values (`max` of minfi and sesame p-values/FDR values). Fisher's combined probability values are retained only as auxiliary `P.Value.fisher_ranking` / `adj.P.Val.fisher_ranking` columns.
 
 ## Troubleshooting
 

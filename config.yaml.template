@@ -50,7 +50,7 @@ caf:
   profile: auto  # auto | conservative | discovery
   target_fpr: 0.05
   weights:
-    # Weights for CAI (Correction Adequacy Index). Components are [0, 1] and weights are normalized internally.
+    # Weights for the CAF score (Correction Adequacy Framework score). Components are [0, 1] and weights are normalized internally.
     # - calibration: permutation-based null FPR alignment
     # - preservation: marker retention + effect concordance
     # - batch: reduction in batch-associated signals

@@ -282,6 +282,76 @@ class RDesignInvariantTests(unittest.TestCase):
         self.assertNotIn('lambda_guard_status <- "simplified"', source)
         self.assertIn('lambda_guard_status <- "diagnostic_simplified"', source)
 
+    def test_lambda_guard_preserves_existing_group_level_order(self):
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+
+        self.assertNotIn("targets_use[[group_col]] <- factor(as.character(targets_use[[group_col]]))", source)
+        self.assertIn("levels(targets[[group_col]])", source)
+        self.assertIn("targets_use[[group_col]] <- factor(group_values, levels = group_levels)", source)
+
+    def test_consensus_reports_selection_p_values_as_primary(self):
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+
+        self.assertNotIn("consensus_df$P.Value <- consensus_df$P.Fisher", source)
+        self.assertNotIn("consensus_df$adj.P.Val <- consensus_df$adj.P.Fisher", source)
+        self.assertIn("consensus_df$P.Value.fisher_ranking <- consensus_df$P.Fisher", source)
+        self.assertIn("consensus_df$P.Value <- consensus_df$P.Value.selection", source)
+        self.assertIn("consensus_df$adj.P.Val <- consensus_df$adj.P.Val.selection", source)
+
+    def test_concordance_plot_keeps_all_consensus_points(self):
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+
+        self.assertIn("consensus_plot_df <- concord[concord$Consensus %in% TRUE", source)
+        self.assertIn("background_df <- concord[!(concord$Consensus %in% TRUE)", source)
+        self.assertIn("all consensus points retained", source)
+
+    def test_batch_eval_heatmaps_share_fill_scale(self):
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+
+        self.assertIn("make_batch_eval_heatmap <- function", source)
+        self.assertIn("batch_fill_limits <- c(0, max(1, max(batch_eval_logp", source)
+        self.assertIn("fill_limits = batch_fill_limits", source)
+
+    def test_r_start_removes_stale_success_artifacts(self):
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+
+        self.assertIn("stale_success_files <- c(", source)
+        self.assertIn('"summary.json"', source)
+        self.assertIn('"methods.md"', source)
+        self.assertIn("unlink(stale_success_paths, force = TRUE)", source)
+
+    def test_caf_public_metric_label_is_caf_score(self):
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+
+        caf_block = source.split('write.csv(caf_df, file.path(out_dir, paste0(prefix, "_CAF_Summary.csv"))', 1)[0]
+        caf_block = caf_block.rsplit("caf_df <- data.frame", 1)[1]
+        self.assertIn('"caf_score"', caf_block)
+        self.assertNotIn('"cai"', caf_block)
+
+    def test_plot_tooltips_use_short_gene_display_labels(self):
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+
+        self.assertIn("plot_res$Gene_Label <- if (\"Gene_Display\" %in% colnames(plot_res))", source)
+        self.assertIn("<br>Gene:\", Gene_Label", source)
+        self.assertIn('gene_map <- if ("Gene_Display" %in% colnames(top_100)) top_100$Gene_Display else top_100$Gene', source)
+
+    def test_download_fails_on_raw_tar_listing_warnings_and_status(self):
+        with open(DOWNLOAD_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+        safe_extract_fn = extract_r_function(source, "safe_extract_idats_from_tar")
+
+        self.assertIn("list_warnings <- character(0)", safe_extract_fn)
+        self.assertIn("Unsafe RAW tar listing failed", safe_extract_fn)
+        self.assertIn("bad_status <- is.numeric(untar_status)", safe_extract_fn)
+        self.assertIn("Unsafe RAW tar extraction failed", safe_extract_fn)
+
     def test_config_loading_fails_fast_on_invalid_existing_config(self):
         with open(ANALYZE_R, "r", encoding="utf-8") as handle:
             source = handle.read()

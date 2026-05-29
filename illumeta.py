@@ -11,6 +11,7 @@ import math
 import re
 import shutil
 import statistics
+import tempfile
 import time
 import unicodedata
 import xml.etree.ElementTree as ET
@@ -468,7 +469,18 @@ def score_group_candidate(name: str, values):
     max_unique_allow = max(6, int(len(values) * 0.25))
     if unique_count > max_unique_allow and signal_score < 2:
         return None
-    counts = [values.count(v) for v in prof["unique_values"]]
+    cleaned_counts = Counter()
+    for raw in values:
+        if raw is None:
+            cleaned = ""
+        elif isinstance(raw, str):
+            cleaned = raw.strip()
+        else:
+            cleaned = str(raw).strip()
+        if cleaned:
+            cleaned_counts[cleaned] += 1
+    counts = [cleaned_counts.get(v, 0) for v in prof["unique_values"]]
+    total_count = sum(counts)
     min_ct = min(counts) if counts else 0
     max_ct = max(counts) if counts else 0
     balance_ratio = (min_ct / max_ct) if max_ct else 0
@@ -488,7 +500,7 @@ def score_group_candidate(name: str, values):
     else:
         coverage_score = -1
     min_count_penalty = -1 if (min_ct < 2 and len(values) >= 6) else 0
-    max_frac = (max_ct / sum(counts)) if counts else 0
+    max_frac = (max_ct / total_count) if total_count else 0
     imbalance_penalty = -1 if max_frac >= 0.85 else 0
     total = (
         tier_score
@@ -515,6 +527,7 @@ def score_group_candidate(name: str, values):
         "keyword_score": keyword_score,
         "synonym_score": synonym_score,
         "substring_score": substring_score,
+        "counts": dict(cleaned_counts),
         "balance_ratio": balance_ratio,
         "balance_score": balance_score,
         "coverage": coverage,
@@ -1787,7 +1800,11 @@ def fetch_search_summaries(ids, email: str, sleep_s: float):
 def geo_suppl_url(gse_id: str) -> str:
     if not is_valid_gse_id(gse_id, max_digits=8):
         raise ValueError(f"Invalid GSE ID: {gse_id}")
-    prefix = gse_id[:-3] + "nnn"
+    match = re.fullmatch(r"GSE(\d{1,8})", gse_id)
+    if not match:
+        raise ValueError(f"Invalid GSE ID: {gse_id}")
+    bucket = int(match.group(1)) // 1000
+    prefix = "GSEnnn" if bucket == 0 else f"GSE{bucket}nnn"
     return f"https://ftp.ncbi.nlm.nih.gov/geo/series/{prefix}/{gse_id}/suppl/"
 
 
@@ -1826,6 +1843,27 @@ def raw_tar_exists(raw_url: str, gse_id: str):
         except (OSError, ValueError):
             return None
 
+    def probe_headers(url: str, method: str, headers=None, stream: bool = False):
+        try:
+            resp = _get_requests().request(method=method, url=url, timeout=15, allow_redirects=True, headers=headers, stream=stream)
+            status = resp.status_code
+            response_headers = {str(k).lower(): str(v) for k, v in resp.headers.items()}
+            final_url = str(getattr(resp, "url", "") or "")
+            resp.close()
+            return status, response_headers, final_url
+        except (OSError, ValueError):
+            return None, {}, ""
+
+    def looks_like_raw_tar(headers, final_url):
+        disposition = headers.get("content-disposition", "")
+        content_type = headers.get("content-type", "")
+        target = f"{gse_id}_RAW.tar"
+        if target in disposition or target in final_url:
+            return True
+        if "text/html" in content_type.lower():
+            return False
+        return final_url.endswith(target)
+
     for attempt in range(1, SEARCH_SUPPL_RETRY + 1):
         status = probe(raw_url, "head")
         ftp_statuses.append(status)
@@ -1845,9 +1883,9 @@ def raw_tar_exists(raw_url: str, gse_id: str):
 
     alt_url = f"https://www.ncbi.nlm.nih.gov/geo/download/?acc={gse_id}&format=file"
     for attempt in range(1, 3):
-        status = probe(alt_url, "head")
+        status, headers, final_url = probe_headers(alt_url, "head")
         alt_statuses.append(status)
-        if status == 200:
+        if status == 200 and looks_like_raw_tar(headers, final_url):
             return True
         if attempt < 2:
             time.sleep(SEARCH_SUPPL_RETRY_DELAY)
@@ -2625,6 +2663,38 @@ def _filter_probe_ids(ids):
 
 _DOWNLOAD_MAX_SIZE = 50 * 1024 * 1024  # 50 MB
 
+def _atomic_write_bytes(data, dest_path):
+    parent = os.path.dirname(dest_path) or "."
+    os.makedirs(parent, exist_ok=True)
+    tmp_path = None
+    fd = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(
+            prefix=f".{os.path.basename(dest_path)}.",
+            suffix=".tmp",
+            dir=parent,
+        )
+        with os.fdopen(fd, "wb") as handle:
+            fd = None
+            handle.write(data)
+        os.replace(tmp_path, dest_path)
+        tmp_path = None
+    finally:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        if tmp_path is not None:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
+def _atomic_write_text(text, dest_path):
+    _atomic_write_bytes(text.encode("utf-8"), dest_path)
+
 def _download_file(url, dest_path):
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
     req = _urllib_request.Request(url, headers={"User-Agent": "IlluMeta/1.0"})
@@ -2632,8 +2702,7 @@ def _download_file(url, dest_path):
         data = resp.read(_DOWNLOAD_MAX_SIZE + 1)
         if len(data) > _DOWNLOAD_MAX_SIZE:
             raise ValueError(f"Download exceeds {_DOWNLOAD_MAX_SIZE // (1024*1024)} MB limit: {url}")
-    with open(dest_path, "wb") as handle:
-        handle.write(data)
+    _atomic_write_bytes(data, dest_path)
     return dest_path
 
 def _try_download(urls, dest_path):
@@ -2726,7 +2795,8 @@ def ensure_cross_reactive_lists(dest_dir, allow_network=True):
         return False, "exists"
     if have_main and need_epicv2:
         try:
-            shutil.copyfile(out_epic, out_epicv2)
+            with open(out_epic, "rb") as handle:
+                _atomic_write_bytes(handle.read(), out_epicv2)
             return True, "built_epicv2_from_epic"
         except OSError:
             # Fall through to source rebuild path if local copy fails.
@@ -2780,7 +2850,7 @@ def ensure_cross_reactive_lists(dest_dir, allow_network=True):
                 downloaded_any = True
                 downloaded[key] = meta
                 continue
-            except (OSError, IOError, ValueError, RuntimeError):
+            except (URLError, HTTPError, TimeoutError, ValueError, RuntimeError):
                 pass
         meta["path"] = ""
         downloaded[key] = meta
@@ -2795,19 +2865,20 @@ def ensure_cross_reactive_lists(dest_dir, allow_network=True):
     )
 
     def _write_list(path, probes):
-        with open(path, "w", encoding="utf-8") as handle:
-            handle.write("CpG\n")
-            for p in probes:
-                handle.write(f"{p}\n")
+        lines = ["CpG\n"]
+        lines.extend(f"{p}\n" for p in probes)
+        _atomic_write_text("".join(lines), path)
 
     _write_list(out_450k, probes_450k)
     _write_list(out_epic, probes_epic)
     if not os.path.exists(out_epicv2) or not _file_has_min_lines(out_epicv2):
         _write_list(out_epicv2, probes_epic)
     meta_path = os.path.join(dest_dir, "cross_reactive_sources.json")
-    with open(meta_path, "w", encoding="utf-8") as handle:
-        created = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        json.dump({"sources": downloaded, "created": created}, handle, indent=2)
+    created = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    _atomic_write_text(
+        json.dumps({"sources": downloaded, "created": created}, indent=2) + "\n",
+        meta_path,
+    )
     status = "downloaded" if downloaded_any else "built_local"
     return True, status
 
@@ -3306,19 +3377,19 @@ def generate_dashboard(output_dir, group_test, group_con):
         ):
             verdict = "HIGH"
         elif (
-            tier == "small"
-            or (mmc_score is not None and 0.40 <= mmc_score < 0.60)
-            or (rss_score is not None and rss_moderate <= rss_score < rss_high)
-            or warn_count in (1, 2)
-        ):
-            verdict = "MODERATE"
-        elif (
             tier == "minimal"
             or (mmc_score is not None and mmc_score < 0.40)
             or (rss_score is not None and rss_score < rss_low)
             or warn_count >= 3
         ):
             verdict = "LOW"
+        elif (
+            tier == "small"
+            or (mmc_score is not None and 0.40 <= mmc_score < 0.60)
+            or (rss_score is not None and rss_moderate <= rss_score < rss_high)
+            or warn_count in (1, 2)
+        ):
+            verdict = "MODERATE"
 
         # NCS score is a continuous proxy for negative-control stability.
         # If NCS is poor, downgrade the verdict (do not upgrade based on NCS).
@@ -3995,7 +4066,7 @@ def generate_dashboard(output_dir, group_test, group_con):
     # Construct HTML using lists and joins to be cleaner
     html_parts = []
     results_path_abs = os.path.abspath(output_dir)
-    results_path_js = json.dumps(results_path_abs)
+    results_path_js = json.dumps(results_path_abs).replace("</", "<\\/")
     
     # Header
     html_parts.append(f"""<!DOCTYPE html>
@@ -4091,7 +4162,7 @@ def generate_dashboard(output_dir, group_test, group_con):
             <div>
                 <div class="verdict-badge {verdict_class}" title="HIGH = Results are robust and suitable for publication. MODERATE = Usable results; review warnings carefully. LOW = Interpret with caution; significant limitations detected. EXPLORATORY = Hypothesis-generating only; not suitable for definitive conclusions.">{verdict} Confidence</div>
                 <div style="font-size:0.78rem;color:#555;margin:0.25rem 0 0.4rem;">{"Results are robust and suitable for publication." if verdict == "HIGH" else "Usable results; review warnings and consider validation." if verdict == "MODERATE" else "Interpret with caution; significant limitations detected." if verdict == "LOW" else "Hypothesis-generating only; not for definitive conclusions."}</div>
-                <div class="summary-meta">Samples: {_h(total_samples)} (Control {_h(n_con)} / Test {_h(n_test)}) · <span title="CRF tier reflects your study's statistical power based on sample size: Minimal (&lt;12), Small (12-23), Moderate (24-49), Large (&ge;50). Higher tiers enable more robust statistical checks.">Tier: {_h(tier_label.upper() if tier_label else "N/A")}</span></div>
+                <div class="summary-meta">Samples: {_h(total_samples)} (Control {_h(n_con)} / Test {_h(n_test)}) · <span title="CRF tier reflects statistical power using total sample size and the smaller group size; small per-group counts can keep a run in a lower tier even when total N is higher. Higher tiers enable more robust statistical checks.">Tier: {_h(tier_label.upper() if tier_label else "N/A")}</span></div>
                 <div class="summary-kpis">
                     <div class="kpi-card" title="The normalization pipeline used as the primary analysis branch. Results from this pipeline drive the executive summary metrics.">
                         <div class="kpi-label">Primary Branch</div>
@@ -4677,6 +4748,8 @@ def main():
         parser_download.print_help()
         log("Example: python illumeta.py download GSE12345 -o /path/to/project")
         sys.exit(2)
+    if args.command == "download" and not is_valid_gse_id(args.gse_id):
+        parser_download.error("GEO Series ID must be GSE followed by digits only (e.g., GSE12345)")
 
     ensure_runtime_environment(args.command)
 

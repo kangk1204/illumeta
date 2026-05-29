@@ -233,6 +233,38 @@ class MetaCliTests(unittest.TestCase):
             payload = json.loads((out_dir / "meta_input_manifest.json").read_text(encoding="utf-8"))
             self.assertEqual([c["cohort_id"] for c in payload["cohorts"]], ["C1", "C2", "C3"])
 
+    def test_meta_cli_core_candidate_allows_exact_min_cohorts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result_dirs = [
+                make_result_dir(root, "GSE_A", 1.0),
+                make_result_dir(root, "GSE_B", 1.1),
+                make_result_dir(root, "GSE_C", 0.95),
+            ]
+            out_dir = root / "meta_exact_min"
+
+            result = self.run_illumeta(
+                "meta",
+                *[str(path) for path in result_dirs],
+                "--branches",
+                "minfi",
+                "--min-cohorts",
+                "3",
+                "--partial-conjunction-r",
+                "2",
+                "--output",
+                str(out_dir),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            core = (out_dir / "minfi_core_candidates.tsv").read_text(encoding="utf-8")
+            self.assertIn("cg_good", core)
+            with gzip.open(out_dir / "minfi_meta_full.tsv.gz", "rt", encoding="utf-8", newline="") as handle:
+                reader = csv.DictReader(handle, delimiter="\t")
+                row = next(row for row in reader if row["CpG"] == "cg_good")
+            self.assertEqual(row["loo_valid_count"], "3")
+            self.assertEqual(row["loo_direction_fraction"], "1")
+
     def test_meta_cli_keeps_duplicate_cohort_columns_distinct(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -273,6 +305,42 @@ class MetaCliTests(unittest.TestCase):
             self.assertEqual(row["effect_DUP"], "0.2")
             self.assertEqual(row["effect_DUP_2"], "0.22")
             self.assertEqual(row["effect_DUP_3"], "0.19")
+
+    def test_meta_cli_rejects_duplicate_result_dirs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result_dirs = [
+                make_result_dir(root, "GSE_A", 1.0),
+                make_result_dir(root, "GSE_B", 1.1),
+                make_result_dir(root, "GSE_C", 0.95),
+            ]
+            manifest = root / "manifest.tsv"
+            with manifest.open("w", encoding="utf-8") as handle:
+                handle.write("cohort\tresult_dir\n")
+                handle.write(f"C1\t{result_dirs[0]}\n")
+                handle.write(f"C2\t{result_dirs[1]}\n")
+            out_dir = root / "meta_duplicate_dirs"
+
+            result = self.run_illumeta(
+                "meta",
+                str(result_dirs[1]),
+                str(result_dirs[2]),
+                "--manifest",
+                str(manifest),
+                "--branches",
+                "minfi",
+                "--min-cohorts",
+                "2",
+                "--partial-conjunction-r",
+                "2",
+                "--output",
+                str(out_dir),
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Duplicate result directory", result.stderr)
+            payload = json.loads((out_dir / "failure_summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["code"], "META_ANALYSIS_FAILED")
 
     def test_meta_cli_reads_gzipped_branch_file_override(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -252,6 +252,36 @@ class RDesignInvariantTests(unittest.TestCase):
         self.assertNotIn("log2FC", source)
         self.assertIn("limma logFC on M-value scale", source)
 
+    def test_gene_annotation_exports_keep_full_gene_names(self):
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+
+        self.assertNotIn("res$Gene <- sapply(res$Gene, clean_gene_names)", source)
+        self.assertIn("res$Gene_Display <- sapply(res$Gene, clean_gene_names)", source)
+
+    def test_sesame_reference_cell_counts_are_tissue_gated(self):
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+
+        self.assertIn("sesame_reference_cell_counts_supported <- function", source)
+        sesame_block = source.split("estimate_sesame_cell_counts(sdf_list", 1)[0]
+        self.assertIn("sesame_reference_cell_counts_supported(tissue_use)", sesame_block)
+
+    def test_crf_rss_summary_filename_is_used_by_figure_script(self):
+        script = os.path.join(BASE_DIR, "scripts", "generate_application_note_figures.py")
+        with open(script, "r", encoding="utf-8") as handle:
+            source = handle.read()
+
+        self.assertIn("CRF_RSS_Summary.csv", source)
+        self.assertNotIn("CRF_SSS_Summary.csv", source)
+
+    def test_lambda_guard_simplify_is_labeled_diagnostic(self):
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+
+        self.assertNotIn('lambda_guard_status <- "simplified"', source)
+        self.assertIn('lambda_guard_status <- "diagnostic_simplified"', source)
+
     def test_config_loading_fails_fast_on_invalid_existing_config(self):
         with open(ANALYZE_R, "r", encoding="utf-8") as handle:
             source = handle.read()

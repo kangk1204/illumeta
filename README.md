@@ -1531,7 +1531,7 @@ Outputs:
 - `decision_ledger.tsv`: automated decision log (covariates, batch strategy, consensus branch).
 - `preflight_report.json`: preflight summary (includes auto-group info when used).
 - `Correction_Adequacy_Report.txt`: Correction Adequacy Framework (CAF) report for the primary branch.
-- `Correction_Adequacy_Summary.csv`: CAF component scores for the primary branch (calibration/preservation/batch/NCS) plus overall CAI (Correction Adequacy Index; surfaced as `caf_score` in pipeline metrics) and `lambda_ratio`.
+- `Correction_Adequacy_Summary.csv`: CAF component scores for the primary branch (calibration/preservation/batch/NCS) plus the overall CAF score (stored in the backward-compatible `cai` column and surfaced as `caf_score` in pipeline metrics) and `lambda_ratio`.
   `lambda_ratio` is a heuristic observed-vs-null context metric, not a causal confounding classifier by itself.
 
 ### QC

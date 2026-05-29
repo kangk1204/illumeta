@@ -1105,6 +1105,12 @@ compute_pc_batch_r2 <- function(pca_scores, batch, max_pcs = 5) {
 
 compute_knn_mixing <- function(pca_scores, batch, k = 10, max_samples = 500) {
   if (is.null(pca_scores) || nrow(pca_scores) < (k + 2)) return(NA_real_)
+  if (length(batch) != nrow(pca_scores)) return(NA_real_)
+  batch_chr <- trimws(as.character(batch))
+  valid <- complete.cases(pca_scores) & !is.na(batch_chr) & nzchar(batch_chr)
+  if (sum(valid) < (k + 2)) return(NA_real_)
+  pca_scores <- pca_scores[valid, , drop = FALSE]
+  batch_chr <- batch_chr[valid]
   n <- nrow(pca_scores)
   idx <- seq_len(n)
   if (n > max_samples) {
@@ -1112,15 +1118,19 @@ compute_knn_mixing <- function(pca_scores, batch, k = 10, max_samples = 500) {
     idx <- sort(sample(idx, max_samples))
   }
   pcs <- pca_scores[idx, , drop = FALSE]
-  batch_sub <- batch[idx]
+  batch_sub <- batch_chr[idx]
   d <- as.matrix(dist(pcs))
   mix_scores <- numeric(length(idx))
   for (i in seq_along(idx)) {
     ord <- order(d[i, ], na.last = NA)
     ord <- ord[ord != i]
     nn <- head(ord, k)
-    same <- sum(batch_sub[nn] == batch_sub[i])
-    mix_scores[i] <- 1 - (same / k)
+    if (length(nn) == 0) {
+      mix_scores[i] <- NA_real_
+      next
+    }
+    same <- sum(batch_sub[nn] == batch_sub[i], na.rm = TRUE)
+    mix_scores[i] <- 1 - (same / length(nn))
   }
   mean(mix_scores, na.rm = TRUE)
 }
@@ -2029,6 +2039,7 @@ resolve_caf_weights <- function(caf_cfg, preset_name = "conservative") {
     if (nm %in% names(w)) w[[nm]] <- suppressWarnings(as.numeric(w_in[[nm]]))
   }
   if (any(!is.finite(w))) w <- default_weights
+  w[w < 0] <- 0
   w_sum <- sum(w)
   if (!is.finite(w_sum) || w_sum <= 0) return(default_weights)
   w / w_sum
@@ -2061,7 +2072,7 @@ compute_caf_scores <- function(perm_summary, perm_n_probes,
     NA_real_
   }
   cal_score <- if (is.finite(null_fpr) && is.finite(target_fpr) && target_fpr > 0) {
-    clamp01(1 - abs(null_fpr - target_fpr) / target_fpr)
+    if (null_fpr <= target_fpr) 1 else clamp01(1 - (null_fpr - target_fpr) / target_fpr)
   } else {
     NA_real_
   }
@@ -2181,8 +2192,8 @@ build_caf_report_lines <- function(prefix, applied_batch_method, n_con, n_test,
     "4. NEGATIVE CONTROL STABILITY (NCS)",
     sprintf("  NCS score: %s [%s]", fmt_val(caf_res$ncs_score), score_grade(caf_res$ncs_score)),
     "",
-    "OVERALL CAI",
-    sprintf("  CAI: %s [%s]", fmt_val(caf_res$cai), score_grade(caf_res$cai))
+    "OVERALL CAF SCORE",
+    sprintf("  CAF score: %s [%s]", fmt_val(caf_res$cai), score_grade(caf_res$cai))
   )
   if (is.null(marker_metrics) || !is.finite(marker_ret)) {
     lines <- c(lines, "", "NOTE: Marker list not provided or no markers found; preservation uses effect concordance only.")
@@ -2315,7 +2326,18 @@ compute_mmc_summary <- function(res_list, top_k = 100, levels = c("core", "conse
   methods <- names(res_list)
   sig_sets <- lapply(res_list, function(df) {
     if (!"CpG" %in% colnames(df)) df$CpG <- rownames(df)
-    df <- df[order(df$adj.P.Val), ]
+    if ("adj.P.Val" %in% colnames(df)) {
+      adj <- suppressWarnings(as.numeric(df$adj.P.Val))
+      keep <- is.finite(adj) & adj < pval_thresh
+      if ("logFC" %in% colnames(df)) {
+        lfc <- suppressWarnings(as.numeric(df$logFC))
+        keep <- keep & is.finite(lfc) & abs(lfc) > lfc_thresh
+      }
+      df <- df[keep, , drop = FALSE]
+      if (nrow(df) > 0) df <- df[order(suppressWarnings(as.numeric(df$adj.P.Val))), , drop = FALSE]
+    } else if ("P.Value" %in% colnames(df)) {
+      df <- df[order(suppressWarnings(as.numeric(df$P.Value))), , drop = FALSE]
+    }
     df$CpG
   })
   effect_maps <- lapply(res_list, function(df) {
@@ -3795,6 +3817,11 @@ estimate_sesame_cell_counts <- function(sdf_list, sample_ids, out_dir = NULL) {
     return(list(counts = df, reference = paste0("sesame::", fn)))
   }
   NULL
+}
+
+sesame_reference_cell_counts_supported <- function(tissue) {
+  tissue_l <- tolower(trimws(as.character(tissue)))
+  tissue_l %in% c("blood", "whole blood", "peripheral blood", "pbmc", "cordblood", "cord blood")
 }
 
 load_epidish_reference <- function(ref_name) {
@@ -5886,7 +5913,7 @@ emit_tier3_primary_outputs <- function(meta_res, betas, targets, curr_anno, pref
     final_str
   }
   if ("Gene" %in% colnames(res)) {
-    res$Gene <- sapply(res$Gene, clean_gene_names)
+    res$Gene_Display <- sapply(res$Gene, clean_gene_names)
   }
   
   file_prefix <- paste0(prefix, "_Tier3_Primary")
@@ -6051,7 +6078,15 @@ run_overlap_restricted_analysis <- function(betas, targets, batch_col, group_col
   sub_targets <- targets[idx, , drop = FALSE]
   sub_betas <- betas[, idx, drop = FALSE]
   if (!(group_col %in% colnames(sub_targets))) return(NULL)
-  sub_targets[[group_col]] <- factor(as.character(sub_targets[[group_col]]))
+  original_levels <- if (is.factor(targets[[group_col]])) {
+    levels(targets[[group_col]])
+  } else {
+    unique(as.character(targets[[group_col]]))
+  }
+  observed_levels <- unique(as.character(sub_targets[[group_col]]))
+  group_levels <- original_levels[original_levels %in% observed_levels]
+  if (length(group_levels) < 2) group_levels <- observed_levels[observed_levels != ""]
+  sub_targets[[group_col]] <- factor(as.character(sub_targets[[group_col]]), levels = group_levels)
   group_counts <- table(sub_targets[[group_col]])
   if (length(group_counts) < 2) {
     message("  Overlap restricted analysis skipped: <2 groups after overlap filter.")
@@ -6512,11 +6547,21 @@ run_batch_pseudo_voi <- function(betas, targets, batch_col, covariates, prefix, 
   if (length(covars) > 0) formula_str <- paste(formula_str, "+", paste(covars, collapse = " + "))
   if ("primary_group" %in% colnames(targets)) formula_str <- paste(formula_str, "+ primary_group")
   design <- model.matrix(as.formula(formula_str), data = targets)
+  colnames(design) <- make.names(colnames(design), unique = TRUE)
   m_vals <- logit_offset(betas)
   fit <- lmFit(m_vals, design)
-  batch_cols <- grep(paste0("^", batch_col), colnames(design))
-  if (length(batch_cols) == 0) return(NULL)
-  contrast_batch <- diag(ncol(design))[, batch_cols, drop = FALSE]
+  batch_prefix <- make.names(batch_col)
+  batch_cols <- grep(paste0("^", batch_prefix), colnames(design))
+  if (length(batch_cols) < 2) return(NULL)
+  contrast_batch <- sapply(batch_cols[-1], function(col_idx) {
+    v <- numeric(ncol(design))
+    v[col_idx] <- 1
+    v[batch_cols[1]] <- -1
+    v
+  })
+  if (is.null(dim(contrast_batch))) contrast_batch <- matrix(contrast_batch, ncol = 1)
+  rownames(contrast_batch) <- colnames(design)
+  colnames(contrast_batch) <- paste0(colnames(design)[batch_cols[-1]], "_vs_", colnames(design)[batch_cols[1]])
   fit_con <- contrasts.fit(fit, contrast_batch)
   fit_con <- safe_ebayes(fit_con, "batch_pseudo_voi")
   if (is.null(fit_con)) return(NULL)
@@ -7551,9 +7596,13 @@ if (opt$skip_sesame) {
       message(sprintf("  - Sesame: removed %d cross-reactive probes (source: %s).", n_cross, source_disp))
     }
 
-    sesame_cell_est <- estimate_sesame_cell_counts(sdf_list, targets[[gsm_col]], out_dir = out_dir)
-    if (!is.null(sesame_cell_est)) {
-      message("  - Sesame cell composition estimated using ", sesame_cell_est$reference)
+    if (sesame_reference_cell_counts_supported(tissue_use)) {
+      sesame_cell_est <- estimate_sesame_cell_counts(sdf_list, targets[[gsm_col]], out_dir = out_dir)
+      if (!is.null(sesame_cell_est)) {
+        message("  - Sesame cell composition estimated using ", sesame_cell_est$reference)
+      }
+    } else {
+      message("  - Sesame-native reference cell composition skipped for non-blood tissue: ", tissue_use)
     }
 
     # Native Sesame: keep pOOBAH masking and avoid Minfi-driven probe filtering
@@ -8664,7 +8713,9 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     return(final_str)
   }
   
-  res$Gene <- sapply(res$Gene, clean_gene_names)
+  if ("Gene" %in% colnames(res)) {
+    res$Gene_Display <- sapply(res$Gene, clean_gene_names)
+  }
 
   # C. Plots
   p_vals <- res$P.Value
@@ -8717,7 +8768,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
         guard_res <- run_lambda_guard(betas_pre_correction, targets, "primary_group", prefix, out_dir,
                                       max_points, pval_thresh, lfc_thresh)
         if (!is.null(guard_res) && guard_res$status == "ok") {
-          lambda_guard_status <- "simplified"
+          lambda_guard_status <- "diagnostic_simplified"
           lambda_guard_lambda <- guard_res$lambda
         } else {
           lambda_guard_status <- "simplify_failed"
@@ -10309,7 +10360,7 @@ tryCatch({
             crf_tier, crf_tier_info$total_n, crf_tier_info$min_per_group),
     "- Calibration: permutation tests shuffle labels within batch strata to assess p-value uniformity (KS) and inflation.",
     "- Lambda guard is a heuristic inflation check; interpret with EWAS correlation structure in mind.",
-    sprintf("- Correction Adequacy Framework (CAF): combines calibration (target FPR=%.2f), signal preservation, and batch removal into a single CAI; see `Correction_Adequacy_Report.txt`.", caf_target_fpr),
+    sprintf("- Correction Adequacy Framework (CAF): combines calibration (target FPR=%.2f), signal preservation, and batch removal into a single CAF score; see `Correction_Adequacy_Report.txt`.", caf_target_fpr),
     "- Decision ledger: automated decisions (covariates, batch choice, method) are logged with reasons.",
     "",
     "## Differential methylation (DMP)",

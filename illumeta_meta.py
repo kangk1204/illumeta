@@ -527,17 +527,25 @@ def _pooled_delta(deltas: list[float], valid: list[bool], weights: list[float]) 
     return total / total_w if total_w > 0 else math.nan
 
 
-def _loo_direction_fraction(effects: list[float], ses: list[float], valid: list[bool], full_sign: int, min_cohorts: int) -> tuple[int, int, float]:
+def _loo_direction_fraction(
+    effects: list[float],
+    ses: list[float],
+    valid: list[bool],
+    full_sign: int,
+    min_cohorts: int,
+    loo_min_cohorts: int | None = None,
+) -> tuple[int, int, float]:
     same = 0
     possible = 0
     if full_sign == 0:
         return same, possible, 0.0
+    required = min_cohorts if loo_min_cohorts is None else loo_min_cohorts
     for idx in range(len(valid)):
         if not valid[idx]:
             continue
         loo_valid = list(valid)
         loo_valid[idx] = False
-        if sum(1 for ok in loo_valid if ok) < min_cohorts:
+        if sum(1 for ok in loo_valid if ok) < required:
             continue
         possible += 1
         meta = _random_effect_meta_one(effects, ses, loo_valid)
@@ -582,8 +590,9 @@ def _analyze_branch(
         direction_fraction = majority / k if k > 0 else 0.0
         direction = "up" if n_up > n_down else "down" if n_down > n_up else "tie"
         full_sign = 1 if meta["random_effect"] > 0 else -1 if meta["random_effect"] < 0 else 0
+        loo_min_cohorts = max(2, thresholds.min_cohorts - 1)
         loo_same, loo_valid_count, loo_fraction = _loo_direction_fraction(
-            effects, ses, valid, full_sign, thresholds.min_cohorts
+            effects, ses, valid, full_sign, thresholds.min_cohorts, loo_min_cohorts
         )
         pc_fisher = _fisher_partial_conjunction(p_values, valid, thresholds.partial_conjunction_r)
         pc_directional = _directional_pc_p(effects, p_values, valid, thresholds.partial_conjunction_r)
@@ -1102,7 +1111,7 @@ def run_meta_cli(args) -> int:
     for cohort in cohorts:
         key = str(cohort.result_dir)
         if key in seen:
-            continue
+            raise ValueError(f"Duplicate result directory supplied: {cohort.result_dir}")
         seen.add(key)
         if not cohort.result_dir.exists():
             raise FileNotFoundError(f"Result directory not found: {cohort.result_dir}")

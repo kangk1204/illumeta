@@ -118,6 +118,13 @@ class TestScoreGroupCandidate(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertGreater(result["score"], 0)
 
+    def test_group_candidate_counts_trimmed_values(self):
+        values = [" control ", "case", "control", " case ", "", None]
+        result = score_group_candidate("disease_state", values)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["counts"], {"case": 2, "control": 2})
+        self.assertGreaterEqual(result["balance_ratio"], 1.0)
+
     def test_single_value_rejected(self):
         values = ["control", "control", "control"]
         result = score_group_candidate("constant_col", values)

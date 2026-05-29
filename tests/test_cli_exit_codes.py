@@ -127,6 +127,13 @@ class CliExitCodeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("Example: python illumeta.py download", result.stdout)
 
+    def test_download_invalid_gse_fails_before_runtime_setup(self):
+        result = self.run_illumeta("download", "GSE12345;rm")
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("GEO Series ID must be GSE followed by digits only", result.stderr)
+        self.assertNotIn("Conda env", result.stderr)
+
     def test_missing_subcommand_is_nonzero(self):
         result = self.run_illumeta()
 

@@ -40,6 +40,15 @@ class DashboardWarningsTests(unittest.TestCase):
         self.assertNotIn("minimum log2 fold-change in methylation M-values", source)
         self.assertIn("minimum absolute limma effect on the methylation M-value scale", source)
 
+    def test_dashboard_results_path_escapes_script_close(self):
+        source = (BASE_DIR / "illumeta.py").read_text(encoding="utf-8")
+        self.assertIn('.replace("</", "<\\\\/")', source)
+
+    def test_small_tier_does_not_mask_low_verdict_conditions(self):
+        source = (BASE_DIR / "illumeta.py").read_text(encoding="utf-8")
+        compute_block = source.split("def compute_verdict(", 1)[1].split("def pill_link(", 1)[0]
+        self.assertLess(compute_block.index('tier == "minimal"'), compute_block.index('tier == "small"'))
+
 
 if __name__ == "__main__":
     unittest.main()

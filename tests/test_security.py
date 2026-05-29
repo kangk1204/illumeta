@@ -38,6 +38,9 @@ class TestGSEValidation(unittest.TestCase):
         url = geo_suppl_url("GSE12345")
         self.assertIn("GSE12nnn", url)
         self.assertIn("GSE12345", url)
+        self.assertIn("/GSEnnn/GSE1/suppl/", geo_suppl_url("GSE1"))
+        self.assertIn("/GSEnnn/GSE999/suppl/", geo_suppl_url("GSE999"))
+        self.assertIn("/GSE1nnn/GSE1000/suppl/", geo_suppl_url("GSE1000"))
 
         with self.assertRaises(ValueError):
             geo_suppl_url("GS")

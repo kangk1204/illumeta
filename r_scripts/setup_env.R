@@ -1018,12 +1018,16 @@ ensure_min_version("variancePartition", "1.30.0", function(p, lib) BiocManager::
 # Install dmrff (prefer auth-free tarball path to avoid stale credential 401s)
 if (!requireNamespace("dmrff", quietly = TRUE)) {
     dmrff_lib <- .libPaths()[1]
+    dmrff_ref <- Sys.getenv(
+        "ILLUMETA_DMRFF_REF",
+        unset = "8e0469e5238c4c2de84746af143a733600537be4"
+    )
     dmrff_tarball_url <- Sys.getenv(
         "ILLUMETA_DMRFF_TARBALL_URL",
-        unset = "https://codeload.github.com/perishky/dmrff/tar.gz/refs/heads/master"
+        unset = paste0("https://codeload.github.com/perishky/dmrff/tar.gz/", dmrff_ref)
     )
 
-    message("Installing dmrff from GitHub tarball (no auth required)...")
+    message(paste0("Installing dmrff from pinned GitHub tarball (", dmrff_ref, "; no auth required)..."))
     tarball_ok <- tryCatch({
         install.packages(dmrff_tarball_url, repos = NULL, type = "source", lib = dmrff_lib)
         TRUE
@@ -1042,6 +1046,7 @@ if (!requireNamespace("dmrff", quietly = TRUE)) {
         tryCatch({
             remotes::install_github(
                 "perishky/dmrff",
+                ref = dmrff_ref,
                 upgrade = "never",
                 auth_token = "",
                 lib = dmrff_lib

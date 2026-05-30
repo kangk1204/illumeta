@@ -362,8 +362,24 @@ def bh_fdr(p_values: list[float]) -> list[float]:
     return out
 
 
+def _inv_var_weight(se: float, ok: bool, extra: float = 0.0) -> float:
+    """Inverse-variance weight that is robust to a degenerate SE.
+
+    A positive but extreme SE can underflow ``se*se`` to ``0.0`` (passing a naive
+    ``se > 0`` check) and crash ``1/(se*se)`` with ``ZeroDivisionError``. A
+    non-finite or non-positive denominator instead yields weight ``0.0`` (the
+    cohort contributes nothing), consistent with how ``se <= 0`` / non-finite SE
+    are already treated."""
+    if not ok or not math.isfinite(se) or se <= 0:
+        return 0.0
+    denom = se * se + extra
+    if not math.isfinite(denom) or denom <= 0:
+        return 0.0
+    return 1.0 / denom
+
+
 def _random_effect_meta_one(effects: list[float], ses: list[float], valid: list[bool]) -> dict[str, float]:
-    weights = [1.0 / (se * se) if ok and se > 0 else 0.0 for ok, se in zip(valid, ses)]
+    weights = [_inv_var_weight(se, ok) for ok, se in zip(valid, ses)]
     sum_w = sum(weights)
     k = sum(1 for ok in valid if ok)
     if k < 1 or sum_w <= 0:
@@ -388,10 +404,7 @@ def _random_effect_meta_one(effects: list[float], ses: list[float], valid: list[
     tau2 = (q_stat - df) / c_term if c_term > 0 and q_stat > df else 0.0
     if not math.isfinite(tau2) or tau2 < 0:
         tau2 = 0.0
-    re_weights = [
-        1.0 / ((se * se) + tau2) if ok and se > 0 else 0.0
-        for ok, se in zip(valid, ses)
-    ]
+    re_weights = [_inv_var_weight(se, ok, tau2) for ok, se in zip(valid, ses)]
     sum_re_w = sum(re_weights)
     random_effect = (
         sum(w * e for w, e in zip(re_weights, effects) if math.isfinite(e)) / sum_re_w
@@ -577,8 +590,14 @@ def _analyze_branch(
         ses = list(rec["ses"])
         p_values = list(rec["p_values"])
         deltas = list(rec["deltas"])
+        # A cohort is valid for a CpG only if it can contribute a real
+        # inverse-variance weight. Using _inv_var_weight here (rather than a bare
+        # ``se > 0``) also excludes a degenerate SE whose square underflows to 0,
+        # so the effective cohort count k, the direction fractions, and the
+        # min-cohorts gate never credit a zero-weight cohort. Identical to the old
+        # predicate for all real (finite, non-underflowing) SE values.
         valid = [
-            math.isfinite(effect) and math.isfinite(se) and se > 0
+            math.isfinite(effect) and _inv_var_weight(se, True) > 0
             for effect, se in zip(effects, ses)
         ]
         meta = _random_effect_meta_one(effects, ses, valid)

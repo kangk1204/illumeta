@@ -84,3 +84,12 @@ docs/submission_package/
 *Application_Note*.docx
 *Supplementary_Data*.docx
 .omx/
+
+# Unpublished manuscript package (local only — contains pre-submission paper data)
+outputs/
+illumeta_manuscript_package_*.zip
+
+# Local review/scratch artifacts
+claude_review_*.txt
+claude_error*.txt
+.omc/

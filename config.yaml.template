@@ -39,6 +39,7 @@ collinearity:
 
 calibration:
   ks_p: 0.05
+  lambda_tol: 1.5  # two-sided null-lambda tolerance; used identically by batch-method selection and the CDx calibration score
   permutations_min: 20
 
 unsafe:

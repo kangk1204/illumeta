@@ -334,16 +334,20 @@ class RDesignInvariantTests(unittest.TestCase):
         self.assertIn('"cdx_score"', cdx_block)
         self.assertNotIn('"cai"', cdx_block)
 
-    def test_cdx_calibration_is_two_sided_lambda_based(self):
-        """CDx calibration must use the two-sided permutation-null lambda closeness,
-        not the saturating null-FPR-vs-alpha comparison, and the internal field is 'cdx'."""
+    def test_calibration_is_unified_two_sided_lambda(self):
+        """Batch-method selection AND the CDx report must use ONE calibration
+        definition: the shared two-sided null-lambda helper. No KS-ratio score and
+        no saturating null-FPR-vs-alpha comparison drive selection/reporting."""
         with open(ANALYZE_R, "r", encoding="utf-8") as handle:
             source = handle.read()
 
-        # Primary calibration is the two-sided closeness of the permutation-null
-        # genomic-inflation lambda (perm_lambda) to 1 on a log2 scale.
-        self.assertIn("cal_lambda_tol <- 1.5", source)
-        self.assertIn("clamp01(1 - abs(log2(perm_lambda)) / log2(cal_lambda_tol))", source)
+        # Single shared helper implementing the two-sided log2 lambda closeness.
+        self.assertIn("calibration_score_from_lambda <- function(lambda, lambda_tol = 1.5)", source)
+        self.assertIn("clamp01(1 - abs(log2(lambda)) / log2(tol))", source)
+        # Both the selector and the CDx report call the SAME helper.
+        self.assertGreaterEqual(source.count("calibration_score_from_lambda("), 2)
+        # The selector no longer derives calibration from the KS-uniformity ratio.
+        self.assertNotIn("clamp01(ks_p_med / config_settings$calibration$ks_p)", source)
         # The internal composite field is unified to 'cdx' (no legacy 'cai').
         self.assertIn("cdx = cdx,", source)
         self.assertNotIn("cdx_res$cai", source)

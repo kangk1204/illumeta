@@ -1517,7 +1517,7 @@ Outputs:
 - `preflight_report.json`: preflight summary (includes auto-group info when used).
 - `Correction_Diagnostics_Report.txt`: Correction Diagnostics (CDx) report for the primary branch. CDx is a **transparent composite of standard correction diagnostics** (calibration, signal preservation, batch-association reduction) — a reporting aid to surface obvious problems, **not** a validated guarantee that the correction is "adequate". Interpret it alongside the per-component scores and the method-sensitivity tables (CRF/MMC).
 - `Correction_Diagnostics_Summary.csv`: CDx component scores for the primary branch (calibration/preservation/batch/NCS) plus the overall CDx score (`cdx_score`; older runs may show legacy metric names `caf_score` or `cai`) and `lambda_ratio`.
-  **Calibration** is the two-sided closeness of the permutation-null genomic-inflation λ to 1 — it penalizes both residual inflation (λ > 1) and over-correction (λ < 1); the permutation-null FPR is reported as an auxiliary diagnostic only.
+  **Calibration** is the two-sided closeness of the permutation-null genomic-inflation λ to 1 — it penalizes both residual inflation (λ > 1) and over-correction (λ < 1); the permutation-null FPR is reported as an auxiliary diagnostic only. The automated batch-method selector uses this **same** calibration definition (configurable via `calibration.lambda_tol`), so "calibration" means one thing throughout the tool.
   `lambda_ratio` is a heuristic observed-vs-null context metric, not a causal confounding classifier by itself.
 
 ### QC

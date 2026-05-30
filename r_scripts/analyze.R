@@ -323,7 +323,7 @@ CONFIG_DEFAULTS <- list(
   do_not_adjust = character(0),
   missingness = list(max_frac = 0.2, impute_max_frac = 0.1),
   collinearity = list(cor_threshold = 0.9),
-  calibration = list(ks_p = 0.05, permutations_min = 20),
+  calibration = list(ks_p = 0.05, lambda_tol = 1.5, permutations_min = 20),
   unsafe = list(
     skip_cross_reactive = FALSE,
     skip_sex_check = FALSE
@@ -1179,6 +1179,24 @@ compute_genomic_lambda <- function(pvals) {
   median(chisq_vals, na.rm = TRUE) / qchisq(0.5, 1)
 }
 
+#' Unified calibration score from a (permutation-null) genomic-inflation lambda.
+#'
+#' Two-sided closeness of lambda to 1 on a log2 scale: 1.0 when lambda == 1, and
+#' graded to 0 as lambda approaches lambda_tol or 1/lambda_tol. It penalizes both
+#' residual inflation (lambda > 1, undercorrected confounding) and over-correction
+#' deflation (lambda < 1). lambda is sample-size robust, so the SAME definition is
+#' used by the batch-correction selector and by the CDx report -- "calibration"
+#' means one thing tool-wide. Returns NA for non-finite/non-positive input.
+#' Defensive against NULL/empty/invalid lambda_tol (falls back to 1.5) so external
+#' configs cannot crash the score.
+calibration_score_from_lambda <- function(lambda, lambda_tol = 1.5) {
+  tol <- suppressWarnings(as.numeric(lambda_tol))
+  if (length(tol) != 1 || !is.finite(tol) || tol <= 1) tol <- 1.5
+  lambda <- suppressWarnings(as.numeric(lambda))
+  if (length(lambda) != 1 || !is.finite(lambda) || lambda <= 0) return(NA_real_)
+  clamp01(1 - abs(log2(lambda)) / log2(tol))
+}
+
 compute_bio_preservation <- function(pca_before, pca_after, targets, bio_vars, max_pcs = 5) {
   if (is.null(pca_before) || is.null(pca_after)) return(list(score = 1, detail = NULL))
   if (length(bio_vars) == 0) return(list(score = 1, detail = NULL))
@@ -1501,20 +1519,23 @@ select_batch_strategy <- function(betas, targets, batch_col, batch_tier, covaria
     }
     stab <- compute_batch_stability(betas_corr, targets, batch_col, cov_set, group_col)
     perm_res <- run_permutation_uniformity(betas_corr, targets, group_col, cov_set, batch_col, perm_n, vp_top)
-    ks_p_med <- if (!is.null(perm_res) && nrow(perm_res) > 0) median(perm_res$ks_p, na.rm = TRUE) else NA_real_
-    cal_score <- ifelse(is.finite(ks_p_med), clamp01(ks_p_med / config_settings$calibration$ks_p), NA_real_)
+    lambda_med <- if (!is.null(perm_res) && nrow(perm_res) > 0) median(perm_res$lambda, na.rm = TRUE) else NA_real_
+    # Unified calibration: same two-sided null-lambda score the CDx report uses.
+    cal_score <- calibration_score_from_lambda(lambda_med, config_settings$calibration$lambda_tol)
     total_score <- scoring_preset$weights$batch * ifelse(is.finite(row$batch_score), row$batch_score, 0.5) +
       scoring_preset$weights$bio * ifelse(is.finite(row$bio_score), row$bio_score, 0.5) +
       scoring_preset$weights$cal * ifelse(is.finite(cal_score), cal_score, 0.5) +
       scoring_preset$weights$stab * ifelse(is.finite(stab), stab, 0.5)
     guard_batch <- is.finite(row$batch_score) && row$batch_score >= scoring_preset$guards$batch_reduction_min
     guard_bio <- is.finite(row$bio_score) && row$bio_score >= scoring_preset$guards$bio_min
-    guard_cal <- is.finite(ks_p_med) && ks_p_med >= config_settings$calibration$ks_p
+    # Calibration guard: the permutation-null lambda must sit in the well-calibrated
+    # band [0.8, 1.2] (same band the CDx report flags as lambda_ok).
+    guard_cal <- is.finite(lambda_med) && lambda_med >= 0.8 && lambda_med <= 1.2
     if (guard_batch && guard_bio && guard_cal) {
       borderline <- 0
       if (row$batch_score < (scoring_preset$guards$batch_reduction_min + 0.05)) borderline <- borderline + 1
       if (row$bio_score < (scoring_preset$guards$bio_min + 0.05)) borderline <- borderline + 1
-      if (ks_p_med < (config_settings$calibration$ks_p * 1.5)) borderline <- borderline + 1
+      if (is.finite(cal_score) && cal_score < 0.6) borderline <- borderline + 1
       status <- if (borderline >= 2) "YELLOW" else "GREEN"
     } else {
       status <- "RED"
@@ -2075,7 +2096,7 @@ cdx_weights <- resolve_cdx_weights(cdx_cfg, preset_name)
 compute_cdx_scores <- function(perm_summary, perm_n_probes,
                                effect_metrics, marker_metrics,
                                batch_before, batch_after,
-                               weights, target_fpr = 0.05,
+                               weights, target_fpr = 0.05, lambda_tol = 1.5,
                                observed_lambda_all = NA_real_,
                                observed_lambda_vp_top = NA_real_,
                                ncs_score = NA_real_) {
@@ -2106,13 +2127,10 @@ compute_cdx_scores <- function(perm_summary, perm_n_probes,
   # different scales) and therefore saturated to a near-constant value. The
   # permutation null FPR is still reported (null_fpr) as an auxiliary diagnostic
   # and is used only as a fallback when the null lambda is unavailable.
-  cal_lambda_tol <- 1.5  # tolerance tied to the lambda-guard default; graded to 0 at lambda = 1.5 or 1/1.5
-  cal_score <- if (is.finite(perm_lambda) && perm_lambda > 0) {
-    clamp01(1 - abs(log2(perm_lambda)) / log2(cal_lambda_tol))
-  } else if (is.finite(null_fpr) && is.finite(target_fpr) && target_fpr > 0) {
-    if (null_fpr <= target_fpr) 1 else clamp01(1 - (null_fpr - target_fpr) / target_fpr)
-  } else {
-    NA_real_
+  cal_score <- calibration_score_from_lambda(perm_lambda, lambda_tol)
+  if (!is.finite(cal_score) && is.finite(null_fpr) && is.finite(target_fpr) && target_fpr > 0) {
+    # Fallback only when the permutation-null lambda is unavailable.
+    cal_score <- if (null_fpr <= target_fpr) 1 else clamp01(1 - (null_fpr - target_fpr) / target_fpr)
   }
 
   marker_ret <- if (!is.null(marker_metrics)) suppressWarnings(as.numeric(marker_metrics$markers_sig_fraction)) else NA_real_
@@ -9546,6 +9564,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
 	      batch_after = batch_after,
 	      weights = cdx_weights,
 	      target_fpr = cdx_target_fpr,
+	      lambda_tol = config_settings$calibration$lambda_tol,
 	      observed_lambda_all = lambda_val,
 	      observed_lambda_vp_top = lambda_vp_top,
 	      ncs_score = cdx_ncs_score

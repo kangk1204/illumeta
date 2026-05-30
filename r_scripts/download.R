@@ -84,8 +84,23 @@ safe_extract_idats_from_tar <- function(tar_file, exdir) {
       invokeRestart("muffleWarning")
     }
   )
+  # Benign format-info warnings (pax extended headers, long-name/link notices) are
+  # emitted by R's internal untar backend for perfectly valid archives. They are not
+  # integrity failures: archive safety is enforced separately by the member-path
+  # validation below and by the post-extraction symlink/escape/regular-file checks.
+  # Only treat non-benign warnings (and, for extraction, a non-zero status) as fatal.
+  is_benign_tar_warning <- function(msg) {
+    benign <- c("using pax extended headers", "pax global extended headers",
+                "skipping pax", "long name", "long link", "truncated gnu")
+    any(vapply(benign, function(p) grepl(p, msg, ignore.case = TRUE), logical(1)))
+  }
+  nonbenign_list <- list_warnings[!vapply(list_warnings, is_benign_tar_warning, logical(1))]
+  if (length(nonbenign_list) > 0) {
+    stop("Unsafe RAW tar listing failed: ", paste(nonbenign_list, collapse = "; "))
+  }
   if (length(list_warnings) > 0) {
-    stop("Unsafe RAW tar listing failed: ", paste(list_warnings, collapse = "; "))
+    message("Note: ignoring benign RAW tar listing warning(s): ",
+            paste(head(unique(list_warnings), 3), collapse = "; "))
   }
   if (length(members) == 0) {
     return(character(0))
@@ -118,12 +133,17 @@ safe_extract_idats_from_tar <- function(tar_file, exdir) {
   bad_status <- is.numeric(untar_status) &&
     length(untar_status) > 0 &&
     any(!is.na(untar_status) & untar_status != 0)
-  if (bad_status || length(untar_warnings) > 0) {
-    detail <- untar_warnings
+  nonbenign_extract <- untar_warnings[!vapply(untar_warnings, is_benign_tar_warning, logical(1))]
+  if (bad_status || length(nonbenign_extract) > 0) {
+    detail <- nonbenign_extract
     if (is.numeric(untar_status) && length(untar_status) > 0) {
       detail <- c(detail, paste("status", paste(untar_status, collapse = ",")))
     }
     stop("Unsafe RAW tar extraction failed: ", detail)
+  }
+  if (length(untar_warnings) > length(nonbenign_extract)) {
+    message("Note: ignoring benign RAW tar extraction warning(s) (e.g. pax/long-name); ",
+            "path-safety, symlink, escape, and regular-file checks still enforced.")
   }
   extracted <- list.files(exdir, pattern = "\\.idat(\\.gz)?$", full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
   if (length(extracted) == 0) {

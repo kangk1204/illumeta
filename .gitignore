@@ -93,3 +93,9 @@ illumeta_manuscript_package_*.zip
 claude_review_*.txt
 claude_error*.txt
 .omc/
+
+# Local paper/working docs (keep docs/assets/ for README screenshots)
+docs/dementia_*
+docs/gse66351_*
+docs/task9_*
+tests/test_final_manuscript_rerun_context.py

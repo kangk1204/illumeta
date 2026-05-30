@@ -1,4 +1,4 @@
-# ✨ IlluMeta: Automated DNA Methylation Analysis Pipeline
+# IlluMeta: Automated DNA Methylation Analysis Pipeline
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Focus](https://img.shields.io/badge/focus-Epigenetics-green.svg)]()
@@ -15,7 +15,7 @@
 
 ---
 
-## 🎯 What is IlluMeta?
+## What is IlluMeta?
 
 **IlluMeta** is a user-friendly tool for analyzing DNA methylation data from Illumina arrays (450K, EPIC, EPIC v2).
 
@@ -23,7 +23,7 @@
 
 **In simple terms:** DNA methylation is a chemical modification that can turn genes "on" or "off". Scientists study methylation differences between groups (e.g., healthy vs. disease) to understand biological processes and discover disease biomarkers.
 
-### Who is this for?
+###Who is this for?
 
 | You are... | IlluMeta helps you... |
 |------------|----------------------|
@@ -32,7 +32,7 @@
 | 👨‍💻 **Bioinformatician** | Save time with automated dual-pipeline analysis |
 | 📊 **Researcher** writing a paper | Generate reproducible figures and methods |
 
-### How does it work?
+###How does it work?
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
@@ -49,7 +49,7 @@
 
 ---
 
-## 📚 Key Terms (Glossary)
+## Key Terms (Glossary)
 
 New to DNA methylation analysis? Here are the key terms you'll encounter:
 
@@ -82,7 +82,7 @@ New to DNA methylation analysis? Here are the key terms you'll encounter:
 
 ---
 
-## 🚀 Quick Start (Copy & Paste)
+## Quick Start (Copy & Paste)
 
 > **Prerequisites:** You need `conda` (recommended) or `mamba`. If you don't have it yet, install **Miniforge (conda)** first (macOS/Ubuntu) using the snippet below.
 >
@@ -136,7 +136,7 @@ Tip: run `uname -m` to confirm your Mac architecture (`arm64` vs `x86_64`).
 If you use bash on macOS, replace `zsh` with `bash` and source `~/.bashrc` instead.
 </details>
 
-### Option A: One-line installer (Recommended for beginners)
+###Option A: One-line installer (Recommended for beginners)
 ```bash
 git clone https://github.com/kangk1204/illumeta.git
 cd illumeta
@@ -147,7 +147,7 @@ On Windows, run these commands inside the **Ubuntu (WSL2)** terminal and clone
 under the Linux home directory (for example `~/illumeta`). Avoid cloning under
 `/mnt/c`, OneDrive, or other Windows-mounted folders; those paths are slower and
 can cause permission/symlink problems during R package installation.
-This takes **30-60 minutes** (downloads R packages). Grab a coffee! ☕
+This takes **30-60 minutes** (downloads R packages). Grab a coffee.
 `--preflight` only checks prerequisites; it does **not** install the conda
 environment or R packages. The second command must finish before `doctor` is
 expected to pass.
@@ -166,30 +166,30 @@ Faster core-only install (skips optional cell references/RefFreeEWAS/planet; som
 git clone https://github.com/kangk1204/illumeta.git && cd illumeta && ./scripts/install_full.sh --minimal
 ```
 
-### Option B: Step-by-step
+###Option B: Step-by-step
 ```bash
-# 1) Clone and create conda environment
+#1) Clone and create conda environment
 git clone https://github.com/kangk1204/illumeta.git
 cd illumeta
 conda env create -f environment.yml
 conda activate illumeta
 
-# Sanity check (should point inside your conda env)
+#Sanity check (should point inside your conda env)
 which python
 python --version
 which Rscript
-# If you see /usr/bin/... here, your conda env is NOT active (restart your shell after `conda init`).
-# Use `python` (not `python3`) for IlluMeta commands to respect the active environment.
+#If you see /usr/bin/... here, your conda env is NOT active (restart your shell after `conda init`).
+#Use `python` (not `python3`) for IlluMeta commands to respect the active environment.
 
-# (macOS only — REQUIRED) Pre-install R packages that fail to compile from source on Apple Silicon:
-# conda install -c conda-forge r-stringi r-stringr r-tidyr r-plotly r-selectr r-rvest r-textshaping r-ragg r-systemfonts
+#(macOS only — REQUIRED) Pre-install R packages that fail to compile from source on Apple Silicon:
+#conda install -c conda-forge r-stringi r-stringr r-tidyr r-plotly r-selectr r-rvest r-textshaping r-ragg r-systemfonts
 
-# 2) Install R packages (takes 10-30 min)
+#2) Install R packages (takes 10-30 min)
 Rscript r_scripts/setup_env.R
-# Optional: faster core-only install (skips optional cell references/RefFreeEWAS/planet; some features disabled)
-# ILLUMETA_INSTALL_MINIMAL=1 Rscript r_scripts/setup_env.R
+#Optional: faster core-only install (skips optional cell references/RefFreeEWAS/planet; some features disabled)
+#ILLUMETA_INSTALL_MINIMAL=1 Rscript r_scripts/setup_env.R
 
-# 3) Verify installation
+#3) Verify installation
 python illumeta.py doctor
 ```
 
@@ -199,16 +199,16 @@ python illumeta.py doctor
 > and running standalone helper scripts. Beginners using conda can ignore those.
 > The simplest, path-safe way to run commands is the wrapper: `./scripts/illumeta <command>`.
 
-### Run an example
+###Run an example
 
 > **Note:** The first `analysis` run also installs R packages if they were not set up
 > separately (via `Rscript r_scripts/setup_env.R`). This one-time step may take 10-30 minutes.
 
 ```bash
-# Download a GEO dataset (Control vs Case, 450K)
+#Download a GEO dataset (Control vs Case, 450K)
 ./scripts/illumeta download GSE125605 -o projects/GSE125605
 
-# Run analysis with auto-grouping
+#Run analysis with auto-grouping
 ./scripts/illumeta analysis -i projects/GSE125605 \
   --group_con Control --group_test Case \
   --auto-group --group-column description \
@@ -218,7 +218,7 @@ python illumeta.py doctor
 **Expected time:** download ~2-10 min (network-dependent), analysis ~10-30 min on
 a typical laptop (longer on first run if R packages still need to install).
 
-**✅ Success looks like:**
+**Success looks like:**
 - The run ends with `Analysis complete` (no Python traceback / no `Error:` on the last lines).
 - A dashboard HTML file is created (see path below) and opens in a browser showing
   a volcano plot, a DMP/DMR table, and QC panels.
@@ -231,7 +231,7 @@ Open the dashboard:
 `projects/GSE125605/Case_vs_Control_results_index.html`
 If you set `-o/--output`, the dashboard path becomes `<output>_index.html`.
 
-> **⚠️ Adapting the example to your own data:** `--group-column description` and the
+> **Adapting the example to your own data:** `--group-column description` and the
 > `Control`/`Case` labels are specific to GSE125605's GEO metadata. For a different
 > dataset, first inspect the sample sheet (`configure.tsv`, written into the dataset
 > folder by `download`, or the dataset's GEO page) and pass the column that actually
@@ -242,13 +242,13 @@ If you set `-o/--output`, the dashboard path becomes `<output>_index.html`.
 
 ---
 
-## 📊 What You Get
+## What You Get
 
 *Interactive dashboard generated automatically. No additional coding required.*
 
 ---
 
-## 🚑 If Something Breaks
+## If Something Breaks
 
 Run the self-check doctor:
 
@@ -258,7 +258,7 @@ Run the self-check doctor:
 
 ---
 
-## 📦 OS-Specific Install (Collapsed)
+## OS-Specific Install (Collapsed)
 
 <details>
 <summary><strong>Windows (WSL2 required)</strong></summary>
@@ -286,15 +286,15 @@ Run the self-check doctor:
 
 ---
 
-## ✨ Why IlluMeta?
+## Why IlluMeta?
 
-### For Beginners
+###For Beginners
 - 🎯 **Simple workflow**: Just 3 commands from data to results
 - 🔍 **Automatic quality control**: Catches problems before they affect your analysis
 - 📊 **Interactive dashboard**: Explore results without coding
 - 📝 **Auto-generated methods**: Ready-to-use text for your paper
 
-### For Experts
+###For Experts
 - **Dual-pipeline design**: Runs **Minfi** and **SeSAMe** preprocessing independently with strict/native SeSAMe views
 - **Consensus calling**: High-confidence results where both methods agree; primary consensus p-values use a conservative selection rule, with Fisher's method retained only as an auxiliary ranking field.
 - **Adaptive batch correction**: Automatically selects optimal method (SVA/ComBat/limma)
@@ -319,7 +319,7 @@ Run the self-check doctor:
 
 </details>
 
-## Analysis Pipeline Overview
+##Analysis Pipeline Overview
 
 IlluMeta runs a fully automated dual-pipeline analysis. The diagram below shows the complete flow from raw IDAT files to the interactive dashboard:
 
@@ -372,7 +372,7 @@ Input: IDAT files + sample sheet
 
 **Key design principle**: Minfi and SeSAMe use fundamentally different preprocessing algorithms. By requiring significance in **both** pipelines (consensus intersection), IlluMeta minimizes false positives and increases reproducibility.
 
-## Dashboard Navigation
+##Dashboard Navigation
 
 IlluMeta generates an interactive HTML dashboard as the primary interface for exploring results. The dashboard includes:
 
@@ -388,7 +388,7 @@ Each pipeline tab contains expandable sections for Primary Results (volcano, Man
 
 For a complete dashboard guide with interpretation instructions, see the **Supplementary Data** document (available from the authors upon request).
 
-## Supplementary materials (recommended for manuscripts)
+##Supplementary materials (recommended for manuscripts)
 For transparency and reproducibility, we recommend including the following files in your Supplementary Materials:
 1. `preflight_report.json` - input data validation record
 2. `analysis_parameters.json` - full analysis parameters
@@ -396,20 +396,20 @@ For transparency and reproducibility, we recommend including the following files
 4. `CRF_Sample_Tier.csv` - sample size tier assessment
 5. `methods.md` - auto-generated Methods text
 
-## Scope and supported data
+##Scope and supported data
 - Supported: Illumina array IDATs (450k/EPIC/EPIC v2).
 - Not yet supported: WGBS or methyl-capture sequencing (planned extension).
 - Requirement: raw IDAT files must be available from GEO or provided manually.
 
-## Auto-group limitations (must-read)
+##Auto-group limitations (must-read)
 Auto-group is a convenience feature and **not** a substitute for manual group curation.
 - It relies on **heuristics/metadata text** and can mislabel samples if metadata is incomplete or ambiguous.
 - It is **not designed for multi-factor designs** (e.g., time-series + treatment + batch).
 - Always verify `primary_group` counts in `Input_Group_Distribution.csv` and spot-check sample metadata before interpreting results.
 
-## Installation
+##Installation
 
-> **Most users:** Just run the [Quick Start](#-quick-start-copy--paste) above. This section is for troubleshooting or advanced setup.
+> **Most users:** Just run the [Quick Start](#quick-start-copy--paste) above. This section is for troubleshooting or advanced setup.
 
 IlluMeta is easiest to install with **conda**. Windows users should use **WSL2 (Ubuntu)**.
 
@@ -417,7 +417,7 @@ Fresh machine recommendation:
 - Start with `./scripts/install_full.sh` only.
 - Use the detailed OS sections below only when the installer fails and you need manual recovery.
 
-### Quick full install (all OS)
+###Quick full install (all OS)
 
 Prerequisites (fresh machine):
 - `conda` or `mamba` in `PATH` (Miniforge recommended).
@@ -425,7 +425,7 @@ Prerequisites (fresh machine):
 - Ubuntu/WSL: `sudo apt-get update && sudo apt-get install -y git curl`
 
 > **No conda yet?** Use the per-OS Miniforge snippets in the
-> [Quick Start → Install conda](#-quick-start-copy--paste) section above
+> [Quick Start → Install conda](#quick-start-copy--paste) section above
 > (Linux/WSL, Apple Silicon, and Intel macOS are all covered there).
 
 ```bash
@@ -442,15 +442,15 @@ If you also want to build the Application Note DOCX / paper figures on the same 
 
 Optional (manuscript assets; requires local benchmark outputs):
 ```bash
-# Extra Python deps for manuscript assets (skip if you ran: ./scripts/install_full.sh --paper)
+#Extra Python deps for manuscript assets (skip if you ran: ./scripts/install_full.sh --paper)
 python -m pip install -r requirements-paper.txt
 
-# Main figure policy: single main figure (Figure1_Workflow.* at 350 dpi PNG + PDF)
-# Supplementary figures/tables are generated separately (e.g., FigureS2_Ablation_Lambda.*)
+#Main figure policy: single main figure (Figure1_Workflow.* at 350 dpi PNG + PDF)
+#Supplementary figures/tables are generated separately (e.g., FigureS2_Ablation_Lambda.*)
 
-# Note: manuscript builder/generator scripts and benchmark datasets are intentionally
-# not included in this repository (they may contain unpublished paper data).
-# Contact the authors for the full reproducible paper build pipeline.
+#Note: manuscript builder/generator scripts and benchmark datasets are intentionally
+#not included in this repository (they may contain unpublished paper data).
+#Contact the authors for the full reproducible paper build pipeline.
 ```
 
 <details>
@@ -503,9 +503,9 @@ R -q -e 'cat(R.version.string, "\n"); cat(R.home(), "\n")'
 <details>
 <summary><strong>🐧 Ubuntu / WSL2 - Detailed Installation</strong></summary>
 
-### Ubuntu (native or WSL2)
+###Ubuntu (native or WSL2)
 
-#### 0) Install prerequisites (Git + Conda)
+####0) Install prerequisites (Git + Conda)
 ```bash
 sudo apt-get update
 sudo apt-get install -y git curl
@@ -532,15 +532,15 @@ conda --version
 ```
 If your Ubuntu is ARM64, use `Miniforge3-Linux-aarch64.sh` instead.
 
-#### 1) Clone the repository
+####1) Clone the repository
 ```bash
 git clone https://github.com/kangk1204/illumeta.git
 cd illumeta
 ```
 
-#### 2) Create an environment (choose one)
+####2) Create an environment (choose one)
 
-##### Option A: Conda (recommended for beginners)
+#####Option A: Conda (recommended for beginners)
 This uses conda to provide R/Python plus the system libraries needed by many R packages.
 
 Recommended (default conda-forge):
@@ -568,8 +568,8 @@ R -q -e 'cat(R.home(), "\n")'
 ```
 `which R` should point inside the `illumeta` conda env.
 
-##### Option B: venv + system R
-###### Prerequisites
+#####Option B: venv + system R
+######Prerequisites
 - **Python** 3.8+
 - **R** 4.4+ recommended (required for EPIC v2; R 4.3 works for 450k/EPIC only)
 - **pandoc** (required for self-contained HTML reports via `htmlwidgets`)
@@ -586,7 +586,7 @@ sudo apt-get install -y \
   libgit2-dev
 ```
 
-###### Python environment
+######Python environment
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -594,20 +594,20 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-#### 3) Install R dependencies (first run / CI / reproducible setup)
+####3) Install R dependencies (first run / CI / reproducible setup)
 Before running `setup_env.R` (important for `devtools`/`roxygen2`/`xml2`):
 Conda (recommended):
 ```bash
 conda env update -f environment.yml --prune
-# Or, minimal install without full env update:
+#Or, minimal install without full env update:
 conda install -c conda-forge libxml2-devel zlib xz pkg-config
-# devtools/tidyverse extras:
+#devtools/tidyverse extras:
 conda install -c conda-forge libgit2 harfbuzz fribidi fontconfig expat
 ```
 System R (Ubuntu/WSL):
 ```bash
 sudo apt-get install -y libxml2-dev zlib1g-dev liblzma-dev pkg-config
-# devtools/tidyverse extras:
+#devtools/tidyverse extras:
 sudo apt-get install -y libgit2-dev libharfbuzz-dev libfribidi-dev libfontconfig1-dev libexpat1-dev
 ```
 
@@ -618,9 +618,9 @@ This installs required R/Bioconductor packages into the repo-local library (`.r-
 Recommended (Beginner, core features):
 - Works on R 4.3+ (EPIC v2 is optional).
 ```bash
-# Ensure your environment is activated first:
-# - Conda: conda activate illumeta
-# - venv:  source .venv/bin/activate
+#Ensure your environment is activated first:
+#- Conda: conda activate illumeta
+#- venv: source .venv/bin/activate
 
 ILLUMETA_CLEAN_MISMATCHED_RLIB=1 \
 ILLUMETA_DOWNLOAD_RETRIES=3 \
@@ -649,7 +649,7 @@ If you see errors like `libxml-2.0`, `xml2`, `lzma.h`, or `zlib.h` not found:
 - System R (Ubuntu/WSL): `sudo apt-get install -y libxml2-dev zlib1g-dev liblzma-dev pkg-config`
 Then rerun the setup command.
 
-#### 4) Check your environment (recommended)
+####4) Check your environment (recommended)
 ```bash
 ./scripts/illumeta doctor
 ```
@@ -661,9 +661,9 @@ use `python illumeta.py doctor` inside the activated environment.
 <details>
 <summary><strong>🍎 macOS (Apple Silicon & Intel) - Detailed Installation</strong></summary>
 
-### macOS (Apple Silicon M1-M4 and Intel)
+###macOS (Apple Silicon M1-M4 and Intel)
 
-#### 0) Install prerequisites (Git + Conda)
+####0) Install prerequisites (Git + Conda)
 
 **Step 1: Install Xcode Command Line Tools** (includes git and a macOS SDK):
 ```bash
@@ -709,15 +709,15 @@ If you use bash instead of zsh, replace `zsh` with `bash` and source `~/.bashrc`
 brew install cmake git pandoc pkg-config openssl@3 libxml2 freetype libpng libtiff jpeg webp harfbuzz fribidi fontconfig libgit2 libomp gcc
 ```
 
-#### 1) Clone the repository
+####1) Clone the repository
 ```bash
 git clone https://github.com/kangk1204/illumeta.git
 cd illumeta
 ```
 
-#### 2) Create an environment (choose one)
+####2) Create an environment (choose one)
 
-##### Option A: Conda (recommended for beginners)
+#####Option A: Conda (recommended for beginners)
 This uses conda to provide R/Python plus the system libraries needed by many R packages.
 
 Recommended (default conda-forge):
@@ -745,8 +745,8 @@ R -q -e 'cat(R.home(), "\n")'
 ```
 `which R` should point inside the `illumeta` conda env.
 
-##### Option B: venv + system R
-###### Prerequisites
+#####Option B: venv + system R
+######Prerequisites
 - **Python** 3.8+
 - **R** 4.4+ recommended (required for EPIC v2; R 4.3 works for 450k/EPIC only)
 - **pandoc** (required for self-contained HTML reports via `htmlwidgets`)
@@ -757,7 +757,7 @@ Install system libraries:
 brew install cmake git pandoc pkg-config openssl@3 libxml2 freetype libpng libtiff jpeg webp harfbuzz fribidi fontconfig libgit2 libomp gcc
 ```
 
-###### Python environment
+######Python environment
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -765,20 +765,20 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-#### 3) Install R dependencies (first run / CI / reproducible setup)
+####3) Install R dependencies (first run / CI / reproducible setup)
 Before running `setup_env.R` (important for `devtools`/`roxygen2`/`xml2`):
 Conda (recommended):
 ```bash
 conda env update -f environment.yml --prune
-# Or, minimal install without full env update:
+#Or, minimal install without full env update:
 conda install -c conda-forge libxml2-devel zlib xz pkg-config
-# devtools/tidyverse extras:
+#devtools/tidyverse extras:
 conda install -c conda-forge libgit2 harfbuzz fribidi fontconfig expat
 ```
 System R (macOS):
 ```bash
 brew install libxml2 zlib xz pkg-config
-# devtools/tidyverse extras:
+#devtools/tidyverse extras:
 brew install libgit2 harfbuzz fribidi fontconfig expat
 ```
 
@@ -789,9 +789,9 @@ This installs required R/Bioconductor packages into the repo-local library (`.r-
 Recommended (Beginner, core features):
 - Works on R 4.3+ (EPIC v2 is optional).
 ```bash
-# Ensure your environment is activated first:
-# - Conda: conda activate illumeta
-# - venv:  source .venv/bin/activate
+#Ensure your environment is activated first:
+#- Conda: conda activate illumeta
+#- venv: source .venv/bin/activate
 
 ILLUMETA_CLEAN_MISMATCHED_RLIB=1 \
 ILLUMETA_DOWNLOAD_RETRIES=3 \
@@ -820,7 +820,7 @@ If you see errors like `libxml-2.0`, `xml2`, `lzma.h`, or `zlib.h` not found:
 - System R (macOS): `brew install libxml2 zlib xz pkg-config`
 Then rerun the setup command.
 
-#### 4) Check your environment (recommended)
+####4) Check your environment (recommended)
 ```bash
 ./scripts/illumeta doctor
 ```
@@ -832,9 +832,9 @@ use `python illumeta.py doctor` inside the activated environment.
 <details>
 <summary><strong>🪟 Windows 11 (WSL2) - Detailed Installation</strong></summary>
 
-### Windows 11 (WSL2 + Ubuntu)
+###Windows 11 (WSL2 + Ubuntu)
 
-#### 0) Install prerequisites (WSL2 + Git + Conda)
+####0) Install prerequisites (WSL2 + Git + Conda)
 In **PowerShell (Admin)**:
 ```powershell
 wsl --install -d Ubuntu
@@ -872,15 +872,15 @@ source ~/.bashrc
 conda --version
 ```
 
-#### 1) Clone the repository
+####1) Clone the repository
 ```bash
 git clone https://github.com/kangk1204/illumeta.git
 cd illumeta
 ```
 
-#### 2) Create an environment (choose one)
+####2) Create an environment (choose one)
 
-##### Option A: Conda (recommended for beginners)
+#####Option A: Conda (recommended for beginners)
 This uses conda to provide R/Python plus the system libraries needed by many R packages.
 
 Recommended (default conda-forge):
@@ -908,8 +908,8 @@ R -q -e 'cat(R.home(), "\n")'
 ```
 `which R` should point inside the `illumeta` conda env.
 
-##### Option B: venv + system R
-###### Prerequisites
+#####Option B: venv + system R
+######Prerequisites
 - **Python** 3.8+
 - **R** 4.4+ recommended (required for EPIC v2; R 4.3 works for 450k/EPIC only)
 - **pandoc** (required for self-contained HTML reports via `htmlwidgets`)
@@ -926,7 +926,7 @@ sudo apt-get install -y \
   libgit2-dev
 ```
 
-###### Python environment
+######Python environment
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -934,20 +934,20 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-#### 3) Install R dependencies (first run / CI / reproducible setup)
+####3) Install R dependencies (first run / CI / reproducible setup)
 Before running `setup_env.R` (important for `devtools`/`roxygen2`/`xml2`):
 Conda (recommended):
 ```bash
 conda env update -f environment.yml --prune
-# Or, minimal install without full env update:
+#Or, minimal install without full env update:
 conda install -c conda-forge libxml2-devel zlib xz pkg-config
-# devtools/tidyverse extras:
+#devtools/tidyverse extras:
 conda install -c conda-forge libgit2 harfbuzz fribidi fontconfig expat
 ```
 System R (WSL/Ubuntu):
 ```bash
 sudo apt-get install -y libxml2-dev zlib1g-dev liblzma-dev pkg-config
-# devtools/tidyverse extras:
+#devtools/tidyverse extras:
 sudo apt-get install -y libgit2-dev libharfbuzz-dev libfribidi-dev libfontconfig1-dev libexpat1-dev
 ```
 
@@ -958,9 +958,9 @@ This installs required R/Bioconductor packages into the repo-local library (`.r-
 Recommended (Beginner, core features):
 - Works on R 4.3+ (EPIC v2 is optional).
 ```bash
-# Ensure your environment is activated first:
-# - Conda: conda activate illumeta
-# - venv:  source .venv/bin/activate
+#Ensure your environment is activated first:
+#- Conda: conda activate illumeta
+#- venv: source .venv/bin/activate
 
 ILLUMETA_CLEAN_MISMATCHED_RLIB=1 \
 ILLUMETA_DOWNLOAD_RETRIES=3 \
@@ -989,7 +989,7 @@ If you see errors like `libxml-2.0`, `xml2`, `lzma.h`, or `zlib.h` not found:
 - System R (Ubuntu/WSL): `sudo apt-get install -y libxml2-dev zlib1g-dev liblzma-dev pkg-config`
 Then rerun the setup command.
 
-#### 4) Check your environment (recommended)
+####4) Check your environment (recommended)
 ```bash
 ./scripts/illumeta doctor
 ```
@@ -1000,7 +1000,7 @@ use `python illumeta.py doctor` inside the activated environment.
 
 ---
 
-### Notes on R libraries
+###Notes on R libraries
 - IlluMeta stores packages in per-R-version subfolders (e.g., `.r-lib/R-4.4` or `~/.illumeta/r-lib/R-4.4`) to avoid mixing binaries across R versions. Switching R versions will create a new folder; rerun setup (you can delete old folders to reclaim space).
 - IlluMeta **defaults to a repo-local** R library under `.r-lib/R-<major.minor>` for reproducibility.
 - To keep an externally-set `R_LIBS_USER`, run with `ILLUMETA_RESPECT_R_LIBS_USER=1`.
@@ -1009,7 +1009,7 @@ use `python illumeta.py doctor` inside the activated environment.
 - To clean mismatched packages after switching R versions, run:
   `ILLUMETA_CLEAN_MISMATCHED_RLIB=1 ILLUMETA_FORCE_SETUP=1 Rscript r_scripts/setup_env.R`.
 
-## Docker (optional)
+##Docker (optional)
 Build the container:
 ```bash
 docker build -t illumeta .
@@ -1030,25 +1030,25 @@ docker run --rm -it -v "$PWD/projects":/app/projects illumeta analysis \
   --tier3-on-fail skip  # skip stratified analysis if batch confounding detected
 ```
 
-## First Analysis (After Installation)
+##First Analysis (After Installation)
 
-### 0) Choose your input type
+###0) Choose your input type
 - If you have **GEO**: follow steps 1–4 below.
 - If you have **your own IDATs**: see “Analyze your own IDATs (non-GEO)” right after this section.
 
-### 1) Download a dataset from GEO
+###1) Download a dataset from GEO
 ```bash
-# Activate your environment (choose one)
-# - Conda: conda activate illumeta
-# - venv:  source .venv/bin/activate
-# - Recommended after Option A installer: ./scripts/illumeta <subcommand> ...
+#Activate your environment (choose one)
+#- Conda: conda activate illumeta
+#- venv: source .venv/bin/activate
+#- Recommended after Option A installer: ./scripts/illumeta <subcommand> ...
 
 ./scripts/illumeta download GSE125605 -o projects/GSE125605
-# If a GEO series has multiple platforms, force one by GPL ID:
+#If a GEO series has multiple platforms, force one by GPL ID:
 ./scripts/illumeta download GSE125605 -o projects/GSE125605 --platform GPL13534
 ```
 
-### 2) Assign groups (manual or auto)
+###2) Assign groups (manual or auto)
 Option A (manual):
 Edit `projects/GSE125605/configure.tsv` and fill in `primary_group` (e.g., `Control` / `Case`).
 `configure.tsv` must be **tab-delimited (TSV)**; CSV is not supported.
@@ -1065,7 +1065,7 @@ If your dataset's `primary_group` is empty, IlluMeta can populate it from metada
 ```
 If your grouping is encoded in GEO characteristics, you can use `--group-key` (e.g., `--group-key disease`).
 
-### 3) Run analysis
+###3) Run analysis
 ```bash
 ./scripts/illumeta analysis \
   -i projects/GSE125605 \
@@ -1078,7 +1078,7 @@ If you filled `primary_group` manually (Option A), you can omit the `--auto-grou
 Note: the default output folder name is derived from the group labels. If it contains non-ASCII characters, IlluMeta normalizes it to a safe ASCII name for filesystem compatibility (the dashboard filename follows the folder name).
 Optional (signal preservation checks):
 ```bash
-# Provide a CpG marker list (TSV/CSV with CpG column or one CpG per line)
+#Provide a CpG marker list (TSV/CSV with CpG column or one CpG per line)
 ./scripts/illumeta analysis \
   -i projects/GSE125605 \
   --group_con Control \
@@ -1089,12 +1089,12 @@ Optional (signal preservation checks):
 ```
 This generates `*_Signal_Preservation.csv` and (if provided) `*_Known_Marker_Summary.csv`.
 
-### 4) Open the dashboard
+###4) Open the dashboard
 Open the generated HTML:
 `projects/GSE125605/Case_vs_Control_results_index.html`
 If you used `-o/--output <OUT_DIR>`, open `<OUT_DIR>_index.html` instead.
 
-### 5) Interpret results (beginner checklist)
+###5) Interpret results (beginner checklist)
 
 **🎯 Quick interpretation guide:**
 
@@ -1122,19 +1122,19 @@ If you used `-o/--output <OUT_DIR>`, open `<OUT_DIR>_index.html` instead.
 - Many samples failing QC → data quality problems
 - Zero consensus DMPs but many pipeline-specific → methods disagree (check data)
 
-## Usage
+##Usage
 
-### Search GEO for IDAT-enabled datasets
+###Search GEO for IDAT-enabled datasets
 Beginner-friendly flow:
 1) Activate your environment (conda or venv).
 2) Run a search with simple keywords.
 3) Open the TSV and pick a GSE ID to analyze.
 
 ```bash
-# Required: --keywords (use quotes for multi-word queries)
+#Required: --keywords (use quotes for multi-word queries)
 python illumeta.py search --keywords "breast cancer" --email your_email@example.com -o search_results.tsv
 
-# Faster (skip FTP supplement checks)
+#Faster (skip FTP supplement checks)
 python illumeta.py search --keywords "breast cancer" --no-check-suppl -o search_results.tsv
 ```
 Output columns:
@@ -1146,7 +1146,7 @@ IlluMeta requires raw IDATs; `download` will stop if no IDATs are available.
 If you see `Error: Python package 'requests' is missing`, install it via:
 `pip install -r requirements.txt` (inside your env).
 
-### Check installation (illumeta doctor)
+###Check installation (illumeta doctor)
 Use this before a first run or when something looks wrong. It does not install anything.
 ```bash
 ./scripts/illumeta doctor
@@ -1159,7 +1159,7 @@ How to read the output:
 Note: For EPIC v2 (~936k) datasets, IlluMeta requires EPICv2 manifest/annotation packages and will stop if they are missing. If you plan to run EPIC v2, set `ILLUMETA_REQUIRE_EPICV2=1` before running setup.
 
 
-### Analyze your own IDATs (non-GEO)
+###Analyze your own IDATs (non-GEO)
 1. Create `my_project/idat/` and place `_Grn.idat` / `_Red.idat` pairs there.
 2. Create `my_project/configure.tsv` with at least (tab-delimited TSV; CSV is not supported):
    - `Basename` (e.g., `idat/Sample1_R01C01`)
@@ -1179,7 +1179,7 @@ python illumeta.py analysis -i my_project --group_con Untreated --group_test Tre
 ```
 If IDAT files are stored outside the project directory, pass `--idat-dir` as an absolute path or verify the resolved directory reported in the run log.
 
-### Auto-grouping (optional)
+###Auto-grouping (optional)
 If your metadata already contains a reliable group column, IlluMeta can populate `primary_group` automatically:
 ```bash
 python illumeta.py analysis -i projects/GSE12345 \
@@ -1199,64 +1199,64 @@ Auto-group decisions and warnings are recorded in `preflight_report.json`.
 Auto-grouping is heuristic; always verify group counts and labels before interpreting results, especially when multiple categorical columns exist.
 Auto-group prioritizes columns with high coverage and low category counts; numeric-coded categories (e.g., 0/1) are supported, while highly fragmented columns or heavy missingness are rejected.
 
-### Common analysis options
+###Common analysis options
 ```bash
-# Auto-group from a metadata column
+#Auto-group from a metadata column
 python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case \
   --auto-group --group-column disease_state --group-map "normal=Control,tumor=Case"
 
-# Tighten thresholds
+#Tighten thresholds
 python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --pval 0.01 --lfc 1.0
 
-# Add an absolute Delta Beta filter
+#Add an absolute Delta Beta filter
 python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --delta-beta 0.05
 
-# Beginner-safe mode (stricter group checks + conservative thresholds)
+#Beginner-safe mode (stricter group checks + conservative thresholds)
 python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --beginner-safe
 
-# Disable SVA (very small n)
+#Disable SVA (very small n)
 python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --disable-sva
 
-# Provide covariates to always try (if present in configure.tsv)
+#Provide covariates to always try (if present in configure.tsv)
 python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --include-covariates age,sex
 
-# Use epigenetic clocks as candidate covariates (auto-selected if relevant)
+#Use epigenetic clocks as candidate covariates (auto-selected if relevant)
 python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --include-clock-covariates
 
-# Placenta reference cell composition + clocks (planet)
+#Placenta reference cell composition + clocks (planet)
 python illumeta.py analysis -i projects/GSE307314 --group_con control --group_test test --tissue Placenta
 
-# Auto tissue inference from configure.tsv (falls back to RefFreeEWAS)
+#Auto tissue inference from configure.tsv (falls back to RefFreeEWAS)
 python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --tissue Auto
 
-# Custom cell reference (package, package::object, or .rds/.rda)
+#Custom cell reference (package, package::object, or .rds/.rda)
 python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case \
   --tissue Blood --cell-reference FlowSorted.Blood.EPIC
 
-# Custom cell reference with explicit platform string
+#Custom cell reference with explicit platform string
 python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case \
   --tissue Blood --cell-reference refs/blood_ref.rds --cell-reference-platform IlluminaHumanMethylationEPIC
 
-# Enable sesame dyeBiasCorrTypeINorm (disabled by default for stability)
+#Enable sesame dyeBiasCorrTypeINorm (disabled by default for stability)
 python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --sesame-typeinorm
 
-# Mixed-array safeguard override (only if you know what you're doing)
+#Mixed-array safeguard override (only if you know what you're doing)
 python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --force-idat
 
-# Permutation-based null test ("perm")
-# Note: there is no `illumeta perm` command; use --permutations with analysis.
+#Permutation-based null test ("perm")
+#Note: there is no `illumeta perm` command; use --permutations with analysis.
 python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --permutations 50
 
-# Disable the Python wrapper timeout for manuscript-scale cohorts.
-# Default analysis timeout is 86400 seconds; use this only when another monitor controls the job.
+#Disable the Python wrapper timeout for manuscript-scale cohorts.
+#Default analysis timeout is 86400 seconds; use this only when another monitor controls the job.
 ILLUMETA_TIMEOUT=0 python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case
 ```
 
-### Cell Composition Estimation
+###Cell Composition Estimation
 
 IlluMeta estimates cell type composition to adjust for cellular heterogeneity, which is critical for accurate differential methylation analysis.
 
-#### Supported Methods
+####Supported Methods
 
 | `--tissue` | Method | Cell Types | Best For |
 |------------|--------|------------|----------|
@@ -1267,7 +1267,7 @@ IlluMeta estimates cell type composition to adjust for cellular heterogeneity, w
 | `DLPFC` | FlowSorted.DLPFC | NeuN+, NeuN- | Brain (prefrontal cortex) |
 | `Saliva` | FlowSorted.Saliva.450k | Epithelial, Immune | Saliva samples |
 
-#### Which method should I use?
+####Which method should I use?
 
 <details>
 <summary><strong>Decision guide (click to expand)</strong></summary>
@@ -1294,19 +1294,19 @@ IlluMeta estimates cell type composition to adjust for cellular heterogeneity, w
 
 </details>
 
-#### Examples
+####Examples
 ```bash
-# Reference-free (works for any tissue)
+#Reference-free (works for any tissue)
 python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --tissue Auto
 
-# Blood samples with reference-based deconvolution
+#Blood samples with reference-based deconvolution
 python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --tissue Blood
 
-# Placenta samples
+#Placenta samples
 python illumeta.py analysis -i projects/GSE12345 --group_con Control --group_test Case --tissue Placenta
 ```
 
-### Permutation test ("perm") for beginners
+###Permutation test ("perm") for beginners
 This checks how many significant DMPs you would get by chance if labels were shuffled.
 
 How to run it:
@@ -1318,11 +1318,11 @@ python illumeta.py analysis \
   --permutations 50
 ```
 
-### Benchmarking & Robustness (Recommended for papers)
+###Benchmarking & Robustness (Recommended for papers)
 Use these scripts to report objective QC, batch correction, and robustness metrics across datasets.
 
 ```bash
-# 1) Build a benchmark summary table across multiple GSE runs
+#1) Build a benchmark summary table across multiple GSE runs
 python3 scripts/build_benchmark_table.py \
   --input-tsv benchmarks/benchmark_inputs.tsv \
   --projects-root projects \
@@ -1330,24 +1330,24 @@ python3 scripts/build_benchmark_table.py \
   --output-md benchmarks/benchmark_summary.md \
   --require-consistent-code-version
 
-# 2) Generate a primary-branch summary table + figure
+#2) Generate a primary-branch summary table + figure
 python3 scripts/build_benchmark_figures.py \
   --input-tsv benchmarks/benchmark_summary.tsv \
   --out-dir benchmarks
 
-# 3) Quantify batch correction (PVCA before/after)
+#3) Quantify batch correction (PVCA before/after)
 python3 scripts/build_correction_summary.py \
   --root projects \
   --out-dir benchmarks/correction_summary
 
-# 4) Run ablation variants (SVA on/off, auto-covariates on/off, etc.)
+#4) Run ablation variants (SVA on/off, auto-covariates on/off, etc.)
 python3 scripts/ablation_runner.py \
   -i projects/GSE12345 \
   --group-con Control \
   --group-test Case \
   --out-root ablation_runs/GSE12345
 
-# Optional: include sesame TypeINorm variant (experimental)
+#Optional: include sesame TypeINorm variant (experimental)
 python3 scripts/ablation_runner.py \
   -i projects/GSE12345 \
   --group-con Control \
@@ -1355,7 +1355,7 @@ python3 scripts/ablation_runner.py \
   --variants baseline,sesame_typeinorm
 ```
 
-### Cross-cohort CpG meta-analysis
+###Cross-cohort CpG meta-analysis
 Use `illumeta meta` after completing multiple IlluMeta runs for the same biological contrast. This command performs CpG-level meta-analysis across cohorts while keeping preprocessing branches separate.
 
 ```bash
@@ -1401,7 +1401,7 @@ Tips:
 - Results are saved as `*_Permutation_Results.csv` and `*_Permutation_Summary.csv`.
 - The dashboard shows **Perm mean/max sig (null)** so you can compare against real results.
 
-### Robustness / ablation (for manuscripts)
+###Robustness / ablation (for manuscripts)
 IlluMeta writes per-pipeline metrics to help assess robustness:
 - `Minfi_Metrics.csv`, `Sesame_Metrics.csv`, `Sesame_Native_Metrics.csv` (lambda, batch stats, SV/covariate usage, permutation stats)
 - `*_Ablation_Summary.csv` (raw vs corrected batch metrics)
@@ -1423,7 +1423,7 @@ Lambda guard + variancePartition autoscale settings live in `config.yaml`.
 To create one, copy the template into your project directory:
 ```bash
 cp config.yaml.template projects/GSE125605/config.yaml
-# Edit as needed — IlluMeta looks for config.yaml next to configure.tsv
+#Edit as needed — IlluMeta looks for config.yaml next to configure.tsv
 ```
 Example settings:
 ```yaml
@@ -1438,7 +1438,7 @@ variance_partition:
   autoscale_on_fail: true
 ```
 
-### Multi-GEO benchmark table
+###Multi-GEO benchmark table
 Build a long-form benchmark table (one row per pipeline per dataset):
 ```bash
 python3 scripts/build_benchmark_table.py \
@@ -1458,7 +1458,7 @@ The summary table now includes objective QC/robustness indicators such as:
 - Tier3/DMR status and primary-branch overrides (if any)
 - `code_version` and `code_version_status` so mixed-commit benchmark folders are visible before plotting
 
-### Paper-ready summary figure
+###Paper-ready summary figure
 Generate a compact table + figure from the benchmark TSV (primary branch only by default):
 ```bash
 python3 scripts/build_benchmark_figures.py \
@@ -1472,7 +1472,7 @@ Outputs:
 Tip: add `--all-rows` to include every pipeline row instead of collapsing to the primary branch.
 Convention: the summary figure treats **Intersection_Native** as the primary consensus view and **Intersection_Strict** as a sensitivity view.
 
-### Smoke tests (multi-run)
+###Smoke tests (multi-run)
 Prepare a TSV with columns `config`, `group_con`, `group_test` (optional: `name`, `output`, `extra_args`) and run:
 ```bash
 python3 scripts/run_smoke_pipeline.py \
@@ -1484,11 +1484,11 @@ Outputs:
 - `benchmarks/smoke_runs/smoke_report.tsv`: per-run status summary
 - `benchmarks/smoke_runs/logs/*.log`: full stdout/stderr for each run
 
-## Outputs (what to use in a paper)
+##Outputs (what to use in a paper)
 
 IlluMeta writes results to the analysis output directory (default: `[input]/[test]_vs_[con]_results/`).
 
-### Reproducibility
+###Reproducibility
 - `methods.md`: auto-generated methods summary for the run.
 - `summary.json`: primary result mode (tier3 vs standard), Tier3 meta method (fixed/random/auto), lambda guard status, DMR status, and sesame normalization notes.
 - `analysis_parameters.json`: thresholds, presets, and scoring weights used for optimization.
@@ -1500,7 +1500,7 @@ IlluMeta writes results to the analysis output directory (default: `[input]/[tes
 - `Minfi_UnmethylatedSignal_PreFilter.tsv.gz`: pre-filter unmethylated signal matrix (after normalization, before sample/probe QC; all samples).
 - `Minfi_DetectionP_PreFilter.tsv.gz`: pre-filter detection P-value matrix (all samples; GEO processed/normalized requirement).
 
-### GEO submission helper
+###GEO submission helper
 Generate a manifest (and optional bundle) of processed files for GEO:
 ```bash
 python3 scripts/prepare_geo_submission.py \
@@ -1519,7 +1519,7 @@ Outputs:
 - `Correction_Adequacy_Summary.csv`: CAF component scores for the primary branch (calibration/preservation/batch/NCS) plus the overall CAF score (`caf_score`; older runs may show the legacy metric name `cai`) and `lambda_ratio`.
   `lambda_ratio` is a heuristic observed-vs-null context metric, not a causal confounding classifier by itself.
 
-### QC
+###QC
 - `Preflight_Summary.csv`: preflight checks and group counts before processing.
 - `Preflight_IDAT_Pairs.csv`: per-sample IDAT pair existence check.
 - `QC_Summary.csv`: sample/probe QC counts.
@@ -1527,7 +1527,7 @@ Outputs:
 - `Sample_QC_DetectionP_FailFraction.png` and `Sample_QC_Intensity_Medians.png`: static QC figures (HTML versions are also saved).
 - Defaults: detection P threshold 0.05, sample fail fraction 0.20, intensity median threshold log2 9.0 (override with `--qc-detection-p-threshold`, `--qc-sample-fail-frac`, `--qc-intensity-threshold`).
 
-### Differential methylation (per pipeline)
+###Differential methylation (per pipeline)
 For each pipeline (`Minfi`, `Sesame` = strict/Minfi-aligned, `Sesame_Native` = native Sesame):
 - `*_DMPs_full.csv`: full differential methylation results table.
 - `*_Volcano.html/.png`, `*_Manhattan.html/.png`, `*_QQPlot.html/.png`
@@ -1535,7 +1535,7 @@ For each pipeline (`Minfi`, `Sesame` = strict/Minfi-aligned, `Sesame_Native` = n
 - `*_DMR_Volcano.html/.png`, `*_DMR_Manhattan.html/.png`, `*_DMR_Heatmap.html/.png`
 - If Tier3 confounding is detected, DMRs are emitted from the stratified/meta primary results as `*_Tier3_Primary_DMRs.*`.
 
-### Consensus (intersection) call set
+###Consensus (intersection) call set
 - `Intersection_Consensus_DMPs.csv` and `Intersection_Consensus_DMPs.html` (strict)
 - `Intersection_Native_Consensus_DMPs.csv` and `Intersection_Native_Consensus_DMPs.html` (native)
 - `Intersection*_LogFC_Concordance.html/.png` (minfi vs sesame logFC concordance)
@@ -1544,7 +1544,7 @@ For each pipeline (`Minfi`, `Sesame` = strict/Minfi-aligned, `Sesame_Native` = n
 >
 > **Column note**: `P.Value` and `adj.P.Val` in the consensus CSV are the conservative selection-rule values (`max` of minfi and sesame p-values/FDR values). Fisher's combined probability values are retained only as auxiliary `P.Value.fisher_ranking` / `adj.P.Val.fisher_ranking` columns.
 
-## Troubleshooting
+##Troubleshooting
 
 Start here:
 ```bash
@@ -1593,7 +1593,7 @@ Common issues:
 - **CSV configure file**: IlluMeta requires `configure.tsv` to be **tab-delimited**. Convert CSV to TSV and retry.
 - **Auto-group failed**: IlluMeta could not find a reliable grouping column; pass `--group-column` or `--group-key`, or edit `configure.tsv` manually.
 
-## ❓ Frequently Asked Questions (FAQ)
+## Frequently Asked Questions (FAQ)
 
 <details>
 <summary><strong>🆕 I'm completely new to methylation analysis. Where do I start?</strong></summary>
@@ -1689,13 +1689,13 @@ If stuck for >2x expected time:
 Yes! Just specify a different output folder:
 
 ```bash
-# Stricter thresholds
+#Stricter thresholds
 python illumeta.py analysis -i projects/GSE12345 \
   --group_con Control --group_test Case \
   --pval 0.01 --lfc 1.0 \
   --output projects/GSE12345/strict_results
 
-# Different batch correction
+#Different batch correction
 python illumeta.py analysis -i projects/GSE12345 \
   --group_con Control --group_test Case \
   --disable-sva \
@@ -1706,9 +1706,9 @@ python illumeta.py analysis -i projects/GSE12345 \
 
 ---
 
-## Known Limitations
+##Known Limitations
 
-### Sesame pthread errors on non-standard R builds
+###Sesame pthread errors on non-standard R builds
 
 On certain R installations (particularly with OpenBLAS or non-standard threading configurations), Sesame's internal parallelization may trigger `pthread` errors or segmentation faults. IlluMeta automatically:
 1. Detects these errors during Sesame normalization
@@ -1721,7 +1721,7 @@ If you see warnings like `"pthread_create: Resource temporarily unavailable"` or
 ILLUMETA_SESAME_SINGLE_THREAD=1 python illumeta.py analysis ...
 ```
 
-### Small sample size limitations
+###Small sample size limitations
 
 IlluMeta implements a sample-size-adaptive Correction Robustness Framework (CRF):
 CRF combines Multi-Method Concordance (MMC), Negative-Control Stability (NCS),
@@ -1738,7 +1738,7 @@ Tier assignment uses a **dual-condition** (OR) rule: a dataset enters a lower ti
 
 For minimal/small tiers, interpret results cautiously and plan for replication in independent cohorts.
 
-### EPIC v2 (EPICv2) array support
+###EPIC v2 (EPICv2) array support
 
 IlluMeta supports EPIC v2 arrays with automatic manifest detection. However:
 - Some probe annotations may differ between EPIC v1 and v2
@@ -1747,14 +1747,14 @@ IlluMeta supports EPIC v2 arrays with automatic manifest detection. However:
 - Full source-list rebuild still needs reachable source files (or local mirrors / pre-provided lists).
 - DMR analysis uses EPIC v1 annotations; v2-specific boundaries may vary slightly
 
-### Multi-batch studies
+###Multi-batch studies
 
 When analyzing studies with multiple batches:
 - ComBat assumes balanced designs; highly imbalanced batches may introduce bias
 - For >=3 batches with small per-batch n, use `--tier3-on-fail skip` if Tier 3 stratification is ineligible
 - Cross-platform (450K + EPIC) studies should subset to overlapping probes first
 
-## Citing IlluMeta
+##Citing IlluMeta
 
 If you use IlluMeta in your research, please cite:
 
@@ -1762,5 +1762,5 @@ If you use IlluMeta in your research, please cite:
 
 See `CITATION.cff` for machine-readable citation metadata.
 
-## License
+##License
 Apache-2.0 (see `LICENSE`).

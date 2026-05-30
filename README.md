@@ -193,6 +193,12 @@ Rscript r_scripts/setup_env.R
 python illumeta.py doctor
 ```
 
+> **`python` vs `python3`?** After `conda activate illumeta`, always use **`python`**
+> for IlluMeta commands so the active environment is used. `python3` appears in this
+> README only for two unrelated purposes: creating a `venv` (`python3 -m venv ...`)
+> and running standalone helper scripts. Beginners using conda can ignore those.
+> The simplest, path-safe way to run commands is the wrapper: `./scripts/illumeta <command>`.
+
 ### Run an example
 
 > **Note:** The first `analysis` run also installs R packages if they were not set up
@@ -209,9 +215,30 @@ python illumeta.py doctor
   --tier3-on-fail skip  # skip stratified analysis if batch confounding detected
 ```
 
+**Expected time:** download ~2-10 min (network-dependent), analysis ~10-30 min on
+a typical laptop (longer on first run if R packages still need to install).
+
+**✅ Success looks like:**
+- The run ends with `Analysis complete` (no Python traceback / no `Error:` on the last lines).
+- A dashboard HTML file is created (see path below) and opens in a browser showing
+  a volcano plot, a DMP/DMR table, and QC panels.
+- Quick check from the terminal:
+  ```bash
+  ls projects/GSE125605/*_results*_index.html   # the dashboard should be listed
+  ```
+
 Open the dashboard:
 `projects/GSE125605/Case_vs_Control_results_index.html`
 If you set `-o/--output`, the dashboard path becomes `<output>_index.html`.
+
+> **⚠️ Adapting the example to your own data:** `--group-column description` and the
+> `Control`/`Case` labels are specific to GSE125605's GEO metadata. For a different
+> dataset, first inspect the sample sheet (`configure.tsv`, written into the dataset
+> folder by `download`, or the dataset's GEO page) and pass the column that actually
+> contains your groups, e.g. `--group-column "disease state"`. (You can also skip
+> `--auto-group` and instead fill the `primary_group` column in `configure.tsv` by
+> hand.) If auto-grouping cannot find the labels, the run stops with a clear message
+> telling you which column/values were expected.
 
 ---
 
@@ -397,43 +424,9 @@ Prerequisites (fresh machine):
 - macOS: `xcode-select --install` (includes git + macOS SDK headers)
 - Ubuntu/WSL: `sudo apt-get update && sudo apt-get install -y git curl`
 
-<details>
-<summary><strong>❓ No conda yet? Install Miniforge (recommended)</strong></summary>
-
-Linux (x86_64):
-```bash
-curl -L -o Miniforge3.sh \
-  https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
-bash Miniforge3.sh -b -p "$HOME/miniforge3"
-"$HOME/miniforge3/bin/conda" init bash
-source ~/.bashrc
-conda --version
-```
-If your Linux is ARM64, use `Miniforge3-Linux-aarch64.sh` instead.
-
-macOS:
-Apple Silicon (arm64):
-```bash
-curl -L -o Miniforge3.sh \
-  https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-arm64.sh
-bash Miniforge3.sh -b -p "$HOME/miniforge3"
-"$HOME/miniforge3/bin/conda" init zsh
-source ~/.zshrc
-conda --version
-```
-
-Intel (x86_64):
-```bash
-curl -L -o Miniforge3.sh \
-  https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-x86_64.sh
-bash Miniforge3.sh -b -p "$HOME/miniforge3"
-"$HOME/miniforge3/bin/conda" init zsh
-source ~/.zshrc
-conda --version
-```
-Tip: run `uname -m` to confirm your Mac architecture (`arm64` vs `x86_64`).
-If you use bash on macOS, replace `zsh` with `bash` and source `~/.bashrc` instead.
-</details>
+> **No conda yet?** Use the per-OS Miniforge snippets in the
+> [Quick Start → Install conda](#-quick-start-copy--paste) section above
+> (Linux/WSL, Apple Silicon, and Intel macOS are all covered there).
 
 ```bash
 git clone https://github.com/kangk1204/illumeta.git
@@ -455,17 +448,9 @@ python -m pip install -r requirements-paper.txt
 # Main figure policy: single main figure (Figure1_Workflow.* at 350 dpi PNG + PDF)
 # Supplementary figures/tables are generated separately (e.g., FigureS2_Ablation_Lambda.*)
 
-# Note: manuscript builder/generator scripts are intentionally not included in this repository.
+# Note: manuscript builder/generator scripts and benchmark datasets are intentionally
+# not included in this repository (they may contain unpublished paper data).
 # Contact the authors for the full reproducible paper build pipeline.
-
-# Figure 1C/1D benchmark cohort set used in current submission build
-# (benchmarks/application_note_submission_results symlinks)
-# - GSE121633
-# - GSE125605
-# - GSE286028
-# - GSE289196
-# - GSE299721
-# - GSE208529
 ```
 
 <details>

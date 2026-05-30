@@ -352,6 +352,26 @@ class RDesignInvariantTests(unittest.TestCase):
         self.assertIn("cdx = cdx,", source)
         self.assertNotIn("cdx_res$cai", source)
 
+    def test_cdx_robustness_contracts(self):
+        """Lock the reliability fixes for public use: legacy caf config honored,
+        lambda_tol recorded for reproducibility, stale legacy artifacts cleaned,
+        NaN-safe composite, and the selector guard tied to the lambda_tol score."""
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+
+        # Legacy `caf:` config block is honored (not silently ignored) after the rename.
+        self.assertIn("config_settings$caf", source)
+        self.assertIn("merge_config_defaults(cdx_cfg, config_settings$caf)", source)
+        # The new calibration parameter is recorded in the reproducibility outputs.
+        self.assertIn("calibration_lambda_tol = config_settings$calibration$lambda_tol", source)
+        # Same-dir reruns also clean the pre-rename Correction_Adequacy_* artifacts.
+        self.assertIn('"Correction_Adequacy_Report.txt"', source)
+        self.assertIn('"Correction_Adequacy_Summary.csv"', source)
+        # Composite weighted mean cannot become NaN from a 0-weight finite component.
+        self.assertIn("keep <- is.finite(scores) & is.finite(w) & w > 0", source)
+        # Selector calibration guard derives from the lambda_tol-driven score.
+        self.assertIn("guard_cal <- is.finite(cal_score) && cal_score >= 0.5", source)
+
     def test_plot_tooltips_use_short_gene_display_labels(self):
         with open(ANALYZE_R, "r", encoding="utf-8") as handle:
             source = handle.read()

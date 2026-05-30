@@ -805,6 +805,13 @@ cell_adjustment_action <- tolower(trimws(cell_adjustment_action))
 if (!cell_adjustment_action %in% c("warn", "stop")) cell_adjustment_action <- "warn"
 
 cdx_cfg <- config_settings$cdx
+# Back-compat: a legacy `caf:` block (pre-CDx rename) is still honored, with a
+# deprecation note, so existing config.yaml files are not silently ignored.
+if (!is.null(config_settings$caf) && is.list(config_settings$caf)) {
+  message("NOTE: config key 'caf:' is deprecated (renamed to 'cdx:'). Honoring the ",
+          "legacy 'caf:' values for this run; please rename it to 'cdx:'.")
+  cdx_cfg <- merge_config_defaults(cdx_cfg, config_settings$caf)
+}
 cdx_enabled <- isTRUE(cdx_cfg$enabled)
 cdx_target_fpr <- suppressWarnings(as.numeric(if (!is.null(cdx_cfg$target_fpr)) cdx_cfg$target_fpr else 0.05))
 if (!is.finite(cdx_target_fpr) || cdx_target_fpr <= 0) cdx_target_fpr <- 0.05
@@ -847,6 +854,8 @@ stale_success_files <- c(
   "decision_ledger.tsv",
   "Correction_Diagnostics_Report.txt",
   "Correction_Diagnostics_Summary.csv",
+  "Correction_Adequacy_Report.txt",
+  "Correction_Adequacy_Summary.csv",
   "Correction_Robustness_Report.txt",
   "CRF_MMC_Summary.csv",
   "CRF_NCS_Summary.csv",
@@ -1528,9 +1537,10 @@ select_batch_strategy <- function(betas, targets, batch_col, batch_tier, covaria
       scoring_preset$weights$stab * ifelse(is.finite(stab), stab, 0.5)
     guard_batch <- is.finite(row$batch_score) && row$batch_score >= scoring_preset$guards$batch_reduction_min
     guard_bio <- is.finite(row$bio_score) && row$bio_score >= scoring_preset$guards$bio_min
-    # Calibration guard: the permutation-null lambda must sit in the well-calibrated
-    # band [0.8, 1.2] (same band the CDx report flags as lambda_ok).
-    guard_cal <- is.finite(lambda_med) && lambda_med >= 0.8 && lambda_med <= 1.2
+    # Calibration guard derived from the SAME lambda_tol-driven score, so it scales
+    # with config.calibration.lambda_tol (cal_score >= 0.5 corresponds to lambda within
+    # [lambda_tol^-0.5, lambda_tol^0.5], i.e. ~[0.82, 1.22] at the default tol=1.5).
+    guard_cal <- is.finite(cal_score) && cal_score >= 0.5
     if (guard_batch && guard_bio && guard_cal) {
       borderline <- 0
       if (row$batch_score < (scoring_preset$guards$batch_reduction_min + 0.05)) borderline <- borderline + 1
@@ -2156,8 +2166,11 @@ compute_cdx_scores <- function(perm_summary, perm_n_probes,
 
   scores <- c(calibration = cal_score, preservation = pres_score, batch = batch_reduction, ncs = ncs_score)
   w <- weights
-  keep <- is.finite(scores)
-  cdx <- if (any(keep)) sum(scores[keep] * w[keep]) / sum(w[keep]) else NA_real_
+  # Only finite components with a strictly positive weight contribute. This avoids
+  # a 0/0 NaN in the edge case where the only finite component carries weight 0
+  # (e.g. NCS finite at its default weight 0 while the others are NA).
+  keep <- is.finite(scores) & is.finite(w) & w > 0
+  cdx <- if (any(keep) && sum(w[keep]) > 0) sum(scores[keep] * w[keep]) / sum(w[keep]) else NA_real_
 
   observed_lambda_all <- suppressWarnings(as.numeric(observed_lambda_all))
   observed_lambda_vp_top <- suppressWarnings(as.numeric(observed_lambda_vp_top))
@@ -10238,6 +10251,7 @@ tryCatch({
     confounding_tier1_r2 = config_settings$confounding$tier1_r2,
     confounding_tier2_r2 = config_settings$confounding$tier2_r2,
     calibration_ks_p = config_settings$calibration$ks_p,
+    calibration_lambda_tol = config_settings$calibration$lambda_tol,
     cdx_enabled = cdx_enabled,
     cdx_target_fpr = cdx_target_fpr,
     cdx_weights = cdx_weights,
@@ -10474,9 +10488,9 @@ tryCatch({
     sprintf("- Optimization preset: `%s` (weights on batch removal, biology preservation, calibration, stability).", preset_name),
     sprintf("- CRF sample tier: %s (total_n=%d; min_per_group=%d).",
             crf_tier, crf_tier_info$total_n, crf_tier_info$min_per_group),
-    "- Calibration: permutation tests shuffle labels within batch strata to assess p-value uniformity (KS) and inflation.",
+    "- Calibration: permutation tests shuffle labels within batch strata; the calibration score is the two-sided closeness of the permutation-null genomic-inflation lambda to 1 (p-value uniformity KS and null FPR are reported as auxiliary diagnostics).",
     "- Lambda guard is a heuristic inflation check; interpret with EWAS correlation structure in mind.",
-    sprintf("- Correction Diagnostics (CDx): combines calibration (target FPR=%.2f), signal preservation, and batch removal into a single CDx score; see `Correction_Diagnostics_Report.txt`.", cdx_target_fpr),
+    sprintf("- Correction Diagnostics (CDx): combines calibration (null-lambda closeness to 1, tolerance=%.2f), signal preservation, and batch removal into a single CDx score; see `Correction_Diagnostics_Report.txt`.", config_settings$calibration$lambda_tol),
     "- Decision ledger: automated decisions (covariates, batch choice, method) are logged with reasons.",
     "",
     "## Differential methylation (DMP)",

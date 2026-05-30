@@ -64,3 +64,38 @@ and use only tiny synthetic inputs (no R, no `illumeta.py analysis`).
   full), E (OOM/timeout), and the `illumeta.py` orchestration pipeline
   (download-URL building, config merge, group auto-detection, results discovery).
 - No slow/GPU tests. Run: `python3 -m pytest -q tests/test_pipeline_robustness.py`
+
+---
+
+# Failure-Mode Matrix — `illumeta.py` orchestration pipeline
+
+Tested: 2026-05-30 | Stages: 5 | Tests: 49 | Pass: 49 | Fail: 0
+
+Scope: the pure-Python CLI-orchestration helpers (no network, no R subprocess).
+Tests in `tests/test_orchestration_robustness.py`. **Tested clean — no gaps
+found**; the value is documented robustness plus regression locks for the
+previously-fixed HIGH-1 (whitespace group merge) and MED-1 (GEO URL bucket).
+
+| Stage \ Failure mode | A1 missing | A2 empty | A3 single-class | A4 type/garbage | A6 range/boundary | C1 missing | C2 perm | C4 path |
+|---|---|---|---|---|---|---|---|---|
+| **O1 id/timeout valid** | — | ✅ | — | ✅ | ✅ | — | — | — |
+| **O2 GEO URL build**    | — | — | — | ✅ | ✅ | — | — | — |
+| **O3 group resolution** | ✅ | ✅ | ✅ | ✅ | — | — | — | — |
+| **O4 IDAT path resolve**| — | ✅ | — | — | — | ✅ | — | ✅ |
+| **O5 atomic write**     | — | — | — | — | — | — | ✅ | — |
+
+## Cell provenance
+
+- O1·A2/A4 `test_o1_A4_gse_validation` (×8) + `test_o1_A4_gse_non_string_is_false` (×5), O1·A6 `test_o1_A6_gse_max_digits_boundary`, O1 timeout `test_o1_timeout_disable_values_return_none` (×8) + `test_o1_timeout_finite_values` + `test_o1_A4_timeout_garbage_raises_valueerror` (×5)
+- O2·A4 `test_o2_A4_invalid_gse_raises` (×4), O2·A6 `test_o2_A6_url_bucket_boundaries` (×5: GSE1/999→GSEnnn, 1000→GSE1nnn, 12345→GSE12nnn, 100000→GSE100nnn)
+- O3·A1 `test_o3_A1_all_missing_returns_none`, O3·A2 `test_o3_A2_empty_column_returns_none` + `test_o3_A2_profile_values_empty_no_crash`, O3·A3 `test_o3_A3_single_class_returns_none`, O3·A4 `test_o3_A4_mixed_types_no_crash`, O3·A7 `test_o3_A7_whitespace_padding_merges_groups`
+- O4·A2 `test_o4_A2_empty_arg_returns_none`, O4·C1 `test_o4_C1_relative_nonexistent_returns_candidate_no_crash`, O4·C4 `test_o4_C4_absolute_path_passthrough` + `test_o4_relative_existing_resolves`
+- O5·C2 `test_o5_C2_atomic_write_readonly_raises_oserror`, O5 roundtrip `test_o5_atomic_write_text_roundtrip`
+
+## Coverage notes
+
+- Tested clean — 0 failing cells. Categories: A1–A4, A6, C1/C2/C4.
+- NOT tested (network/R-bound, out of pure-Python scope): GEO download/retry,
+  RAW-tar extraction (covered in R: `test_r_design_invariants.py`), config-row
+  loading from real sample sheets, the full `analysis`/`download` subcommands.
+- Combined robustness suites: 29 (meta) + 49 (orchestration) tests; full repo suite **231 passed**.

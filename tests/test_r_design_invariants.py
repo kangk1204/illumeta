@@ -325,14 +325,28 @@ class RDesignInvariantTests(unittest.TestCase):
         self.assertIn('"methods.md"', source)
         self.assertIn("unlink(stale_success_paths, force = TRUE)", source)
 
-    def test_caf_public_metric_label_is_caf_score(self):
+    def test_cdx_public_metric_label_is_cdx_score(self):
         with open(ANALYZE_R, "r", encoding="utf-8") as handle:
             source = handle.read()
 
-        caf_block = source.split('write.csv(caf_df, file.path(out_dir, paste0(prefix, "_CAF_Summary.csv"))', 1)[0]
-        caf_block = caf_block.rsplit("caf_df <- data.frame", 1)[1]
-        self.assertIn('"caf_score"', caf_block)
-        self.assertNotIn('"cai"', caf_block)
+        cdx_block = source.split('write.csv(cdx_df, file.path(out_dir, paste0(prefix, "_CDx_Summary.csv"))', 1)[0]
+        cdx_block = cdx_block.rsplit("cdx_df <- data.frame", 1)[1]
+        self.assertIn('"cdx_score"', cdx_block)
+        self.assertNotIn('"cai"', cdx_block)
+
+    def test_cdx_calibration_is_two_sided_lambda_based(self):
+        """CDx calibration must use the two-sided permutation-null lambda closeness,
+        not the saturating null-FPR-vs-alpha comparison, and the internal field is 'cdx'."""
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+
+        # Primary calibration is the two-sided closeness of the permutation-null
+        # genomic-inflation lambda (perm_lambda) to 1 on a log2 scale.
+        self.assertIn("cal_lambda_tol <- 1.5", source)
+        self.assertIn("clamp01(1 - abs(log2(perm_lambda)) / log2(cal_lambda_tol))", source)
+        # The internal composite field is unified to 'cdx' (no legacy 'cai').
+        self.assertIn("cdx = cdx,", source)
+        self.assertNotIn("cdx_res$cai", source)
 
     def test_plot_tooltips_use_short_gene_display_labels(self):
         with open(ANALYZE_R, "r", encoding="utf-8") as handle:

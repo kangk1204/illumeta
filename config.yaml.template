@@ -45,13 +45,13 @@ unsafe:
   skip_cross_reactive: false
   skip_sex_check: false
 
-caf:
+cdx:
   enabled: true
   profile: auto  # auto | conservative | discovery
   target_fpr: 0.05
   weights:
-    # Weights for the CAF score (Correction Adequacy Framework score). Components are [0, 1] and weights are normalized internally.
-    # - calibration: permutation-based null FPR alignment
+    # Weights for the CDx score (Correction Diagnostics score). Components are [0, 1] and weights are normalized internally.
+    # - calibration: closeness of the permutation-null genomic-inflation lambda to 1 (two-sided; null FPR reported as auxiliary)
     # - preservation: marker retention + effect concordance
     # - batch: reduction in batch-associated signals
     # - ncs: negative-control stability score (lambda near 1.0 is better)

@@ -297,9 +297,9 @@ Run the self-check doctor:
 ### For Experts
 - **Dual-pipeline design**: Runs **Minfi** and **SeSAMe** preprocessing independently with strict/native SeSAMe views
 - **Consensus calling**: High-confidence results where both methods agree; primary consensus p-values use a conservative selection rule, with Fisher's method retained only as an auxiliary ranking field.
-- **Adaptive batch correction**: Automatically selects optimal method (SVA/ComBat/limma)
+- **Adaptive batch correction**: Automatically selects a batch-correction method (none/SVA/ComBat/limma) using pre-specified, contrast-independent criteria; method sensitivity is reported (CRF/MMC), not hidden
 - **Bonferroni-corrected covariate selection**: PC-association screening with per-variable α/n_tested_PCs correction
-- **CRF (Correction Robustness Framework)**: Sample-size-adaptive quality assessment (MMC, NCS, RSS, CVD — see below)
+- **CRF (Correction Robustness Framework)**: Sample-size-adaptive robustness reporting (MMC, NCS, RSS, CVD — see below) that down-weights claims from low-power cohorts
 - **Full reproducibility**: All parameters and decisions logged
 
 <details>
@@ -362,7 +362,7 @@ Input: IDAT files + sample sheet
                  ▼
         ┌───────────────────────────────────────┐
         │  CRF Robustness Assessment            │
-        │  + CAF Score + Signal Preservation    │
+        │  + CDx Score + Signal Preservation    │
         │  + summary.json + decision_ledger.tsv │
         └────────┬──────────────────────────────┘
                  │
@@ -1515,8 +1515,9 @@ Outputs:
 - `config_used.yaml`: resolved config and preset details.
 - `decision_ledger.tsv`: automated decision log (covariates, batch strategy, consensus branch).
 - `preflight_report.json`: preflight summary (includes auto-group info when used).
-- `Correction_Adequacy_Report.txt`: Correction Adequacy Framework (CAF) report for the primary branch.
-- `Correction_Adequacy_Summary.csv`: CAF component scores for the primary branch (calibration/preservation/batch/NCS) plus the overall CAF score (`caf_score`; older runs may show the legacy metric name `cai`) and `lambda_ratio`.
+- `Correction_Diagnostics_Report.txt`: Correction Diagnostics (CDx) report for the primary branch. CDx is a **transparent composite of standard correction diagnostics** (calibration, signal preservation, batch-association reduction) — a reporting aid to surface obvious problems, **not** a validated guarantee that the correction is "adequate". Interpret it alongside the per-component scores and the method-sensitivity tables (CRF/MMC).
+- `Correction_Diagnostics_Summary.csv`: CDx component scores for the primary branch (calibration/preservation/batch/NCS) plus the overall CDx score (`cdx_score`; older runs may show legacy metric names `caf_score` or `cai`) and `lambda_ratio`.
+  **Calibration** is the two-sided closeness of the permutation-null genomic-inflation λ to 1 — it penalizes both residual inflation (λ > 1) and over-correction (λ < 1); the permutation-null FPR is reported as an auxiliary diagnostic only.
   `lambda_ratio` is a heuristic observed-vs-null context metric, not a causal confounding classifier by itself.
 
 ### QC
@@ -1726,6 +1727,13 @@ ILLUMETA_SESAME_SINGLE_THREAD=1 python illumeta.py analysis ...
 IlluMeta implements a sample-size-adaptive Correction Robustness Framework (CRF):
 CRF combines Multi-Method Concordance (MMC), Negative-Control Stability (NCS),
 Resampling Stability Score (RSS), and Confounding Variance Decomposition (CVD, PVCA-based).
+
+CRF and CDx are not new statistics: each axis operationalizes an established
+diagnostic — permutation-null calibration, batch-association/PVCA variance
+decomposition, cross-method concordance, subsampling stability, and sample-size
+power tiering. IlluMeta's contribution is unifying them into automated,
+reproducible guardrails that gate how strongly results are reported, so that
+low-power or method-sensitive findings are surfaced rather than overclaimed.
 
 | Tier | Total n | Per-group min | Key limitations |
 |------|---------|---------------|-----------------|

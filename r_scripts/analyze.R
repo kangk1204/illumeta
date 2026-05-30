@@ -328,7 +328,7 @@ CONFIG_DEFAULTS <- list(
     skip_cross_reactive = FALSE,
     skip_sex_check = FALSE
   ),
-  caf = list(
+  cdx = list(
     enabled = TRUE,
     profile = "auto",
     target_fpr = 0.05,
@@ -804,10 +804,10 @@ if (nzchar(opt$cell_adjustment_on_high_eta2)) {
 cell_adjustment_action <- tolower(trimws(cell_adjustment_action))
 if (!cell_adjustment_action %in% c("warn", "stop")) cell_adjustment_action <- "warn"
 
-caf_cfg <- config_settings$caf
-caf_enabled <- isTRUE(caf_cfg$enabled)
-caf_target_fpr <- suppressWarnings(as.numeric(if (!is.null(caf_cfg$target_fpr)) caf_cfg$target_fpr else 0.05))
-if (!is.finite(caf_target_fpr) || caf_target_fpr <= 0) caf_target_fpr <- 0.05
+cdx_cfg <- config_settings$cdx
+cdx_enabled <- isTRUE(cdx_cfg$enabled)
+cdx_target_fpr <- suppressWarnings(as.numeric(if (!is.null(cdx_cfg$target_fpr)) cdx_cfg$target_fpr else 0.05))
+if (!is.finite(cdx_target_fpr) || cdx_target_fpr <= 0) cdx_target_fpr <- 0.05
 
 tier3_min_total_n <- suppressWarnings(as.integer(if (!is.null(config_settings$tier3_meta$min_total_n))
   config_settings$tier3_meta$min_total_n else 20))
@@ -845,8 +845,8 @@ stale_success_files <- c(
   "analysis_parameters.json",
   "sessionInfo.txt",
   "decision_ledger.tsv",
-  "Correction_Adequacy_Report.txt",
-  "Correction_Adequacy_Summary.csv",
+  "Correction_Diagnostics_Report.txt",
+  "Correction_Diagnostics_Summary.csv",
   "Correction_Robustness_Report.txt",
   "CRF_MMC_Summary.csv",
   "CRF_NCS_Summary.csv",
@@ -1365,7 +1365,7 @@ run_permutation_uniformity <- function(betas, targets, group_col, covariates, ba
 #'
 #' Evaluates multiple batch correction methods (none, ComBat, limma, SVA) and
 #' covariate combinations to select the optimal strategy based on a weighted
-#' scoring system (Correction Adequacy Framework, CAF).
+#' scoring system (Correction Diagnostics, CDx).
 #'
 #' @param betas Numeric matrix of beta values (CpGs x samples)
 #' @param targets Data frame with sample metadata
@@ -2039,21 +2039,21 @@ fmt_val <- function(x, digits = 3) {
   sprintf(paste0("%.", digits, "f"), x)
 }
 
-resolve_caf_weights <- function(caf_cfg, preset_name = "conservative") {
-  # Conservative default keeps the original 3-term CAF weighting.
+resolve_cdx_weights <- function(cdx_cfg, preset_name = "conservative") {
+  # Conservative default keeps the original 3-term CDx weighting.
   # NCS is optional and contributes only when explicitly given a non-zero weight.
-  # If any component is unavailable, finite components are renormalized in compute_caf_scores().
+  # If any component is unavailable, finite components are renormalized in compute_cdx_scores().
   default_weights <- c(calibration = 0.40, preservation = 0.35, batch = 0.25, ncs = 0.00)
-  if (is.null(caf_cfg)) return(default_weights)
-  profile <- ifelse(is.null(caf_cfg$profile), "auto", tolower(as.character(caf_cfg$profile)))
+  if (is.null(cdx_cfg)) return(default_weights)
+  profile <- ifelse(is.null(cdx_cfg$profile), "auto", tolower(as.character(cdx_cfg$profile)))
   if (profile == "auto") {
     profile <- ifelse(preset_name == "aggressive", "discovery", "conservative")
   }
   w_in <- NULL
-  if (!is.null(caf_cfg$weights$calibration)) {
-    w_in <- caf_cfg$weights
-  } else if (!is.null(caf_cfg$weights[[profile]])) {
-    w_in <- caf_cfg$weights[[profile]]
+  if (!is.null(cdx_cfg$weights$calibration)) {
+    w_in <- cdx_cfg$weights
+  } else if (!is.null(cdx_cfg$weights[[profile]])) {
+    w_in <- cdx_cfg$weights[[profile]]
   } else {
     w_in <- default_weights
   }
@@ -2070,9 +2070,9 @@ resolve_caf_weights <- function(caf_cfg, preset_name = "conservative") {
   w / w_sum
 }
 
-caf_weights <- resolve_caf_weights(caf_cfg, preset_name)
+cdx_weights <- resolve_cdx_weights(cdx_cfg, preset_name)
 
-compute_caf_scores <- function(perm_summary, perm_n_probes,
+compute_cdx_scores <- function(perm_summary, perm_n_probes,
                                effect_metrics, marker_metrics,
                                batch_before, batch_after,
                                weights, target_fpr = 0.05,
@@ -2096,7 +2096,20 @@ compute_caf_scores <- function(perm_summary, perm_n_probes,
   } else {
     NA_real_
   }
-  cal_score <- if (is.finite(null_fpr) && is.finite(target_fpr) && target_fpr > 0) {
+  # Calibration: how well-behaved the test statistics are under a within-batch
+  # label-permutation null. The primary metric is the closeness of the
+  # permutation-null genomic-inflation lambda to 1 -- the standard, sample-size
+  # robust EWAS/GWAS calibration object. It is two-sided: it penalizes both
+  # residual inflation (lambda > 1, undercorrected confounding) and over-correction
+  # deflation (lambda < 1). This replaces an earlier null-FPR-vs-alpha comparison,
+  # which compared an FDR-filtered null discovery rate to a per-test alpha (two
+  # different scales) and therefore saturated to a near-constant value. The
+  # permutation null FPR is still reported (null_fpr) as an auxiliary diagnostic
+  # and is used only as a fallback when the null lambda is unavailable.
+  cal_lambda_tol <- 1.5  # tolerance tied to the lambda-guard default; graded to 0 at lambda = 1.5 or 1/1.5
+  cal_score <- if (is.finite(perm_lambda) && perm_lambda > 0) {
+    clamp01(1 - abs(log2(perm_lambda)) / log2(cal_lambda_tol))
+  } else if (is.finite(null_fpr) && is.finite(target_fpr) && target_fpr > 0) {
     if (null_fpr <= target_fpr) 1 else clamp01(1 - (null_fpr - target_fpr) / target_fpr)
   } else {
     NA_real_
@@ -2126,7 +2139,7 @@ compute_caf_scores <- function(perm_summary, perm_n_probes,
   scores <- c(calibration = cal_score, preservation = pres_score, batch = batch_reduction, ncs = ncs_score)
   w <- weights
   keep <- is.finite(scores)
-  cai <- if (any(keep)) sum(scores[keep] * w[keep]) / sum(w[keep]) else NA_real_
+  cdx <- if (any(keep)) sum(scores[keep] * w[keep]) / sum(w[keep]) else NA_real_
 
   observed_lambda_all <- suppressWarnings(as.numeric(observed_lambda_all))
   observed_lambda_vp_top <- suppressWarnings(as.numeric(observed_lambda_vp_top))
@@ -2151,7 +2164,7 @@ compute_caf_scores <- function(perm_summary, perm_n_probes,
     preservation_score = pres_score,
     batch_reduction = batch_reduction,
     ncs_score = ncs_score,
-    cai = cai,
+    cdx = cdx,
     weights = w,
     observed_lambda_all = observed_lambda_all,
     observed_lambda_vp_top = observed_lambda_vp_top,
@@ -2163,23 +2176,23 @@ flag_ok <- function(cond) {
   if (isTRUE(cond)) "OK" else "WARN"
 }
 
-build_caf_report_lines <- function(prefix, applied_batch_method, n_con, n_test,
-                                   perm_n, perm_n_probes, caf_res, marker_metrics, target_fpr,
+build_cdx_report_lines <- function(prefix, applied_batch_method, n_con, n_test,
+                                   perm_n, perm_n_probes, cdx_res, marker_metrics, target_fpr,
                                    observed_lambda_all = NA_real_,
                                    observed_lambda_vp_top = NA_real_) {
-  if (is.null(caf_res)) return(NULL)
+  if (is.null(cdx_res)) return(NULL)
   total_n <- n_con + n_test
-  null_fpr <- caf_res$null_fpr
+  null_fpr <- cdx_res$null_fpr
   cal_ok <- is.finite(null_fpr) && abs(null_fpr - target_fpr) <= target_fpr
-  lambda_ok <- is.finite(caf_res$null_lambda) && caf_res$null_lambda >= 0.8 && caf_res$null_lambda <= 1.2
-  ks_ok <- is.finite(caf_res$null_ks_p) && caf_res$null_ks_p > 0.05
+  lambda_ok <- is.finite(cdx_res$null_lambda) && cdx_res$null_lambda >= 0.8 && cdx_res$null_lambda <= 1.2
+  ks_ok <- is.finite(cdx_res$null_ks_p) && cdx_res$null_ks_p > 0.05
   marker_count <- if (!is.null(marker_metrics)) marker_metrics$markers_in_data else NA
-  marker_ret <- caf_res$marker_retention
-  effect_corr <- caf_res$effect_concordance
+  marker_ret <- cdx_res$marker_retention
+  effect_corr <- cdx_res$effect_concordance
   observed_lambda_all <- suppressWarnings(as.numeric(observed_lambda_all))
   observed_lambda_vp_top <- suppressWarnings(as.numeric(observed_lambda_vp_top))
   lines <- c(
-    "CORRECTION ADEQUACY REPORT",
+    "CORRECTION DIAGNOSTICS REPORT",
     "===============================================",
     sprintf("Pipeline: %s", prefix),
     sprintf("Batch method: %s", applied_batch_method),
@@ -2188,37 +2201,37 @@ build_caf_report_lines <- function(prefix, applied_batch_method, n_con, n_test,
     "1. CALIBRATION (Permutation-based)",
     sprintf("  Permutations run: %s", ifelse(is.finite(perm_n), perm_n, "NA")),
     sprintf("  Null FP rate: %s (target %.2f) [%s]", fmt_val(null_fpr), target_fpr, flag_ok(cal_ok)),
-    sprintf("  Null Lambda: %s [%s]", fmt_val(caf_res$null_lambda), flag_ok(lambda_ok)),
+    sprintf("  Null Lambda: %s [%s]", fmt_val(cdx_res$null_lambda), flag_ok(lambda_ok)),
     sprintf("  Observed Lambda (all CpGs): %s", fmt_val(observed_lambda_all)),
     sprintf("  Observed Lambda (vp_top CpGs): %s (n=%s)", fmt_val(observed_lambda_vp_top),
             ifelse(is.finite(perm_n_probes), as.integer(perm_n_probes), "NA")),
-    sprintf("  Lambda Ratio (vp_top obs/null): %s [%s]", fmt_val(caf_res$lambda_ratio),
-            if (is.finite(caf_res$lambda_ratio)) {
-              if (caf_res$lambda_ratio > 2) "strong deviation vs null (heuristic; review PVCA/covariates)"
-              else if (caf_res$lambda_ratio > 1.2) "moderate deviation vs null (heuristic; review PVCA/covariates)"
+    sprintf("  Lambda Ratio (vp_top obs/null): %s [%s]", fmt_val(cdx_res$lambda_ratio),
+            if (is.finite(cdx_res$lambda_ratio)) {
+              if (cdx_res$lambda_ratio > 2) "strong deviation vs null (heuristic; review PVCA/covariates)"
+              else if (cdx_res$lambda_ratio > 1.2) "moderate deviation vs null (heuristic; review PVCA/covariates)"
               else "close to null (heuristic; weak enrichment vs null)"
             } else {
               if (is.finite(observed_lambda_all) && observed_lambda_all <= 1.2) "N/A (observed lambda not inflated)"
               else "N/A"
             }),
-    sprintf("  KS test p-value: %s [%s]", fmt_val(caf_res$null_ks_p), flag_ok(ks_ok)),
-    sprintf("  CALIBRATION SCORE: %s [%s]", fmt_val(caf_res$calibration_score), score_grade(caf_res$calibration_score)),
+    sprintf("  KS test p-value: %s [%s]", fmt_val(cdx_res$null_ks_p), flag_ok(ks_ok)),
+    sprintf("  CALIBRATION SCORE: %s [%s]", fmt_val(cdx_res$calibration_score), score_grade(cdx_res$calibration_score)),
     "",
     "2. SIGNAL PRESERVATION",
     sprintf("  Known markers tested: %s", ifelse(is.finite(marker_count), marker_count, "NA")),
     sprintf("  Marker retention: %s", fmt_val(marker_ret)),
     sprintf("  Effect concordance (logFC r): %s", fmt_val(effect_corr)),
-    sprintf("  PRESERVATION SCORE: %s [%s]", fmt_val(caf_res$preservation_score), score_grade(caf_res$preservation_score)),
+    sprintf("  PRESERVATION SCORE: %s [%s]", fmt_val(cdx_res$preservation_score), score_grade(cdx_res$preservation_score)),
     "",
     "3. BATCH REMOVAL",
-    sprintf("  Batch reduction ratio: %s", fmt_val(caf_res$batch_reduction)),
-    sprintf("  BATCH REMOVAL SCORE: %s [%s]", fmt_val(caf_res$batch_reduction), score_grade(caf_res$batch_reduction)),
+    sprintf("  Batch reduction ratio: %s", fmt_val(cdx_res$batch_reduction)),
+    sprintf("  BATCH REMOVAL SCORE: %s [%s]", fmt_val(cdx_res$batch_reduction), score_grade(cdx_res$batch_reduction)),
     "",
     "4. NEGATIVE CONTROL STABILITY (NCS)",
-    sprintf("  NCS score: %s [%s]", fmt_val(caf_res$ncs_score), score_grade(caf_res$ncs_score)),
+    sprintf("  NCS score: %s [%s]", fmt_val(cdx_res$ncs_score), score_grade(cdx_res$ncs_score)),
     "",
-    "OVERALL CAF SCORE",
-    sprintf("  CAF score: %s [%s]", fmt_val(caf_res$cai), score_grade(caf_res$cai))
+    "OVERALL CDx SCORE",
+    sprintf("  CDx score: %s [%s]", fmt_val(cdx_res$cdx), score_grade(cdx_res$cdx))
   )
   if (is.null(marker_metrics) || !is.finite(marker_ret)) {
     lines <- c(lines, "", "NOTE: Marker list not provided or no markers found; preservation uses effect concordance only.")
@@ -2907,7 +2920,7 @@ run_crf_assessment <- function(betas_raw, betas_corr, targets, covariates, tier_
     }
   }
   if (nrow(ncs_summary) > 0) {
-    # Convert NCS lambda to a continuous score in [0, 1] to make it usable for CAF/Verdict.
+    # Convert NCS lambda to a continuous score in [0, 1] to make it usable for CDx/Verdict.
     # Score is tier-adaptive: larger tolerance for minimal tiers, stricter for larger cohorts.
     ncs_tol <- 0.2
     if (!is.null(tier_info$tier)) {
@@ -8662,7 +8675,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
       dmr_status = "skipped",
       dmr_reason = "lmfit_failed",
       dmr_strategy = "standard",
-      caf_score = NA_real_,
+      cdx_score = NA_real_,
       best_candidate_score = best_candidate_score,
       covariates_used = used_covariates,
       sv_used = sv_cols,
@@ -8696,7 +8709,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
       dmr_status = "skipped",
       dmr_reason = "ebayes_failed",
       dmr_strategy = "standard",
-      caf_score = NA_real_,
+      cdx_score = NA_real_,
       best_candidate_score = best_candidate_score,
       covariates_used = used_covariates,
       sv_used = sv_cols,
@@ -9517,50 +9530,50 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
                                        "standard_model"))
   tier3_batch_val <- ifelse(is.null(tier3_batch), "", tier3_batch)
 
-  caf_res <- NULL
-  caf_report_lines <- NULL
-	  if (isTRUE(caf_enabled)) {
-      caf_ncs_score <- NA_real_
+  cdx_res <- NULL
+  cdx_report_lines <- NULL
+	  if (isTRUE(cdx_enabled)) {
+      cdx_ncs_score <- NA_real_
       if (!is.null(crf_report) && !is.null(crf_report$ncs_best_score)) {
-        caf_ncs_score <- crf_report$ncs_best_score
+        cdx_ncs_score <- crf_report$ncs_best_score
       }
-	    caf_res <- compute_caf_scores(
+	    cdx_res <- compute_cdx_scores(
 	      perm_summary = perm_summary,
 	      perm_n_probes = perm_n_probes,
 	      effect_metrics = effect_metrics,
 	      marker_metrics = marker_metrics,
 	      batch_before = batch_before,
 	      batch_after = batch_after,
-	      weights = caf_weights,
-	      target_fpr = caf_target_fpr,
+	      weights = cdx_weights,
+	      target_fpr = cdx_target_fpr,
 	      observed_lambda_all = lambda_val,
 	      observed_lambda_vp_top = lambda_vp_top,
-	      ncs_score = caf_ncs_score
+	      ncs_score = cdx_ncs_score
 	    )
-	    caf_report_lines <- build_caf_report_lines(prefix, applied_batch_method, n_con_local, n_test_local,
-	                                               perm_n, perm_n_probes, caf_res, marker_metrics, caf_target_fpr,
+	    cdx_report_lines <- build_cdx_report_lines(prefix, applied_batch_method, n_con_local, n_test_local,
+	                                               perm_n, perm_n_probes, cdx_res, marker_metrics, cdx_target_fpr,
 	                                               observed_lambda_all = lambda_val,
 	                                               observed_lambda_vp_top = lambda_vp_top)
-	    if (!is.null(caf_res)) {
-	      caf_df <- data.frame(
-	        metric = c("calibration_score", "preservation_score", "batch_removal_score", "ncs_score", "caf_score",
+	    if (!is.null(cdx_res)) {
+	      cdx_df <- data.frame(
+	        metric = c("calibration_score", "preservation_score", "batch_removal_score", "ncs_score", "cdx_score",
 	                   "null_fpr", "null_lambda", "null_ks_p",
 	                   "lambda_observed_all", "lambda_observed_vp_top", "lambda_ratio",
 	                   "marker_retention", "effect_concordance",
 	                   "batch_reduction_ratio",
 	                   "weight_calibration", "weight_preservation", "weight_batch", "weight_ncs"),
-	        value = c(caf_res$calibration_score, caf_res$preservation_score, caf_res$batch_reduction, caf_res$ncs_score,
-	                  caf_res$cai, caf_res$null_fpr, caf_res$null_lambda, caf_res$null_ks_p,
-	                  caf_res$observed_lambda_all, caf_res$observed_lambda_vp_top, caf_res$lambda_ratio,
-	                  caf_res$marker_retention, caf_res$effect_concordance, caf_res$batch_reduction,
-	                  caf_res$weights[["calibration"]], caf_res$weights[["preservation"]], caf_res$weights[["batch"]],
-	                  caf_res$weights[["ncs"]]),
+	        value = c(cdx_res$calibration_score, cdx_res$preservation_score, cdx_res$batch_reduction, cdx_res$ncs_score,
+	                  cdx_res$cdx, cdx_res$null_fpr, cdx_res$null_lambda, cdx_res$null_ks_p,
+	                  cdx_res$observed_lambda_all, cdx_res$observed_lambda_vp_top, cdx_res$lambda_ratio,
+	                  cdx_res$marker_retention, cdx_res$effect_concordance, cdx_res$batch_reduction,
+	                  cdx_res$weights[["calibration"]], cdx_res$weights[["preservation"]], cdx_res$weights[["batch"]],
+	                  cdx_res$weights[["ncs"]]),
 	        stringsAsFactors = FALSE
 	      )
-      write.csv(caf_df, file.path(out_dir, paste0(prefix, "_CAF_Summary.csv")), row.names = FALSE)
+      write.csv(cdx_df, file.path(out_dir, paste0(prefix, "_CDx_Summary.csv")), row.names = FALSE)
     }
-    if (!is.null(caf_report_lines)) {
-      writeLines(caf_report_lines, file.path(out_dir, paste0(prefix, "_CAF_Report.txt")))
+    if (!is.null(cdx_report_lines)) {
+      writeLines(cdx_report_lines, file.path(out_dir, paste0(prefix, "_CDx_Report.txt")))
     }
   }
   
@@ -9579,7 +9592,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
 		               "dropped_covariates",
 		               "perm_mean_sig", "perm_max_sig", "perm_ks_p_median", "perm_lambda_median", "vp_primary_group_mean",
 		               "lambda_vp_top",
-		               "caf_score", "caf_calibration_score", "caf_preservation_score", "caf_batch_score", "caf_ncs_score",
+		               "cdx_score", "cdx_calibration_score", "cdx_preservation_score", "cdx_batch_score", "cdx_ncs_score",
 	               "lambda_ratio"),
 	    value = c(prefix, lambda_val, lambda_guard_status, lambda_guard_action,
 	              lambda_guard_threshold, lambda_guard_lambda,
@@ -9603,12 +9616,12 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
 	              if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat=="lambda_median"] else NA,
 	              vp_primary,
 	              lambda_vp_top,
-	              if (!is.null(caf_res)) caf_res$cai else NA,
-	              if (!is.null(caf_res)) caf_res$calibration_score else NA,
-	              if (!is.null(caf_res)) caf_res$preservation_score else NA,
-	              if (!is.null(caf_res)) caf_res$batch_reduction else NA,
-	              if (!is.null(caf_res)) caf_res$ncs_score else NA,
-	              if (!is.null(caf_res)) caf_res$lambda_ratio else NA)
+	              if (!is.null(cdx_res)) cdx_res$cdx else NA,
+	              if (!is.null(cdx_res)) cdx_res$calibration_score else NA,
+	              if (!is.null(cdx_res)) cdx_res$preservation_score else NA,
+	              if (!is.null(cdx_res)) cdx_res$batch_reduction else NA,
+	              if (!is.null(cdx_res)) cdx_res$ncs_score else NA,
+	              if (!is.null(cdx_res)) cdx_res$lambda_ratio else NA)
 	  )
   if (!is.null(effect_metrics)) {
     eff_df <- data.frame(metric = names(effect_metrics),
@@ -9694,14 +9707,14 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     dmr_status = dmr_status,
     dmr_reason = dmr_reason,
     dmr_strategy = dmr_strategy,
-    caf_score = if (!is.null(caf_res)) caf_res$cai else NA_real_,
+    cdx_score = if (!is.null(cdx_res)) cdx_res$cdx else NA_real_,
     best_candidate_score = best_candidate_score,
     covariates_used = used_covariates,
     sv_used = sv_cols,
     permutations = perm_n,
     perm_ks_p_median = if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat == "ks_p_median"] else NA,
     perm_lambda_median = if (!is.null(perm_summary)) perm_summary$value[perm_summary$stat == "lambda_median"] else NA,
-    lambda_ratio = if (!is.null(caf_res)) caf_res$lambda_ratio else NA
+    lambda_ratio = if (!is.null(cdx_res)) cdx_res$lambda_ratio else NA
   )
   return(list(res = res, n_con = n_con_local, n_test = n_test_local, n_samples = nrow(targets), summary = branch_summary))
 }
@@ -9952,7 +9965,7 @@ primary_tier3_meta_method <- ""
 primary_tier3_meta_i2_median <- NA_real_
 primary_tier3_ineligible <- FALSE
 primary_tier3_low_power <- FALSE
-primary_caf_score <- NA_real_
+primary_cdx_score <- NA_real_
 primary_dmr_status <- ""
 primary_dmr_reason <- ""
 primary_no_signal <- FALSE
@@ -10012,7 +10025,7 @@ tryCatch({
     if (!is.null(primary_summary$tier3_meta_i2_median)) primary_tier3_meta_i2_median <- primary_summary$tier3_meta_i2_median
     if (!is.null(primary_summary$tier3_ineligible)) primary_tier3_ineligible <- primary_summary$tier3_ineligible
     if (!is.null(primary_summary$tier3_low_power)) primary_tier3_low_power <- primary_summary$tier3_low_power
-    if (!is.null(primary_summary$caf_score)) primary_caf_score <- primary_summary$caf_score
+    if (!is.null(primary_summary$cdx_score)) primary_cdx_score <- primary_summary$cdx_score
     if (!is.null(primary_summary$dmr_status)) primary_dmr_status <- primary_summary$dmr_status
     if (!is.null(primary_summary$dmr_reason)) primary_dmr_reason <- primary_summary$dmr_reason
     if (!is.null(primary_summary$no_signal)) primary_no_signal <- primary_summary$no_signal
@@ -10046,7 +10059,7 @@ tryCatch({
     primary_tier3_low_power = primary_tier3_low_power,
     primary_no_signal = primary_no_signal,
     primary_no_signal_reason = primary_no_signal_reason,
-    primary_caf_score = primary_caf_score,
+    primary_cdx_score = primary_cdx_score,
     primary_dmr_status = primary_dmr_status,
     primary_dmr_reason = primary_dmr_reason,
     primary_lambda_guard_status = primary_lambda_guard_status,
@@ -10093,17 +10106,17 @@ tryCatch({
     }
   }
 
-  caf_report_src <- file.path(out_dir, paste0(primary_branch, "_CAF_Report.txt"))
-  if (file.exists(caf_report_src)) {
-    caf_report_dest <- file.path(out_dir, "Correction_Adequacy_Report.txt")
-    file.copy(caf_report_src, caf_report_dest, overwrite = TRUE)
-    file.copy(caf_report_dest, results_dirs$reports, overwrite = TRUE)
+  cdx_report_src <- file.path(out_dir, paste0(primary_branch, "_CDx_Report.txt"))
+  if (file.exists(cdx_report_src)) {
+    cdx_report_dest <- file.path(out_dir, "Correction_Diagnostics_Report.txt")
+    file.copy(cdx_report_src, cdx_report_dest, overwrite = TRUE)
+    file.copy(cdx_report_dest, results_dirs$reports, overwrite = TRUE)
   }
-  caf_summary_src <- file.path(out_dir, paste0(primary_branch, "_CAF_Summary.csv"))
-  if (file.exists(caf_summary_src)) {
-    caf_summary_dest <- file.path(out_dir, "Correction_Adequacy_Summary.csv")
-    file.copy(caf_summary_src, caf_summary_dest, overwrite = TRUE)
-    file.copy(caf_summary_dest, results_dirs$reports, overwrite = TRUE)
+  cdx_summary_src <- file.path(out_dir, paste0(primary_branch, "_CDx_Summary.csv"))
+  if (file.exists(cdx_summary_src)) {
+    cdx_summary_dest <- file.path(out_dir, "Correction_Diagnostics_Summary.csv")
+    file.copy(cdx_summary_src, cdx_summary_dest, overwrite = TRUE)
+    file.copy(cdx_summary_dest, results_dirs$reports, overwrite = TRUE)
   }
 
   crf_report_src <- file.path(out_dir, paste0(primary_branch, "_CRF_Report.txt"))
@@ -10206,9 +10219,9 @@ tryCatch({
     confounding_tier1_r2 = config_settings$confounding$tier1_r2,
     confounding_tier2_r2 = config_settings$confounding$tier2_r2,
     calibration_ks_p = config_settings$calibration$ks_p,
-    caf_enabled = caf_enabled,
-    caf_target_fpr = caf_target_fpr,
-    caf_weights = caf_weights,
+    cdx_enabled = cdx_enabled,
+    cdx_target_fpr = cdx_target_fpr,
+    cdx_weights = cdx_weights,
     lambda_guard_enabled = ifelse(!is.null(config_settings$lambda_guard$enabled),
                                   config_settings$lambda_guard$enabled, NA),
     lambda_guard_threshold = ifelse(!is.null(config_settings$lambda_guard$threshold),
@@ -10270,7 +10283,7 @@ config_used <- list(
   batch_override = config_settings$batch_override,
   calibration = config_settings$calibration,
   unsafe = config_settings$unsafe,
-  caf = config_settings$caf,
+  cdx = config_settings$cdx,
   auto_covariates = config_settings$auto_covariates,
   lambda_guard = config_settings$lambda_guard,
   variance_partition = config_settings$variance_partition,
@@ -10444,7 +10457,7 @@ tryCatch({
             crf_tier, crf_tier_info$total_n, crf_tier_info$min_per_group),
     "- Calibration: permutation tests shuffle labels within batch strata to assess p-value uniformity (KS) and inflation.",
     "- Lambda guard is a heuristic inflation check; interpret with EWAS correlation structure in mind.",
-    sprintf("- Correction Adequacy Framework (CAF): combines calibration (target FPR=%.2f), signal preservation, and batch removal into a single CAF score; see `Correction_Adequacy_Report.txt`.", caf_target_fpr),
+    sprintf("- Correction Diagnostics (CDx): combines calibration (target FPR=%.2f), signal preservation, and batch removal into a single CDx score; see `Correction_Diagnostics_Report.txt`.", cdx_target_fpr),
     "- Decision ledger: automated decisions (covariates, batch choice, method) are logged with reasons.",
     "",
     "## Differential methylation (DMP)",

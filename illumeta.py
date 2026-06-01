@@ -2488,6 +2488,54 @@ def run_analysis(args):
             reason_filename="dashboard_failure_reason.txt",
         )
 
+    if getattr(args, "require_publication_artifacts", False):
+        _require_publication_artifacts(output_dir)
+
+
+def _require_publication_artifacts(output_dir):
+    """Submission-mode gate for the 'publication-ready' contract.
+
+    Dashboard generation is non-fatal in normal runs, so a successful exit does not
+    by itself prove the output is complete. When --require-publication-artifacts is
+    set, verify every required artifact is present and no failure marker remains;
+    exit non-zero (with a failure summary) otherwise.
+    """
+    required = ("summary.json", "analysis_parameters.json", "methods.md", "sessionInfo.txt")
+    missing = [name for name in required if not os.path.isfile(os.path.join(output_dir, name))]
+
+    parent_dir = os.path.dirname(os.path.normpath(output_dir))
+    results_folder_name = os.path.basename(os.path.normpath(output_dir))
+    dashboard_path = os.path.join(parent_dir, f"{results_folder_name}_index.html")
+    if not os.path.isfile(dashboard_path):
+        missing.append(os.path.basename(dashboard_path))
+
+    failure_markers = [
+        name for name in (
+            "failure_summary.json", "failure_reason.txt",
+            "dashboard_failure_summary.json", "dashboard_failure_reason.txt",
+        )
+        if os.path.isfile(os.path.join(output_dir, name))
+    ]
+
+    problems = []
+    if missing:
+        problems.append("missing required artifacts: " + ", ".join(missing))
+    if failure_markers:
+        problems.append("failure markers present: " + ", ".join(failure_markers))
+    if problems:
+        message = "Publication-artifact validation failed: " + "; ".join(problems)
+        log_err(f"[!] {message}")
+        write_failure_summary(
+            output_dir,
+            "publication_validation",
+            "PUBLICATION_ARTIFACTS_INCOMPLETE",
+            message,
+            details={"missing": missing, "failure_markers": failure_markers},
+        )
+        sys.exit(1)
+    log(f"[OK] Publication artifacts validated in {output_dir}")
+
+
 def safe_int(val):
     if val is None:
         return 0
@@ -4671,6 +4719,8 @@ def main():
     parser_analysis.add_argument("--cell-adjustment-on-high-eta2", type=str, choices=["warn", "stop"],
                                  help="Action when cell vs group Eta^2 exceeds threshold (warn|stop)")
     parser_analysis.add_argument("--skip-sesame", action="store_true", help="Skip Sesame pipeline (Minfi only)")
+    parser_analysis.add_argument("--require-publication-artifacts", action="store_true",
+                                 help="Submission mode: after analysis, fail unless summary.json, analysis_parameters.json, methods.md, sessionInfo.txt and the dashboard HTML are all present and no failure markers remain")
     parser_analysis.add_argument("--sesame-typeinorm", dest="sesame_typeinorm", action="store_true",
                                  help="Enable sesame dyeBiasCorrTypeINorm (default: disabled for stability)")
     parser_analysis.add_argument("--permutations", type=int, default=20,
@@ -4714,6 +4764,11 @@ def main():
                              help="Override a branch input file name as NAME=FILENAME; FILENAME must be a plain file name inside each result directory")
     parser_meta.add_argument("--allow-missing-branches", action="store_true",
                              help="Skip missing branch tables instead of failing")
+    parser_meta.add_argument("--allow-missing-summary", action="store_true",
+                             help="Include cohorts whose summary.json is missing/unreadable (weighted by 1) instead of failing")
+    parser_meta.add_argument("--no-tier3-primary", dest="tier3_primary", action="store_false",
+                             help="Always read the naive-pooled *_DMPs_full.csv tables instead of preferring each cohort's *_Tier3_Primary_DMPs.csv primary result")
+    parser_meta.set_defaults(tier3_primary=True)
     parser_meta.add_argument("--min-cohorts", type=int, default=3,
                              help="Minimum cohorts required per CpG (default: 3)")
     parser_meta.add_argument("--meta-fdr", type=float, default=0.05,

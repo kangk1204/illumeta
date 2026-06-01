@@ -867,11 +867,36 @@ stale_success_files <- c(
   "Intersection_Comparison_Metrics.csv",
   "Intersection_Native_Comparison_Metrics.csv"
 )
+# Branch-level data tables: a partial or --skip-* rerun must not leave previous-run
+# DMP/Metric/DMR/beta tables that downstream meta and dashboard steps would read as
+# current results. Generate the per-branch artifact names so stale tables are removed
+# even when that branch is not regenerated this run.
+branch_prefixes <- c("Minfi", "Sesame", "Sesame_Native")
+branch_suffixes <- c(
+  "_DMPs_full.csv", "_DMPs.csv", "_Metrics.csv", "_BetaMatrix.tsv.gz", "_DMRs.csv",
+  "_Stratified_Meta_DMPs.csv", "_Pooled_Batch_DMPs.csv", "_Overlap_Restricted_DMPs.csv",
+  "_LambdaGuard_DMPs.csv", "_LambdaGuard_Metrics.csv",
+  "_Tier3_Primary_DMPs.csv", "_Tier3_Primary_DMRs.csv"
+)
+stale_success_files <- c(
+  stale_success_files,
+  as.vector(t(outer(branch_prefixes, branch_suffixes, paste0)))
+)
 stale_success_paths <- file.path(out_dir, stale_success_files)
 stale_success_paths <- stale_success_paths[file.exists(stale_success_paths)]
 if (length(stale_success_paths) > 0) {
   unlink(stale_success_paths, force = TRUE)
-  message(sprintf("Removed %d stale top-level success artifact(s) before rerun.", length(stale_success_paths)))
+  message(sprintf("Removed %d stale top-level/branch artifact(s) before rerun.", length(stale_success_paths)))
+}
+# Per-branch results subdirectory summaries must also be cleared so a skipped branch
+# does not present a prior run's results/<branch>/branch_summary.yaml as current.
+stale_branch_summaries <- file.path(
+  out_dir, "results", c("minfi", "sesame", "sesame_native"), "branch_summary.yaml"
+)
+stale_branch_summaries <- stale_branch_summaries[file.exists(stale_branch_summaries)]
+if (length(stale_branch_summaries) > 0) {
+  unlink(stale_branch_summaries, force = TRUE)
+  message(sprintf("Removed %d stale branch_summary.yaml file(s) before rerun.", length(stale_branch_summaries)))
 }
 results_root <- file.path(out_dir, "results")
 results_dirs <- list(
@@ -9778,9 +9803,10 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
 #'
 #' @seealso run_pipeline for individual pipeline analysis
 run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
-  consensus_counts <- list(up = 0, down = 0)
+  consensus_counts <- list(up = 0, down = 0, status = "ok")
   if (is.null(res_minfi) || is.null(res_sesame)) {
     message(sprintf("Warning: Consensus (%s) skipped because one or more pipelines produced no results.", prefix))
+    consensus_counts$status <- "skipped_no_branch_results"
     return(consensus_counts)
   }
   tryCatch({
@@ -9913,7 +9939,16 @@ run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
     write.csv(comp_metrics, file.path(out_dir, paste0(prefix, "_Comparison_Metrics.csv")), row.names = FALSE)
 
   }, error = function(e) {
-    message("Warning: Consensus (Intersection) outputs failed: ", e$message)
+    # A consensus computation error must not silently collapse to a biological
+    # "0 consensus" result. Fail loudly by default; only downgrade to a recorded
+    # consensus_status="failed" when explicitly allowed via config.
+    if (!isTRUE(get0("allow_consensus_failure", ifnotfound = FALSE))) {
+      stop(sprintf("Consensus (%s) computation failed: %s", prefix, conditionMessage(e)), call. = FALSE)
+    }
+    message(sprintf("Warning: Consensus (%s) outputs failed (allowed by config): %s", prefix, conditionMessage(e)))
+    consensus_counts$status <<- "failed"
+    consensus_counts$up <<- 0
+    consensus_counts$down <<- 0
   })
   consensus_counts
 }
@@ -10082,6 +10117,8 @@ tryCatch({
     intersect_down = intersect_counts$down,
     intersect_native_up = intersect_native_counts$up,
     intersect_native_down = intersect_native_counts$down,
+    consensus_status = if (!is.null(intersect_counts$status)) intersect_counts$status else "ok",
+    consensus_native_status = if (!is.null(intersect_native_counts$status)) intersect_native_counts$status else "ok",
     primary_branch = primary_branch,
     primary_result_mode = primary_result_mode,
     primary_tier3_batch = primary_tier3_batch,

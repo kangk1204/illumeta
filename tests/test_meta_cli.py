@@ -649,7 +649,7 @@ class MetaCliTests(unittest.TestCase):
             self.assertEqual(row["pc_directional_fdr"], "")
             self.assertEqual(row["replicable_pc_candidate"], "false")
 
-    def test_meta_cli_warns_when_summary_json_is_missing(self):
+    def test_meta_cli_fails_when_summary_json_is_missing_by_default(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             result_dirs = [
@@ -658,25 +658,36 @@ class MetaCliTests(unittest.TestCase):
                 make_result_dir(root, "GSE_C", 0.95),
             ]
             (result_dirs[0] / "summary.json").unlink()
-            out_dir = root / "meta_missing_summary"
 
+            # Default: an incomplete run (missing summary.json) must not silently
+            # join the meta-analysis weighted by 1; it is fatal.
+            out_dir = root / "meta_missing_summary"
             result = self.run_illumeta(
                 "meta",
                 *[str(path) for path in result_dirs],
-                "--branches",
-                "minfi",
-                "--min-cohorts",
-                "2",
-                "--partial-conjunction-r",
-                "2",
-                "--output",
-                str(out_dir),
+                "--branches", "minfi",
+                "--min-cohorts", "2",
+                "--partial-conjunction-r", "2",
+                "--output", str(out_dir),
             )
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("summary.json missing", result.stdout + result.stderr)
 
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            payload = json.loads((out_dir / "meta_input_manifest.json").read_text(encoding="utf-8"))
+            # Opt-in: --allow-missing-summary restores the lenient weight=1 behavior.
+            out_dir2 = root / "meta_missing_summary_allowed"
+            result2 = self.run_illumeta(
+                "meta",
+                *[str(path) for path in result_dirs],
+                "--branches", "minfi",
+                "--min-cohorts", "2",
+                "--partial-conjunction-r", "2",
+                "--allow-missing-summary",
+                "--output", str(out_dir2),
+            )
+            self.assertEqual(result2.returncode, 0, result2.stdout + result2.stderr)
+            payload = json.loads((out_dir2 / "meta_input_manifest.json").read_text(encoding="utf-8"))
             self.assertTrue(any("summary.json missing" in warning for warning in payload["warnings"]))
-            report = (out_dir / "meta_analysis_report.md").read_text(encoding="utf-8")
+            report = (out_dir2 / "meta_analysis_report.md").read_text(encoding="utf-8")
             self.assertIn("summary.json missing", report)
 
     def test_meta_cli_warns_when_allowed_branch_is_empty(self):

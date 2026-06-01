@@ -32,6 +32,7 @@ from illumeta_meta import (  # noqa: E402
     _inv_var_weight,
     _random_effect_meta_one,
     _read_branch_records,
+    _resolve_branch_table,
     _safe_p_value,
     _summarize_branch_concordance,
     _validate_cohort_count,
@@ -128,14 +129,14 @@ def test_s2_A8_duplicate_cpg_rejected(tmp_path):
 
 def test_s2_A2_header_only_file_is_empty_with_warning(tmp_path):
     c = _cohort(tmp_path, ["CpG", "logFC", "SE", "P.Value"], [])
-    records, warnings = _read_branch_records([c], BRANCH, DMP, allow_missing_branches=False)
+    records, warnings, _ = _read_branch_records([c], BRANCH, DMP, allow_missing_branches=False)
     assert records == {}
     assert any("no CpG records loaded" in w for w in warnings)
 
 
 def test_s2_A4_nonnumeric_logfc_coerced_to_nan(tmp_path):
     c = _cohort(tmp_path, ["CpG", "logFC", "SE", "P.Value"], [["cg1", "not_a_number", "0.1", "0.01"]])
-    records, _ = _read_branch_records([c], BRANCH, DMP, allow_missing_branches=False)
+    records, _, _ = _read_branch_records([c], BRANCH, DMP, allow_missing_branches=False)
     assert "cg1" in records
     # Non-numeric effect must be NaN (cohort silently dropped for this CpG), never a crash.
     assert math.isnan(records["cg1"]["effects"][0])
@@ -152,9 +153,51 @@ def test_s2_A7_non_utf8_bytes_do_not_crash(tmp_path):
     content = b"CpG,Gene,logFC,SE,P.Value\ncg1,G\xffENE,0.5,0.1,0.01\n"
     p.write_bytes(content)
     c = MetaCohort(cohort_id="GSEx", result_dir=tmp_path)
-    records, _ = _read_branch_records([c], BRANCH, DMP, allow_missing_branches=False)
+    records, _, _ = _read_branch_records([c], BRANCH, DMP, allow_missing_branches=False)
     assert "cg1" in records
     assert math.isclose(records["cg1"]["effects"][0], 0.5)
+
+
+# --------------------------------------------------------------------------- #
+# S2b — tier3-aware per-cohort input selection (P0-1)
+# --------------------------------------------------------------------------- #
+def _touch_tier3(tmp_path: Path) -> None:
+    (tmp_path / "Minfi_Tier3_Primary_DMPs.csv").write_text("CpG\n", encoding="utf-8")
+
+
+def test_s2b_tier3_primary_preferred_when_present(tmp_path):
+    _touch_tier3(tmp_path)
+    c = MetaCohort(cohort_id="GSEx", result_dir=tmp_path, primary_result_mode="tier3_stratified_meta")
+    assert _resolve_branch_table(c, BRANCH, DMP, prefer_tier3=True) == "Minfi_Tier3_Primary_DMPs.csv"
+
+
+def test_s2b_tier3_low_power_preferred_when_present(tmp_path):
+    _touch_tier3(tmp_path)
+    c = MetaCohort(cohort_id="GSEx", result_dir=tmp_path, primary_result_mode="tier3_low_power")
+    assert _resolve_branch_table(c, BRANCH, DMP, prefer_tier3=True) == "Minfi_Tier3_Primary_DMPs.csv"
+
+
+def test_s2b_tier3_ineligible_keeps_standard(tmp_path):
+    _touch_tier3(tmp_path)  # file present but mode is ineligible -> standard is primary
+    c = MetaCohort(cohort_id="GSEx", result_dir=tmp_path, primary_result_mode="tier3_ineligible")
+    assert _resolve_branch_table(c, BRANCH, DMP, prefer_tier3=True) == DMP
+
+
+def test_s2b_tier3_missing_file_falls_back_to_standard(tmp_path):
+    c = MetaCohort(cohort_id="GSEx", result_dir=tmp_path, primary_result_mode="tier3_low_power")
+    assert _resolve_branch_table(c, BRANCH, DMP, prefer_tier3=True) == DMP
+
+
+def test_s2b_prefer_tier3_disabled_keeps_standard(tmp_path):
+    _touch_tier3(tmp_path)
+    c = MetaCohort(cohort_id="GSEx", result_dir=tmp_path, primary_result_mode="tier3_stratified_meta")
+    assert _resolve_branch_table(c, BRANCH, DMP, prefer_tier3=False) == DMP
+
+
+def test_s2b_user_override_not_auto_upgraded(tmp_path):
+    _touch_tier3(tmp_path)
+    c = MetaCohort(cohort_id="GSEx", result_dir=tmp_path, primary_result_mode="tier3_stratified_meta")
+    assert _resolve_branch_table(c, BRANCH, "Custom.csv", prefer_tier3=True) == "Custom.csv"
 
 
 # --------------------------------------------------------------------------- #

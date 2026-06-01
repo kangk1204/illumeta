@@ -22,6 +22,18 @@ DEFAULT_BRANCH_FILES = {
     "sesame_native": "Sesame_Native_DMPs_full.csv",
 }
 
+# When a cohort's primary result is a tier3 mode (stratified-meta / low-power), its
+# recommended per-cohort DMP table is the *_Tier3_Primary_DMPs.csv produced by that
+# tier, not the naive-pooled *_DMPs_full.csv whose inflated lambda is the very reason
+# tier3 was triggered. Prefer these per cohort so the cross-cohort meta uses the same
+# primary tables as each cohort's reported consensus. "tier3_ineligible" keeps the
+# standard table (tier3 was evaluated but not applied).
+TIER3_PRIMARY_FILES = {
+    "minfi": "Minfi_Tier3_Primary_DMPs.csv",
+    "sesame_strict": "Sesame_Tier3_Primary_DMPs.csv",
+    "sesame_native": "Sesame_Native_Tier3_Primary_DMPs.csv",
+}
+
 BRANCH_ALIASES = {
     "sesame": "sesame_strict",
     "strict": "sesame_strict",
@@ -159,7 +171,7 @@ def _truthy_include(value: object) -> bool:
     return str(value).strip().lower() not in {"0", "false", "no", "n", "exclude", "skip"}
 
 
-def load_meta_manifest(manifest: Path, project_root: Path) -> list[MetaCohort]:
+def load_meta_manifest(manifest: Path, project_root: Path, allow_missing_summary: bool = False) -> list[MetaCohort]:
     delimiter = _sniff_delimiter(manifest)
     rows: list[dict[str, str]] = []
     with _open_text(manifest) as handle:
@@ -178,6 +190,12 @@ def load_meta_manifest(manifest: Path, project_root: Path) -> list[MetaCohort]:
             raise ValueError("Manifest must contain a result_dir/path column.")
         result_dir = _resolve_path(result_dir_text, project_root)
         summary, summary_warnings = _read_summary(result_dir)
+        if summary_warnings and not allow_missing_summary:
+            raise ValueError(
+                summary_warnings[0]
+                + " — refusing to include an incomplete run in the meta-analysis; "
+                "pass --allow-missing-summary to override (cohort is then weighted by 1)"
+            )
         cohort_id = _first_nonempty(
             row.get(col) for col in ("cohort", "cohort_id", "gse", "id", "name")
         ) or result_dir.parent.name or f"cohort_{i}"
@@ -198,11 +216,17 @@ def load_meta_manifest(manifest: Path, project_root: Path) -> list[MetaCohort]:
     return cohorts
 
 
-def load_positional_cohorts(result_dirs: list[str], project_root: Path) -> list[MetaCohort]:
+def load_positional_cohorts(result_dirs: list[str], project_root: Path, allow_missing_summary: bool = False) -> list[MetaCohort]:
     cohorts: list[MetaCohort] = []
     for i, result_dir_text in enumerate(result_dirs, start=1):
         result_dir = _resolve_path(result_dir_text, project_root)
         summary, summary_warnings = _read_summary(result_dir)
+        if summary_warnings and not allow_missing_summary:
+            raise ValueError(
+                summary_warnings[0]
+                + " — refusing to include an incomplete run in the meta-analysis; "
+                "pass --allow-missing-summary to override (cohort is then weighted by 1)"
+            )
         cohorts.append(
             MetaCohort(
                 cohort_id=result_dir.parent.name or f"cohort_{i}",
@@ -462,23 +486,47 @@ def _directional_pc_p(effects: list[float], p_values: list[float], valid: list[b
     return min(1.0, 2.0 * min(candidates))
 
 
+def _resolve_branch_table(cohort: MetaCohort, branch: str, filename: str, prefer_tier3: bool) -> str:
+    """Return the per-cohort DMP table to read for a branch.
+
+    For tier3-primary cohorts, prefer the *_Tier3_Primary_DMPs.csv table over the
+    naive-pooled default. Only the default standard table is auto-upgraded; a
+    user-supplied --branch-file override is always respected as-is.
+    """
+    if not prefer_tier3:
+        return filename
+    if filename != DEFAULT_BRANCH_FILES.get(branch):
+        return filename
+    mode = (cohort.primary_result_mode or "").strip().lower()
+    if not mode.startswith("tier3_") or mode == "tier3_ineligible":
+        return filename
+    tier3_name = TIER3_PRIMARY_FILES.get(branch)
+    if tier3_name and (cohort.result_dir / tier3_name).exists():
+        return tier3_name
+    return filename
+
+
 def _read_branch_records(
     cohorts: list[MetaCohort],
     branch: str,
     filename: str,
     allow_missing_branches: bool,
-) -> tuple[dict[str, dict[str, object]], list[str]]:
+    prefer_tier3: bool = True,
+) -> tuple[dict[str, dict[str, object]], list[str], dict[str, str]]:
     records: dict[str, dict[str, object]] = {}
     warnings: list[str] = []
+    tables_used: dict[str, str] = {}
     n = len(cohorts)
     for cohort_idx, cohort in enumerate(cohorts):
-        table_path = cohort.result_dir / filename
+        actual_filename = _resolve_branch_table(cohort, branch, filename, prefer_tier3)
+        table_path = cohort.result_dir / actual_filename
         if not table_path.exists():
-            message = f"{branch}: missing {filename} in {cohort.result_dir}"
+            message = f"{branch}: missing {actual_filename} in {cohort.result_dir}"
             if allow_missing_branches:
                 warnings.append(message)
                 continue
             raise FileNotFoundError(message)
+        tables_used[cohort.cohort_id] = actual_filename
         delimiter = _sniff_delimiter(table_path)
         with _open_text(table_path) as handle:
             reader = csv.DictReader(handle, delimiter=delimiter)
@@ -527,7 +575,7 @@ def _read_branch_records(
                 rec["deltas"][cohort_idx] = _safe_float(row.get("Delta_Beta"))
     if not records:
         warnings.append(f"{branch}: no CpG records loaded from {filename}; branch output is empty")
-    return records, warnings
+    return records, warnings, tables_used
 
 
 def _pooled_delta(deltas: list[float], valid: list[bool], weights: list[float]) -> float:
@@ -576,8 +624,11 @@ def _analyze_branch(
     filename: str,
     thresholds: MetaThresholds,
     allow_missing_branches: bool,
+    prefer_tier3: bool = True,
 ) -> tuple[list[dict[str, object]], dict[str, object], list[str]]:
-    records, warnings = _read_branch_records(cohorts, branch, filename, allow_missing_branches)
+    records, warnings, tables_used = _read_branch_records(
+        cohorts, branch, filename, allow_missing_branches, prefer_tier3
+    )
     sample_weights = [cohort.sample_weight for cohort in cohorts]
     rows: list[dict[str, object]] = []
     random_p_values: list[float] = []
@@ -688,6 +739,7 @@ def _analyze_branch(
     summary = {
         "branch": branch,
         "input_table": filename,
+        "cohort_input_tables": tables_used,
         "n_total_cpgs": len(rows),
         "n_meta_analyzable_cpgs": sum(
             1 for row in rows if int(row["n_valid_cohorts"]) >= thresholds.min_cohorts
@@ -999,13 +1051,16 @@ def run_meta_analysis(
     out_dir: Path,
     thresholds: MetaThresholds,
     allow_missing_branches: bool = False,
+    prefer_tier3: bool = True,
 ) -> dict[str, object]:
     _validate_thresholds(thresholds)
     _validate_cohort_count(thresholds, len(cohorts))
     out_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".illumeta_meta_tmp_", dir=out_dir) as stage_text:
         stage_dir = Path(stage_text)
-        manifest = _run_meta_analysis_to_dir(cohorts, branch_files, stage_dir, thresholds, allow_missing_branches)
+        manifest = _run_meta_analysis_to_dir(
+            cohorts, branch_files, stage_dir, thresholds, allow_missing_branches, prefer_tier3
+        )
         _publish_meta_outputs(stage_dir, out_dir, branch_files.keys())
         return manifest
 
@@ -1016,6 +1071,7 @@ def _run_meta_analysis_to_dir(
     out_dir: Path,
     thresholds: MetaThresholds,
     allow_missing_branches: bool = False,
+    prefer_tier3: bool = True,
 ) -> dict[str, object]:
     all_summaries: list[dict[str, object]] = []
     all_candidate_rows: list[dict[str, object]] = []
@@ -1026,7 +1082,7 @@ def _run_meta_analysis_to_dir(
     for branch, filename in branch_files.items():
         _log(f"Running {branch} meta-analysis from {filename}...")
         rows, summary, branch_warnings = _analyze_branch(
-            cohorts, cohort_column_ids, branch, filename, thresholds, allow_missing_branches
+            cohorts, cohort_column_ids, branch, filename, thresholds, allow_missing_branches, prefer_tier3
         )
         warnings.extend(branch_warnings)
         rows.sort(key=_sort_key)
@@ -1090,6 +1146,7 @@ def _run_meta_analysis_to_dir(
             for cohort in cohorts
         ],
         "branches": branch_files,
+        "tier3_primary_preferred": prefer_tier3,
         "thresholds": thresholds.__dict__,
         "branch_summaries": all_summaries,
         "warnings": warnings,
@@ -1118,11 +1175,13 @@ def run_meta_cli(args) -> int:
         top_n=args.top_n,
     )
     _validate_thresholds(thresholds)
+    allow_missing_summary = bool(getattr(args, "allow_missing_summary", False))
+    prefer_tier3 = bool(getattr(args, "tier3_primary", True))
     cohorts: list[MetaCohort] = []
     if args.manifest:
-        cohorts.extend(load_meta_manifest(_resolve_path(args.manifest, project_root), project_root))
+        cohorts.extend(load_meta_manifest(_resolve_path(args.manifest, project_root), project_root, allow_missing_summary))
     if args.result_dirs:
-        cohorts.extend(load_positional_cohorts(args.result_dirs, project_root))
+        cohorts.extend(load_positional_cohorts(args.result_dirs, project_root, allow_missing_summary))
     if not cohorts:
         raise ValueError("Provide result directories or --manifest.")
     seen: set[str] = set()
@@ -1142,6 +1201,7 @@ def run_meta_cli(args) -> int:
         out_dir,
         thresholds,
         allow_missing_branches=args.allow_missing_branches,
+        prefer_tier3=prefer_tier3,
     )
     _log(f"Meta-analysis complete: {out_dir}")
     return 0

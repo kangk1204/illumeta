@@ -383,6 +383,43 @@ class CliExitCodeTests(unittest.TestCase):
             self.assertEqual(payload["code"], "DASHBOARD_FAILED")
             self.assertEqual(payload["stage"], "dashboard")
 
+    def test_require_publication_artifacts_fails_when_incomplete(self):
+        illumeta = self.import_illumeta()
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            out.mkdir()
+            with self.assertRaises(SystemExit) as ctx:
+                illumeta._require_publication_artifacts(str(out))
+            self.assertNotEqual(ctx.exception.code, 0)
+            payload = json.loads((out / "failure_summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["code"], "PUBLICATION_ARTIFACTS_INCOMPLETE")
+
+    def test_require_publication_artifacts_passes_when_complete(self):
+        illumeta = self.import_illumeta()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out = root / "myrun_results"
+            out.mkdir()
+            for name in ("summary.json", "analysis_parameters.json", "methods.md", "sessionInfo.txt"):
+                (out / name).write_text("{}", encoding="utf-8")
+            # Dashboard HTML is a sibling: <parent>/<dirname>_index.html
+            (root / "myrun_results_index.html").write_text("<html></html>", encoding="utf-8")
+            illumeta._require_publication_artifacts(str(out))  # must not raise
+            self.assertFalse((out / "failure_summary.json").exists())
+
+    def test_require_publication_artifacts_fails_on_failure_marker(self):
+        illumeta = self.import_illumeta()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out = root / "myrun_results"
+            out.mkdir()
+            for name in ("summary.json", "analysis_parameters.json", "methods.md", "sessionInfo.txt"):
+                (out / name).write_text("{}", encoding="utf-8")
+            (root / "myrun_results_index.html").write_text("<html></html>", encoding="utf-8")
+            (out / "failure_summary.json").write_text("{}", encoding="utf-8")  # stale failure marker
+            with self.assertRaises(SystemExit):
+                illumeta._require_publication_artifacts(str(out))
+
 
 if __name__ == "__main__":
     unittest.main()

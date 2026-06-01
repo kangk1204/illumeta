@@ -754,6 +754,9 @@ def _analyze_branch(
         "branch": branch,
         "input_table": filename,
         "cohort_input_tables": tables_used,
+        "tier3_primary_cohorts": ",".join(
+            cid for cid, tbl in tables_used.items() if "Tier3_Primary" in tbl
+        ) or "none",
         "n_total_cpgs": len(rows),
         "n_meta_analyzable_cpgs": sum(
             1 for row in rows if int(row["n_valid_cohorts"]) >= thresholds.min_cohorts
@@ -1115,6 +1118,7 @@ def _run_meta_analysis_to_dir(
     summary_fields = [
         "branch",
         "input_table",
+        "tier3_primary_cohorts",
         "n_total_cpgs",
         "n_meta_analyzable_cpgs",
         "n_random_fdr_lt_0_05",

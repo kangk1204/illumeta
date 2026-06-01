@@ -898,6 +898,20 @@ if (length(stale_branch_summaries) > 0) {
   unlink(stale_branch_summaries, force = TRUE)
   message(sprintf("Removed %d stale branch_summary.yaml file(s) before rerun.", length(stale_branch_summaries)))
 }
+# The dashboard builds its cards from the mere existence of branch-prefixed plot
+# and table artifacts (e.g. *_Volcano.html, *_Top_DMPs.html, *_DMR_*.html, *.png,
+# and the self-contained *_files support directories). A skipped or partial rerun
+# (e.g. --skip-sesame) must therefore not leave a previous run's branch artifacts
+# behind, or the new dashboard would surface stale plots/tables. Remove every
+# branch-prefixed generated entry (files and directories) before the run; any
+# branch that actually runs this pass regenerates its own outputs.
+stale_branch_entries <- list.files(
+  out_dir, pattern = "^(Minfi|Sesame|Intersection)_", full.names = TRUE, all.files = FALSE
+)
+if (length(stale_branch_entries) > 0) {
+  unlink(stale_branch_entries, recursive = TRUE, force = TRUE)
+  message(sprintf("Removed %d stale branch-prefixed artifact(s)/dir(s) before rerun.", length(stale_branch_entries)))
+}
 results_root <- file.path(out_dir, "results")
 results_dirs <- list(
   minfi = file.path(results_root, "minfi"),

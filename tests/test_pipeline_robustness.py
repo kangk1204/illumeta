@@ -183,9 +183,17 @@ def test_s2b_tier3_ineligible_keeps_standard(tmp_path):
     assert _resolve_branch_table(c, BRANCH, DMP, prefer_tier3=True) == DMP
 
 
-def test_s2b_tier3_missing_file_falls_back_to_standard(tmp_path):
+def test_s2b_tier3_missing_file_is_fatal_by_default(tmp_path):
+    # tier3 mode but no Tier3 primary table present -> must NOT silently read the
+    # naive-pooled table; default behaviour is fatal.
     c = MetaCohort(cohort_id="GSEx", result_dir=tmp_path, primary_result_mode="tier3_low_power")
-    assert _resolve_branch_table(c, BRANCH, DMP, prefer_tier3=True) == DMP
+    with pytest.raises(ValueError, match="tier3 primary table"):
+        _resolve_branch_table(c, BRANCH, DMP, prefer_tier3=True)
+
+
+def test_s2b_tier3_missing_file_fallback_when_allowed(tmp_path):
+    c = MetaCohort(cohort_id="GSEx", result_dir=tmp_path, primary_result_mode="tier3_low_power")
+    assert _resolve_branch_table(c, BRANCH, DMP, prefer_tier3=True, allow_missing_tier3=True) == DMP
 
 
 def test_s2b_prefer_tier3_disabled_keeps_standard(tmp_path):

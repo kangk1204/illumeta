@@ -1766,7 +1766,7 @@ When analyzing studies with multiple batches:
 
 If you use IlluMeta in your research, please cite:
 
-> Kang, K. (2026). IlluMeta: an automated dual-pipeline framework for robust DNA methylation analysis. *Bioinformatics* (submitted).
+> Kang, K. (2026). IlluMeta: an automated dual-pipeline framework for robust DNA methylation analysis.
 
 See `CITATION.cff` for machine-readable citation metadata.
 

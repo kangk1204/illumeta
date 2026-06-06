@@ -4683,6 +4683,169 @@ def generate_dashboard(output_dir, group_test, group_con):
     except OSError as e:
         log_err(f"[!] Failed to write dashboard: {e}")
 
+
+DEFAULT_DEMO_GSE = "GSE125605"
+
+
+def _demo_idats_present(idat_dir: str) -> bool:
+    """True if idat_dir holds at least one .idat / .idat.gz file."""
+    if not os.path.isdir(idat_dir):
+        return False
+    try:
+        entries = os.listdir(idat_dir)
+    except OSError:
+        return False
+    return any(name.lower().endswith((".idat", ".idat.gz")) for name in entries)
+
+
+def _demo_commands(gse_id, demo_dir, need_download, group_con, group_test, group_column):
+    """Build the (download, analysis) subprocess commands for the bundled demo.
+
+    Pure/deterministic so it can be unit-tested without running the pipeline. The
+    grouping (column + Control/Test labels) is parameterized so a custom
+    ILLUMETA_DEMO_GSE supplies its own metadata instead of inheriting GSE125605's.
+    """
+    base = [sys.executable, os.path.abspath(__file__)]
+    download_cmd = base + ["download", gse_id, "-o", demo_dir] if need_download else None
+    analysis_cmd = base + [
+        "analysis", "-i", demo_dir,
+        "--group_con", group_con, "--group_test", group_test,
+        "--auto-group", "--group-column", group_column,
+        "--tier3-on-fail", "skip",
+    ]
+    return download_cmd, analysis_cmd
+
+
+def _run_demo_child(cmd, step, on_fail_hint):
+    """Run a demo child process with beginner-friendly error handling.
+
+    Returns the child return code; on a non-zero code prints on_fail_hint and exits.
+    A user Ctrl+C exits 130 cleanly and a launch failure exits 1 with guidance,
+    instead of dumping a raw traceback on the one beginner entrypoint.
+    """
+    try:
+        rc = subprocess.run(cmd).returncode
+    except KeyboardInterrupt:
+        log_err("\n[!] Demo interrupted by user.")
+        sys.exit(130)
+    except OSError as exc:
+        log_err(f"[!] Failed to launch demo {step} step: {exc}")
+        sys.exit(1)
+    if rc != 0:
+        for line in on_fail_hint:
+            log_err(line)
+        sys.exit(rc)
+    return rc
+
+
+def _demo_failure_detail(*dirs):
+    """Return a 'CODE: message' string from the first failure_summary.json found."""
+    for d in dirs:
+        path = os.path.join(d, "failure_summary.json")
+        if os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8") as handle:
+                    payload = json.load(handle)
+            except (OSError, json.JSONDecodeError, ValueError):
+                continue
+            code = payload.get("code") or "ERROR"
+            message = payload.get("message") or ""
+            return f"{code}: {message}".strip().rstrip(":")
+    return ""
+
+
+def run_demo(args):
+    """One-command end-to-end demo on a small public dataset.
+
+    First run downloads the demo dataset once; subsequent runs reuse the cached
+    IDATs offline. Air-gapped users (with the conda env + R packages already
+    installed) can pre-place IDATs in <demo>/idat plus a configure.tsv and run
+    with --offline to skip the network entirely.
+    """
+    gse_id = (os.environ.get("ILLUMETA_DEMO_GSE") or DEFAULT_DEMO_GSE).strip()
+    if not is_valid_gse_id(gse_id):
+        log_err(f"[!] ILLUMETA_DEMO_GSE='{gse_id}' is not a valid GEO Series ID (expected GSE followed by digits).")
+        sys.exit(2)
+
+    # Grouping is GSE125605-specific by default. A custom accession must declare its
+    # own group column/labels (its GEO metadata differs), so the demo never silently
+    # applies GSE125605's flags to a different dataset and fails auto-grouping.
+    group_column = os.environ.get("ILLUMETA_DEMO_GROUP_COLUMN")
+    group_con = os.environ.get("ILLUMETA_DEMO_GROUP_CON")
+    group_test = os.environ.get("ILLUMETA_DEMO_GROUP_TEST")
+    if gse_id == DEFAULT_DEMO_GSE:
+        group_column = group_column or "description"
+        group_con = group_con or "Control"
+        group_test = group_test or "Case"
+    elif not (group_column and group_con and group_test):
+        log_err(f"[!] A custom ILLUMETA_DEMO_GSE ({gse_id}) needs its own grouping, because group")
+        log_err("    labels/columns differ per dataset. Also set all three:")
+        log_err("      ILLUMETA_DEMO_GROUP_COLUMN=<metadata column>  (e.g. 'disease state')")
+        log_err("      ILLUMETA_DEMO_GROUP_CON=<control label>       (e.g. 'control')")
+        log_err("      ILLUMETA_DEMO_GROUP_TEST=<test label>         (e.g. 'case')")
+        log_err("    Or use the manual `download` + `analysis` commands for full control.")
+        sys.exit(2)
+
+    # Anchor the default cache to the repo (script) directory so re-runs reuse the
+    # same projects/demo regardless of the current working directory.
+    repo_root = os.path.dirname(os.path.abspath(__file__))
+    demo_dir = os.path.abspath(args.out_dir or os.path.join(repo_root, "projects", "demo"))
+    config_path = os.path.join(demo_dir, "configure.tsv")
+    idat_dir = os.path.join(demo_dir, "idat")
+    cached = os.path.isfile(config_path) and _demo_idats_present(idat_dir)
+
+    if not cached and args.offline:
+        log_err(f"[!] --offline was set but no cached demo data was found in {demo_dir}.")
+        log_err("    Run `illumeta demo` once without --offline to fetch the dataset, then reuse it offline,")
+        log_err(f"    or pre-place IDATs in {idat_dir} alongside a configure.tsv.")
+        sys.exit(1)
+
+    log(f"[*] Demo project directory: {demo_dir}")
+    if not cached:
+        log("[*] Note: the first demo run downloads data and, if R packages are not yet")
+        log("    installed, sets them up too — this can take 10-30 minutes. Later runs are fast.")
+
+    download_cmd, analysis_cmd = _demo_commands(
+        gse_id, demo_dir, need_download=not cached,
+        group_con=group_con, group_test=group_test, group_column=group_column,
+    )
+
+    if download_cmd is not None:
+        log(f"[*] Demo: downloading {gse_id} into {demo_dir} (first run only; reused offline afterwards)...")
+        _run_demo_child(download_cmd, "download", [
+            "[!] Demo download failed (network issue or accession unavailable).",
+            "    Check your internet connection, or set ILLUMETA_DEMO_GSE to another IDAT-backed accession.",
+        ])
+    else:
+        log(f"[*] Demo: reusing cached dataset in {demo_dir} (offline).")
+
+    results_dir = os.path.join(demo_dir, f"{group_test}_vs_{group_con}_results")
+    log(f"[*] Demo: running analysis ({group_test} vs {group_con}, auto-grouped)...")
+    try:
+        rc = subprocess.run(analysis_cmd).returncode
+    except KeyboardInterrupt:
+        log_err("\n[!] Demo interrupted by user.")
+        sys.exit(130)
+    except OSError as exc:
+        log_err(f"[!] Failed to launch demo analysis step: {exc}")
+        sys.exit(1)
+    if rc != 0:
+        detail = _demo_failure_detail(results_dir, demo_dir)
+        if detail:
+            log_err(f"[!] Demo analysis failed: {detail}")
+            log_err("    If this is a group-column/label or sample-size issue, see "
+                    "'Adapting the example to your own data' in the README.")
+        else:
+            log_err("[!] Demo analysis failed. Run `illumeta doctor` to check your installation, then retry.")
+        sys.exit(rc)
+
+    dashboard = os.path.join(demo_dir, f"{group_test}_vs_{group_con}_results_index.html")
+    log("")
+    log("[OK] Demo complete.")
+    log(f"     Open the dashboard in a browser: {dashboard}")
+    sys.exit(0)
+
+
 def main():
     parser = argparse.ArgumentParser(description="IlluMeta: Automated Illumina DNA Methylation Analysis Pipeline")
     parser.add_argument("--version", action="version", version=f"IlluMeta {__version__}")
@@ -4846,6 +5009,16 @@ def main():
     parser_meta.add_argument("--top-n", type=int, default=1000,
                              help="Number of top rows to export per branch (default: 1000)")
 
+    # Demo Command
+    parser_demo = subparsers.add_parser(
+        "demo",
+        help="One-command end-to-end demo on a small public dataset (downloaded once, then reusable offline)",
+    )
+    parser_demo.add_argument("-o", "--out-dir", type=str, default=None,
+                             help="Demo project directory (default: ./projects/demo)")
+    parser_demo.add_argument("--offline", action="store_true",
+                             help="Require a cached demo dataset; never download (fails if none is present)")
+
     # Doctor Command
     parser_doctor = subparsers.add_parser("doctor", help="Check system and R dependencies (does not install)")
     parser_doctor.add_argument("--skip-pandoc", action="store_true", help="Skip pandoc check")
@@ -4870,6 +5043,9 @@ def main():
 
     if args.command == "doctor":
         run_doctor(args)
+        return
+    if args.command == "demo":
+        run_demo(args)
         return
     if args.command == "search":
         sys.exit(run_search(args))

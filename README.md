@@ -15,6 +15,34 @@
 
 ---
 
+## 🚀 Start here (beginners)
+
+New to IlluMeta? You only need these three steps. Everything below this box is reference detail.
+
+```bash
+# 1) Install conda (Miniforge) if you don't have it — see "Quick Start" below for the snippet.
+# 2) Clone + install (one time, ~30-60 min):
+git clone https://github.com/kangk1204/illumeta.git && cd illumeta
+./scripts/install_full.sh
+
+# 3) After install_full.sh FINISHES, run the built-in demo (one command, end-to-end):
+./scripts/illumeta demo
+```
+
+> **Wait for step 2 to finish before step 3.** `install_full.sh` must complete (it builds the
+> conda env and R packages). Verify with `./scripts/illumeta doctor` if unsure.
+
+`./scripts/illumeta demo` downloads a small public dataset **once** (into `<repo>/projects/demo/`),
+runs the full analysis, and prints the path to an interactive dashboard. Re-runs reuse the cached
+data **offline** (`./scripts/illumeta demo --offline`). When it finishes you'll see
+`[OK] Demo complete.` and a `Case_vs_Control_results_index.html` to open in a browser.
+
+> **Which section do I read next?** Beginners: just follow **Quick Start**. Everything
+> after it (OS-specific install, Usage, Analysis Pipeline Overview) is optional reference
+> you can skip until you need it.
+
+---
+
 ## What is IlluMeta?
 
 **IlluMeta** is a user-friendly tool for analyzing DNA methylation data from Illumina arrays (450K, EPIC, EPIC v2).
@@ -204,6 +232,22 @@ python illumeta.py doctor
 > **Note:** The first `analysis` run also installs R packages if they were not set up
 > separately (via `Rscript r_scripts/setup_env.R`). This one-time step may take 10-30 minutes.
 
+**Easiest — one command (recommended):**
+```bash
+./scripts/illumeta demo
+```
+This downloads a small public dataset **once** into `<repo>/projects/demo/`, runs the full
+analysis with the correct settings, and prints the dashboard path. Re-run it any time
+**fully offline** with the cached data:
+```bash
+./scripts/illumeta demo --offline
+```
+Air-gapped machine? Once the conda environment and R/Bioconductor packages are already
+installed (the one-time `./scripts/install_full.sh` step needs internet), place your own
+IDATs in `projects/demo/idat/` plus a `configure.tsv`, then run
+`./scripts/illumeta demo --offline` to skip the network entirely.
+
+**Or run the same example manually (to learn the two underlying commands):**
 ```bash
 # Download a GEO dataset (Control vs Case, 450K)
 ./scripts/illumeta download GSE125605 -o projects/GSE125605
@@ -214,6 +258,22 @@ python illumeta.py doctor
   --auto-group --group-column description \
   --tier3-on-fail skip  # skip stratified analysis if batch confounding detected
 ```
+
+> **Demo datasets (and fallbacks).** The default demo uses **GSE125605** (human, 450K,
+> Control vs Case). If it is ever unavailable from GEO, point the demo at another small
+> IDAT-backed human dataset. Because group labels differ per dataset, a custom accession
+> is **not** drop-in — you must also tell the demo its grouping:
+> ```bash
+> ILLUMETA_DEMO_GSE=GSE208623 \
+>   ILLUMETA_DEMO_GROUP_COLUMN="disease state" \
+>   ILLUMETA_DEMO_GROUP_CON="control" ILLUMETA_DEMO_GROUP_TEST="case" \
+>   ./scripts/illumeta demo
+> ```
+> (Inspect the dataset's `configure.tsv` or GEO page to find the real column/labels; the
+> demo prints a clear message and stops if they don't match.) Author-validated alternatives:
+> **GSE208623** (EPIC, peripheral blood, 40 in the AD-vs-control subset) and **GSE125895**
+> (450K, brain, larger). For arbitrary datasets the manual `download` + `analysis` commands
+> above give you full control. To discover more IDAT-backed datasets: `./scripts/illumeta search -k "your topic"`.
 
 **Expected time:** download ~2-10 min (network-dependent), analysis ~10-30 min on
 a typical laptop (longer on first run if R packages still need to install).
@@ -1123,6 +1183,17 @@ If you used `-o/--output <OUT_DIR>`, open `<OUT_DIR>_index.html` instead.
 - Zero consensus DMPs but many pipeline-specific methods disagree (check data)
 
 ## Usage
+
+### Run the built-in demo
+The fastest way to confirm your installation works end-to-end:
+```bash
+./scripts/illumeta demo            # downloads a small dataset once, runs the full analysis
+./scripts/illumeta demo --offline  # re-run later with the cached data, no network
+```
+Options: `-o/--out-dir <dir>` (default `<repo>/projects/demo`), `--offline` (require cached
+data), and the `ILLUMETA_DEMO_GSE` environment variable to choose a different accession
+(a custom accession also needs `ILLUMETA_DEMO_GROUP_COLUMN`, `ILLUMETA_DEMO_GROUP_CON`,
+and `ILLUMETA_DEMO_GROUP_TEST` — see "Demo datasets (and fallbacks)" above).
 
 ### Search GEO for IDAT-enabled datasets
 Beginner-friendly flow:

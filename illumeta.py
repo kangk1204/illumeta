@@ -2028,10 +2028,13 @@ def write_failure_summary(
         "details": details or {},
     }
     try:
-        with open(os.path.join(base_dir, summary_filename), "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2, ensure_ascii=True)
-        with open(os.path.join(base_dir, reason_filename), "w", encoding="utf-8") as handle:
-            handle.write(f"{code}: {message}\n")
+        # Atomic writes (tempfile + os.replace) so an interrupt mid-write cannot leave a
+        # truncated failure_summary.json that downstream JSON parsers choke on.
+        _atomic_write_text(
+            json.dumps(payload, indent=2, ensure_ascii=True),
+            os.path.join(base_dir, summary_filename),
+        )
+        _atomic_write_text(f"{code}: {message}\n", os.path.join(base_dir, reason_filename))
     except OSError as e:
         log_err(f"[!] Failed to write failure summary: {e}")
 
@@ -2517,9 +2520,58 @@ def _require_publication_artifacts(output_dir):
         if os.path.isfile(os.path.join(output_dir, name))
     ]
 
+    # Existence alone is insufficient: an interrupted R write can leave a 0-byte or
+    # truncated summary.json that the tolerant dashboard generator turns into all-zeros
+    # output. Validate size and, for JSON artifacts, parseability + required keys so the
+    # submission gate cannot certify a silently-empty result as publication-ready.
+    present_required = [
+        name for name in required
+        if os.path.isfile(os.path.join(output_dir, name))
+    ]
+    empty = [
+        name for name in present_required
+        if os.path.getsize(os.path.join(output_dir, name)) == 0
+    ]
+
+    invalid_json = []
+    summary_payload = None
+    for name in ("summary.json", "analysis_parameters.json"):
+        path = os.path.join(output_dir, name)
+        if not os.path.isfile(path) or os.path.getsize(path) == 0:
+            continue  # already captured by `missing` / `empty`
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                parsed = json.load(handle)
+        except (json.JSONDecodeError, OSError, ValueError) as exc:
+            invalid_json.append(f"{name} ({type(exc).__name__})")
+            continue
+        if not isinstance(parsed, dict) or not parsed:
+            invalid_json.append(f"{name} (empty or non-object)")
+            continue
+        if name == "summary.json":
+            summary_payload = parsed
+
+    # summary.json must carry the keys the cross-cohort builder consumes; a valid-but-empty
+    # {} would otherwise pass json.load yet propagate blank consensus counts downstream.
+    required_summary_keys = (
+        "n_con", "n_test",
+        "intersect_up", "intersect_down",
+        "intersect_native_up", "intersect_native_down",
+        "primary_branch", "primary_lambda_guard_status",
+    )
+    missing_summary_keys = []
+    if summary_payload is not None:
+        missing_summary_keys = [k for k in required_summary_keys if k not in summary_payload]
+
     problems = []
     if missing:
         problems.append("missing required artifacts: " + ", ".join(missing))
+    if empty:
+        problems.append("empty (0-byte) artifacts: " + ", ".join(empty))
+    if invalid_json:
+        problems.append("invalid JSON artifacts: " + ", ".join(invalid_json))
+    if missing_summary_keys:
+        problems.append("summary.json missing required keys: " + ", ".join(missing_summary_keys))
     if failure_markers:
         problems.append("failure markers present: " + ", ".join(failure_markers))
     if problems:
@@ -2530,7 +2582,13 @@ def _require_publication_artifacts(output_dir):
             "publication_validation",
             "PUBLICATION_ARTIFACTS_INCOMPLETE",
             message,
-            details={"missing": missing, "failure_markers": failure_markers},
+            details={
+                "missing": missing,
+                "empty": empty,
+                "invalid_json": invalid_json,
+                "missing_summary_keys": missing_summary_keys,
+                "failure_markers": failure_markers,
+            },
         )
         sys.exit(1)
     log(f"[OK] Publication artifacts validated in {output_dir}")
@@ -4818,8 +4876,23 @@ def main():
     if args.command == "meta":
         try:
             from illumeta_meta import run_meta_cli
+        except ImportError as exc:
+            log_err(f"[!] Meta-analysis module unavailable: {exc}")
+            write_failure_summary(
+                resolve_meta_output_dir(args),
+                "meta",
+                "META_MODULE_IMPORT_FAILED",
+                str(exc),
+                details={"exception_type": type(exc).__name__},
+            )
+            sys.exit(1)
+        try:
             sys.exit(run_meta_cli(args))
-        except (ValueError, FileNotFoundError, OSError, csv.Error) as exc:
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except Exception as exc:
+            # Any internal failure (ValueError, KeyError, TypeError, OSError, csv.Error, ...)
+            # must leave a machine-readable failure summary, not a raw traceback.
             log_err(f"[!] Meta-analysis failed: {exc}")
             write_failure_summary(
                 resolve_meta_output_dir(args),

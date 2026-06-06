@@ -924,6 +924,31 @@ results_dirs <- list(
 dir.create(results_root, recursive = TRUE, showWarnings = FALSE)
 invisible(lapply(results_dirs, function(d) dir.create(d, recursive = TRUE, showWarnings = FALSE)))
 
+# Archived consensus/report copies in results/consensus and results/reports are written
+# only when a fresh consensus/report is produced (each guarded by file.exists(src)). If a
+# rerun skips consensus (e.g. --skip-sesame leaves no branch results), a prior run's archived
+# Consensus DMP table would otherwise persist while summary.json reports zero. Clear the known
+# regenerated basenames (leaving primary_branch.txt, comparison metrics, and CRF/adequacy files
+# that other code paths own).
+stale_consensus_basenames <- c(
+  "Intersection_Consensus_DMPs.csv", "Intersection_Native_Consensus_DMPs.csv",
+  "Intersection_Discordant_Probes.csv", "Intersection_Native_Discordant_Probes.csv",
+  "Intersection_Comparison_Metrics.csv", "Intersection_Native_Comparison_Metrics.csv"
+)
+stale_consensus_paths <- file.path(results_dirs$consensus, stale_consensus_basenames)
+stale_consensus_paths <- stale_consensus_paths[file.exists(stale_consensus_paths)]
+if (length(stale_consensus_paths) > 0) {
+  unlink(stale_consensus_paths, force = TRUE)
+  message(sprintf("Removed %d stale archived consensus artifact(s) before rerun.", length(stale_consensus_paths)))
+}
+stale_report_basenames <- c("methods.md")
+stale_report_paths <- file.path(results_dirs$reports, stale_report_basenames)
+stale_report_paths <- stale_report_paths[file.exists(stale_report_paths)]
+if (length(stale_report_paths) > 0) {
+  unlink(stale_report_paths, force = TRUE)
+  message(sprintf("Removed %d stale archived report artifact(s) before rerun.", length(stale_report_paths)))
+}
+
 # --- Set ExperimentHub/AnnotationHub Cache ---
 sesame_cache_dir <- file.path(project_dir, "cache")
 cache_preexisting <- dir.exists(sesame_cache_dir)
@@ -5950,8 +5975,10 @@ check_tier3_eligibility <- function(targets, batch_col, group_col,
   } else {
     setNames(logical(0), character(0))
   }
-  eligible_strata <- names(batch_ok)[isTRUE(length(batch_ok) > 0) & batch_ok]
-  failed_strata <- names(batch_ok)[isTRUE(length(batch_ok) > 0) & !batch_ok]
+  # %in% TRUE/FALSE is length-0-safe (returns character(0)) and NA-safe (never injects an
+  # NA stratum name), unlike the prior isTRUE(length>0) & batch_ok recycling construct.
+  eligible_strata <- names(batch_ok)[batch_ok %in% TRUE]
+  failed_strata <- names(batch_ok)[batch_ok %in% FALSE]
   min_eligible_stratum_n <- if (length(eligible_strata) > 0) {
     min(batch_min_n[eligible_strata])
   } else {
@@ -8879,6 +8906,9 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     } else if (lambda_val <= lambda_guard_threshold) {
       lambda_guard_status <- "ok"
     } else {
+      # Inflation-only (upper-threshold) guard by design: a deflated lambda (over-correction)
+      # is reported "ok" here. The two-sided property that also penalizes deflation lives in
+      # the separate calibration score used for adjustment-strategy selection, not this guard.
       lambda_guard_status <- "triggered"
       log_decision("lambda_guard", "triggered", sprintf("%.3f", lambda_val),
                    reason = "lambda_above_threshold",

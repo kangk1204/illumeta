@@ -153,6 +153,11 @@ class MetaCliTests(unittest.TestCase):
             summary = (out_dir / "meta_branch_summary.tsv").read_text(encoding="utf-8")
             self.assertIn("minfi", summary)
             self.assertIn("sesame_strict", summary)
+            # Provenance columns must be emitted so each branch records which input table
+            # and which tier3-primary cohorts fed the meta-analysis (auditability contract).
+            header = summary.splitlines()[0].split("\t")
+            self.assertIn("input_table", header)
+            self.assertIn("tier3_primary_cohorts", header)
             concordant = (out_dir / "branch_concordant_core_candidates.tsv").read_text(encoding="utf-8")
             self.assertIn("cg_good", concordant)
             self.assertIn("minfi;sesame_strict", concordant)

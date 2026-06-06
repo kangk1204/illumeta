@@ -331,8 +331,9 @@ def _cohort_column_ids(cohorts: list[MetaCohort]) -> list[str]:
 
 
 def _normal_two_sided_p(z: float) -> float:
-    if not math.isfinite(z):
+    if math.isnan(z):
         return math.nan
+    # erfc(+/-inf) == 0.0, so the two-sided p for an infinite z is correctly 0.0.
     return math.erfc(abs(z) / math.sqrt(2.0))
 
 
@@ -403,9 +404,16 @@ def _inv_var_weight(se: float, ok: bool, extra: float = 0.0) -> float:
 
 
 def _random_effect_meta_one(effects: list[float], ses: list[float], valid: list[bool]) -> dict[str, float]:
-    weights = [_inv_var_weight(se, ok) for ok, se in zip(valid, ses)]
+    # A cohort contributes only if it is valid AND carries a finite effect and a usable SE.
+    # Gating weights, k, and the Q sum on this identical set prevents a non-finite effect on
+    # a "valid" cohort from biasing the pooled estimate toward zero or NaN-corrupting Q.
+    use = [
+        ok and math.isfinite(e) and math.isfinite(se) and se > 0
+        for e, se, ok in zip(effects, ses, valid)
+    ]
+    weights = [_inv_var_weight(se, u) for u, se in zip(use, ses)]
     sum_w = sum(weights)
-    k = sum(1 for ok in valid if ok)
+    k = sum(1 for u in use if u)
     if k < 1 or sum_w <= 0:
         return {
             "fixed_effect": math.nan,
@@ -422,13 +430,13 @@ def _random_effect_meta_one(effects: list[float], ses: list[float], valid: list[
     fixed_effect = sum(w * e for w, e in zip(weights, effects) if math.isfinite(e)) / sum_w
     fixed_se = math.sqrt(1.0 / sum_w)
     fixed_p = _normal_two_sided_p(fixed_effect / fixed_se)
-    q_stat = sum(w * ((e - fixed_effect) ** 2) for w, e, ok in zip(weights, effects, valid) if ok)
+    q_stat = sum(w * ((e - fixed_effect) ** 2) for w, e, u in zip(weights, effects, use) if u)
     df = k - 1
     c_term = sum_w - (sum(w * w for w in weights) / sum_w)
     tau2 = (q_stat - df) / c_term if c_term > 0 and q_stat > df else 0.0
     if not math.isfinite(tau2) or tau2 < 0:
         tau2 = 0.0
-    re_weights = [_inv_var_weight(se, ok, tau2) for ok, se in zip(valid, ses)]
+    re_weights = [_inv_var_weight(se, u, tau2) for u, se in zip(use, ses)]
     sum_re_w = sum(re_weights)
     random_effect = (
         sum(w * e for w, e in zip(re_weights, effects) if math.isfinite(e)) / sum_re_w
@@ -671,7 +679,11 @@ def _analyze_branch(
         n_up = sum(1 for effect, ok in zip(effects, valid) if ok and effect > 0)
         n_down = sum(1 for effect, ok in zip(effects, valid) if ok and effect < 0)
         majority = max(n_up, n_down)
-        direction_fraction = majority / k if k > 0 else 0.0
+        # Measure directional agreement only among cohorts that contribute a signed
+        # (nonzero) effect; a valid but exactly-zero-effect cohort should not dilute the
+        # fraction. The min-cohorts gate still uses k (which includes zero-effect cohorts).
+        n_directional = n_up + n_down
+        direction_fraction = majority / n_directional if n_directional > 0 else 0.0
         direction = "up" if n_up > n_down else "down" if n_down > n_up else "tie"
         full_sign = 1 if meta["random_effect"] > 0 else -1 if meta["random_effect"] < 0 else 0
         loo_min_cohorts = max(2, thresholds.min_cohorts - 1)

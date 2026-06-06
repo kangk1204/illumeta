@@ -290,6 +290,56 @@ class RDesignInvariantTests(unittest.TestCase):
         self.assertIn("levels(targets[[group_col]])", source)
         self.assertIn("targets_use[[group_col]] <- factor(group_values, levels = group_levels)", source)
 
+    def test_consensus_failure_is_fatal_by_default(self):
+        """[contract] A consensus computation error must NOT silently collapse to a
+        biological 0/0 result: run_intersection must stop() by default and only
+        downgrade to a recorded consensus_status='failed' when allow_consensus_failure
+        is explicitly enabled. Currently this contract had zero test coverage."""
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+        body = extract_r_function(source, "run_intersection")
+        # Fail-loud-by-default gate on the explicit opt-in flag.
+        self.assertIn('get0("allow_consensus_failure", ifnotfound = FALSE)', body)
+        self.assertIn("stop(sprintf(\"Consensus (%s) computation failed", body)
+        # The silent-zero path is reachable ONLY inside the allowed branch.
+        gate = body.index('get0("allow_consensus_failure"')
+        stop_idx = body.index("stop(sprintf(\"Consensus (%s) computation failed", gate)
+        zero_idx = body.index('consensus_counts$up <<- 0', gate)
+        # The stop() (default path) precedes the silent up<<-0 (allowed-only path).
+        self.assertLess(stop_idx, zero_idx)
+        self.assertIn('consensus_counts$status <<- "failed"', body)
+
+    def test_genomic_lambda_and_guard_boundary_are_functionally_correct(self):
+        """[contract] Functionally exercise the statistic the guard consumes:
+        compute_genomic_lambda must be ~1 for uniform p-values and >>1.5 for an
+        inflated set, and the guard decision (lambda<=threshold -> ok, else triggered)
+        must label those two regimes correctly. Previously only the label string was
+        grep-checked, never the numeric threshold behavior."""
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+        lambda_fn = extract_r_function(source, "compute_genomic_lambda")
+        code = textwrap.dedent(
+            """
+            {fn}
+            thr <- 1.5
+            decide <- function(l) if (!is.finite(l)) "missing_lambda" else if (l <= thr) "ok" else "triggered"
+            lam_unif <- compute_genomic_lambda(ppoints(5000))          # well-calibrated
+            lam_infl <- compute_genomic_lambda(rep(1e-10, 2000))       # grossly inflated
+            stopifnot(abs(lam_unif - 1) < 0.1)
+            stopifnot(lam_infl > 1.5)
+            stopifnot(decide(lam_unif) == "ok")
+            stopifnot(decide(lam_infl) == "triggered")
+            # Boundary: exactly at threshold is 'ok' (<= is inclusive), just above is 'triggered'.
+            stopifnot(decide(1.5) == "ok")
+            stopifnot(decide(1.5000001) == "triggered")
+            cat("OK\\n")
+            """
+        ).format(fn=lambda_fn)
+        self.run_r(code)
+        # Pin the source decision operator so the functional expectation stays bound to code.
+        self.assertIn("lambda_val <= lambda_guard_threshold", source)
+        self.assertIn('reason = "lambda_above_threshold"', source)
+
     def test_consensus_reports_selection_p_values_as_primary(self):
         with open(ANALYZE_R, "r", encoding="utf-8") as handle:
             source = handle.read()

@@ -30,6 +30,7 @@ from illumeta_meta import (  # noqa: E402
     _cohort_column_ids,
     _fisher_partial_conjunction,
     _inv_var_weight,
+    _normal_two_sided_p,
     _random_effect_meta_one,
     _read_branch_records,
     _resolve_branch_table,
@@ -115,6 +116,22 @@ def test_s2_A5_missing_se_and_t(tmp_path):
     c = _cohort(tmp_path, ["CpG", "logFC", "P.Value"], [["cg1", "0.5", "0.01"]])
     with pytest.raises(ValueError, match="SE or t"):
         _read_branch_records([c], BRANCH, DMP, allow_missing_branches=False)
+
+
+def test_s2_se_reconstructed_from_t_statistic(tmp_path):
+    """[contract] With no SE column, SE = |logFC / t| from the limma moderated t."""
+    c = _cohort(tmp_path, ["CpG", "logFC", "t", "P.Value"], [["cg1", "0.6", "3.0", "0.01"]])
+    records, _w, _t = _read_branch_records([c], BRANCH, DMP, allow_missing_branches=False)
+    assert math.isclose(records["cg1"]["ses"][0], 0.2, rel_tol=1e-9)  # |0.6 / 3.0|
+
+
+def test_s2_se_reconstruction_zero_t_is_dropped_not_zero(tmp_path):
+    """[contract] t == 0 must not crash and must not yield a bogus SE of 0; the
+    cohort gets a non-usable (NaN) SE so it is dropped, not silently over-weighted."""
+    c = _cohort(tmp_path, ["CpG", "logFC", "t", "P.Value"], [["cg1", "0.6", "0", "0.01"]])
+    records, _w, _t = _read_branch_records([c], BRANCH, DMP, allow_missing_branches=False)
+    assert math.isnan(records["cg1"]["ses"][0])
+    assert _inv_var_weight(records["cg1"]["ses"][0], True) == 0.0
 
 
 def test_s2_A8_duplicate_cpg_rejected(tmp_path):
@@ -213,10 +230,54 @@ def test_s2b_user_override_not_auto_upgraded(tmp_path):
 # --------------------------------------------------------------------------- #
 def test_s3_A9_tiny_se_underflow_no_crash():
     """A positive-but-extreme SE underflows se*se to 0.0; the `se>0` guard must
-    not let 1/(se*se) raise ZeroDivisionError."""
+    not let 1/(se*se) raise ZeroDivisionError, and the zero-weighted cohort must
+    not perturb the pooled estimate away from the two well-conditioned cohorts."""
     res = _random_effect_meta_one([0.5, 0.5, 0.5], [1e-200, 0.1, 0.1], [True, True, True])
     assert res["k"] == 3
-    assert isinstance(res["random_effect"], float)  # finite or NaN, never a crash
+    # Non-trivial: the 1e-200 cohort contributes zero weight, so the pooled effect is
+    # exactly the mean of the two 0.5 cohorts — not a silently corrupted float.
+    assert math.isclose(res["random_effect"], 0.5, rel_tol=1e-9)
+    assert math.isclose(res["fixed_effect"], 0.5, rel_tol=1e-9)
+
+
+def test_s3_nonfinite_effect_on_valid_cohort_is_dropped():
+    """[contract] A cohort flagged valid but carrying a non-finite effect must be
+    dropped from the numerator, denominator, AND Q — it must not bias the pooled
+    estimate toward zero or NaN-corrupt the heterogeneity statistics."""
+    res = _random_effect_meta_one([0.5, float("nan"), 0.7], [0.1, 0.2, 0.15], [True, True, True])
+    w0, w2 = 1.0 / 0.1**2, 1.0 / 0.15**2
+    expected = (w0 * 0.5 + w2 * 0.7) / (w0 + w2)
+    assert math.isclose(res["fixed_effect"], expected, rel_tol=1e-9)
+    assert res["k"] == 2  # the NaN-effect cohort does not count
+    assert math.isfinite(res["Q"])  # Q is not NaN-corrupted by the dropped cohort
+
+
+def test_s3_infinite_z_two_sided_p_is_zero_not_nan():
+    """[contract] The two-sided p for an infinite z is 0.0 (erfc(inf)); only a
+    genuine NaN z returns NaN."""
+    assert _normal_two_sided_p(float("inf")) == 0.0
+    assert _normal_two_sided_p(float("-inf")) == 0.0
+    assert math.isnan(_normal_two_sided_p(float("nan")))
+
+
+def test_s3_zero_effect_cohort_does_not_dilute_direction_fraction(tmp_path):
+    """[contract] A valid cohort whose effect is exactly 0.0 contributes no signed
+    direction, so directional agreement among the signed cohorts stays 1.0 rather
+    than being diluted to 2/3."""
+    cohorts = []
+    for i, lfc in enumerate(["0.0", "0.5", "0.6"]):
+        d = tmp_path / f"c{i}"
+        d.mkdir()
+        _write_csv(d / DMP, ["CpG", "logFC", "SE", "P.Value"], [["cg1", lfc, "0.1", "0.01"]])
+        cohorts.append(MetaCohort(cohort_id=f"GSE{i}", result_dir=d, n_con=10, n_test=10))
+    ids = _cohort_column_ids(cohorts)
+    rows, _summary, _w = _analyze_branch(
+        cohorts, ids, BRANCH, DMP,
+        MetaThresholds(min_cohorts=2, partial_conjunction_r=2),
+        allow_missing_branches=False,
+    )
+    row = next(r for r in rows if r["CpG"] == "cg1")
+    assert math.isclose(float(row["direction_fraction"]), 1.0, rel_tol=1e-9)
 
 
 def test_s3_A9_tiny_se_yields_zero_weight():

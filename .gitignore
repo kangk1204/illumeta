@@ -49,6 +49,9 @@ references/
 *.swp
 *.swo
 
+# Claude Code local config / session artifacts (keep local only)
+.claude/
+
 # OS files
 .DS_Store
 Thumbs.db

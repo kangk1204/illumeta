@@ -394,18 +394,46 @@ class CliExitCodeTests(unittest.TestCase):
             payload = json.loads((out / "failure_summary.json").read_text(encoding="utf-8"))
             self.assertEqual(payload["code"], "PUBLICATION_ARTIFACTS_INCOMPLETE")
 
+    @staticmethod
+    def _write_valid_publication_artifacts(out, root):
+        """Write a complete, valid artifact set the publication gate should accept."""
+        summary = {
+            "n_con": 20, "n_test": 20,
+            "intersect_up": 100, "intersect_down": 50,
+            "intersect_native_up": 110, "intersect_native_down": 60,
+            "primary_branch": "Minfi", "primary_lambda_guard_status": "ok",
+        }
+        (out / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+        (out / "analysis_parameters.json").write_text(json.dumps({"lfc": 0.5}), encoding="utf-8")
+        (out / "methods.md").write_text("# Methods\n", encoding="utf-8")
+        (out / "sessionInfo.txt").write_text("R version 4.4\n", encoding="utf-8")
+        # Dashboard HTML is a sibling: <parent>/<dirname>_index.html
+        (root / f"{out.name}_index.html").write_text("<html></html>", encoding="utf-8")
+
     def test_require_publication_artifacts_passes_when_complete(self):
         illumeta = self.import_illumeta()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             out = root / "myrun_results"
             out.mkdir()
-            for name in ("summary.json", "analysis_parameters.json", "methods.md", "sessionInfo.txt"):
-                (out / name).write_text("{}", encoding="utf-8")
-            # Dashboard HTML is a sibling: <parent>/<dirname>_index.html
-            (root / "myrun_results_index.html").write_text("<html></html>", encoding="utf-8")
+            self._write_valid_publication_artifacts(out, root)
             illumeta._require_publication_artifacts(str(out))  # must not raise
             self.assertFalse((out / "failure_summary.json").exists())
+
+    def test_require_publication_artifacts_fails_on_empty_summary(self):
+        """A 0-byte or valid-but-keyless summary.json must NOT pass the gate."""
+        illumeta = self.import_illumeta()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for label, content in (("zero_byte", ""), ("empty_object", "{}"), ("missing_keys", '{"n_con": 20}')):
+                out = root / f"run_{label}_results"
+                out.mkdir()
+                self._write_valid_publication_artifacts(out, root)
+                (out / "summary.json").write_text(content, encoding="utf-8")  # corrupt it
+                with self.assertRaises(SystemExit):
+                    illumeta._require_publication_artifacts(str(out))
+                payload = json.loads((out / "failure_summary.json").read_text(encoding="utf-8"))
+                self.assertEqual(payload["code"], "PUBLICATION_ARTIFACTS_INCOMPLETE")
 
     def test_require_publication_artifacts_fails_on_failure_marker(self):
         illumeta = self.import_illumeta()
@@ -413,9 +441,7 @@ class CliExitCodeTests(unittest.TestCase):
             root = Path(tmp)
             out = root / "myrun_results"
             out.mkdir()
-            for name in ("summary.json", "analysis_parameters.json", "methods.md", "sessionInfo.txt"):
-                (out / name).write_text("{}", encoding="utf-8")
-            (root / "myrun_results_index.html").write_text("<html></html>", encoding="utf-8")
+            self._write_valid_publication_artifacts(out, root)
             (out / "failure_summary.json").write_text("{}", encoding="utf-8")  # stale failure marker
             with self.assertRaises(SystemExit):
                 illumeta._require_publication_artifacts(str(out))

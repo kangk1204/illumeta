@@ -357,6 +357,31 @@ class RDesignInvariantTests(unittest.TestCase):
         self.assertIn("(is_up %in% TRUE) | (is_down %in% TRUE)", source)
         self.assertNotIn("concord[is_up | is_down, , drop = FALSE]", source)
 
+    def test_normalize_meta_vals_coerces_continuous_not_codes(self):
+        """[contract] A numeric covariate read as character (e.g. age) is coerced to
+        numeric so it is modeled linearly; small-cardinality numeric CODES (batch 1/2/3,
+        sex 1/2) stay character/categorical; mixed columns stay character."""
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+        fn = extract_r_function(source, "normalize_meta_vals")
+        code = textwrap.dedent(
+            """
+            {fn}
+            # continuous numeric-as-character (7 distinct) -> numeric
+            stopifnot(is.numeric(normalize_meta_vals(c("45","67","72","58","61","49","70"))))
+            # small-cardinality numeric codes -> stay character (categorical)
+            stopifnot(is.character(normalize_meta_vals(c("1","2","3","1","2","3"))))
+            stopifnot(is.character(normalize_meta_vals(c("1","2","1","2"))))
+            # any non-numeric value present -> stay character
+            stopifnot(is.character(normalize_meta_vals(c("45","67","tumor","58","61","49","70"))))
+            # blanks become NA and a continuous column still coerces
+            v <- normalize_meta_vals(c("45","","67","58","61","49","70"))
+            stopifnot(is.numeric(v), is.na(v[2]))
+            cat("OK\\n")
+            """
+        ).format(fn=fn)
+        self.run_r(code)
+
     def test_consensus_reports_selection_p_values_as_primary(self):
         with open(ANALYZE_R, "r", encoding="utf-8") as handle:
             source = handle.read()

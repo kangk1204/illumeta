@@ -3184,6 +3184,18 @@ normalize_meta_vals <- function(val) {
   if (is.character(val)) {
     val <- trimws(val)
     val[val == ""] <- NA
+    # Rescue a numeric covariate that was read as character (e.g. age/PMI from a TSV)
+    # so it is tested with a linear model rather than as a many-level factor. Coerce
+    # ONLY when every non-missing value is a finite number AND there are >5 distinct
+    # values (plausibly continuous); this deliberately leaves small-cardinality numeric
+    # CODES (batch 1/2/3, sex 1/2) as categorical, which is the correct treatment.
+    nonmiss <- val[!is.na(val)]
+    if (length(nonmiss) > 0L) {
+      num <- suppressWarnings(as.numeric(nonmiss))
+      if (!any(is.na(num)) && length(unique(nonmiss)) > 5L) {
+        val <- suppressWarnings(as.numeric(val))
+      }
+    }
   }
   val
 }

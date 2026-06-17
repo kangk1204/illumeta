@@ -465,6 +465,7 @@ For transparency and reproducibility, we recommend including the following files
 Auto-group is a convenience feature and **not** a substitute for manual group curation.
 - It relies on **heuristics/metadata text** and can mislabel samples if metadata is incomplete or ambiguous.
 - It is **not designed for multi-factor designs** (e.g., time-series + treatment + batch).
+- Your explicit `--group_con` / `--group_test` labels always take precedence over the built-in synonym heuristics, so a group whose name happens to coincide with a synonym (e.g. `--group_test untreated`) is still assigned to the group you named.
 - Always verify `primary_group` counts in `Input_Group_Distribution.csv` and spot-check sample metadata before interpreting results.
 
 ## Installation

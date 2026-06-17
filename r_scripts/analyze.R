@@ -1931,10 +1931,15 @@ run_sex_mismatch_check <- function(rgSet, targets, gsm_col, out_dir, action = "s
     message("  Sex check skipped: no metadata sex/gender column found.")
     return(list(skipped = TRUE, reason = "no_column"))
   }
-  sex_obj <- tryCatch(minfi::getSex(rgSet), error = function(e) {
-    message("  Sex check failed: minfi::getSex() error: ", e$message)
-    NULL
-  })
+  # getSex has no RGChannelSet method (it needs CN from a mapped object); calling it on
+  # the raw rgSet errored and was swallowed, silently disabling this mandatory QC. Map to
+  # genome first (preprocessRaw is cheap and already used for getQC) so the check runs.
+  sex_obj <- tryCatch(
+    minfi::getSex(minfi::mapToGenome(minfi::preprocessRaw(rgSet))),
+    error = function(e) {
+      message("  Sex check failed: minfi::getSex() error: ", e$message)
+      NULL
+    })
   if (is.null(sex_obj)) return(list(skipped = TRUE, reason = "getsex_failed", column = sex_col))
   pred_raw <- extract_predicted_sex(sex_obj)
   if (is.null(pred_raw)) {

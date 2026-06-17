@@ -340,6 +340,23 @@ class RDesignInvariantTests(unittest.TestCase):
         self.assertIn("lambda_val <= lambda_guard_threshold", source)
         self.assertIn('reason = "lambda_above_threshold"', source)
 
+    def test_sex_check_maps_to_genome_before_getsex(self):
+        """[contract] getSex has no RGChannelSet method; it must be called on a mapped
+        object or the mandatory sex-mismatch QC silently no-ops via the error handler."""
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+        self.assertIn("minfi::getSex(minfi::mapToGenome(minfi::preprocessRaw(rgSet)))", source)
+        # The raw-rgSet call must not return: getSex(rgSet) directly is the bug.
+        self.assertNotIn("minfi::getSex(rgSet)", source)
+
+    def test_consensus_row_selection_is_na_safe(self):
+        """[contract] Consensus rows must be selected NA-safely so the emitted table
+        matches the na.rm-based up/down counts (no phantom all-NA rows)."""
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+        self.assertIn("(is_up %in% TRUE) | (is_down %in% TRUE)", source)
+        self.assertNotIn("concord[is_up | is_down, , drop = FALSE]", source)
+
     def test_consensus_reports_selection_p_values_as_primary(self):
         with open(ANALYZE_R, "r", encoding="utf-8") as handle:
             source = handle.read()

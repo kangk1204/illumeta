@@ -54,7 +54,12 @@ def load_config_rows(path: str):
     with open(path, "r", newline="", encoding="utf-8", errors="replace") as handle:
         reader = csv.DictReader(handle, delimiter=delim)
         rows = [row for row in reader]
-    return rows, reader.fieldnames or [], delim
+        # Capture fieldnames while the file is still open. For an empty file DictReader
+        # caches nothing, so accessing reader.fieldnames after the `with` closes the
+        # handle raises a confusing "I/O operation on closed file"; reading it here
+        # yields [] and lets callers emit a clear "config is empty" message instead.
+        fieldnames = list(reader.fieldnames) if reader.fieldnames else []
+    return rows, fieldnames, delim
 
 def is_number(value: str) -> bool:
     try:

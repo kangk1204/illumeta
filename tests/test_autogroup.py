@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 
-from illumeta import auto_group_config, apply_group_mapping
+from illumeta import auto_group_config, apply_group_mapping, load_config_rows
 
 
 def write_config(path, headers, rows):
@@ -82,6 +82,52 @@ class AutoGroupTests(unittest.TestCase):
             self.assertTrue(info["updated"])
             # 'untreated' is the declared TEST label; it must NOT be folded into DrugA.
             self.assertEqual(read_primary_groups(out_path), ["DrugA", "untreated"])
+
+    def test_multi_sample_group_alignment_no_drift(self):
+        """Sample↔group binding must survive per row: every Sample_Name keeps its own
+        metadata-derived group with no positional drift across many interleaved rows."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = os.path.join(tmpdir, "configure.tsv")
+            headers = ["Sample_Name", "disease", "primary_group"]
+            states = ["case", "control", "case", "control", "case", "control"]
+            rows = [{"Sample_Name": f"S{i}", "disease": d, "primary_group": ""}
+                    for i, d in enumerate(states)]
+            write_config(config_path, headers, rows)
+
+            out_path, _info = auto_group_config(
+                config_path=config_path, group_con="Control", group_test="Case",
+                group_column="disease",
+            )
+            import csv as _csv
+            got = {r["Sample_Name"]: r["primary_group"] for r in _csv.DictReader(open(out_path), delimiter="\t")}
+            expected = {f"S{i}": ("Case" if s == "case" else "Control") for i, s in enumerate(states)}
+            self.assertEqual(got, expected)
+
+    def test_auto_group_empty_value_fails_loud(self):
+        """A sample with an empty group-column value must not be silently misassigned;
+        auto-group should stop with a clear error naming the unresolved row."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = os.path.join(tmpdir, "configure.tsv")
+            headers = ["Sample_Name", "disease", "primary_group"]
+            rows = [
+                {"Sample_Name": "S0", "disease": "case", "primary_group": ""},
+                {"Sample_Name": "S1", "disease": "", "primary_group": ""},
+                {"Sample_Name": "S2", "disease": "control", "primary_group": ""},
+            ]
+            write_config(config_path, headers, rows)
+            with self.assertRaisesRegex(ValueError, "empty"):
+                auto_group_config(config_path=config_path, group_con="Control",
+                                  group_test="Case", group_column="disease")
+
+    def test_load_config_rows_empty_file_no_crash(self):
+        """An empty configure.tsv must return ([], []) cleanly, not raise the confusing
+        'I/O operation on closed file' from accessing fieldnames after the file closed."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            p = os.path.join(tmpdir, "configure.tsv")
+            open(p, "w").close()
+            rows, headers, _delim = load_config_rows(p)
+            self.assertEqual(rows, [])
+            self.assertEqual(headers, [])
 
     def test_auto_group_infer_keyword(self):
         with tempfile.TemporaryDirectory() as tmpdir:

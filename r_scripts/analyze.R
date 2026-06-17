@@ -9888,7 +9888,12 @@ run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
     consensus_counts$up <- sum(is_up, na.rm = TRUE)
     consensus_counts$down <- sum(is_down, na.rm = TRUE)
 
-    consensus_df <- concord[is_up | is_down, , drop = FALSE]
+    # NA-safe row selection. A probe with NA adj.P.Val in either branch yields NA in
+    # is_up/is_down; plain logical indexing (concord[is_up | is_down, ]) would inject a
+    # phantom all-NA row per NA element, making the emitted table disagree with the
+    # na.rm-based up/down counts above. `%in% TRUE` drops NA, so table == counts.
+    consensus_sel <- (is_up %in% TRUE) | (is_down %in% TRUE)
+    consensus_df <- concord[consensus_sel, , drop = FALSE]
     consensus_df$logFC_mean <- rowMeans(consensus_df[, c("logFC.Minfi", "logFC.Sesame")], na.rm = TRUE)
     # The two pipelines share samples and therefore violate Fisher independence.
     # Report conservative selection-rule p-values as primary and keep Fisher only
@@ -9909,7 +9914,7 @@ run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
     message(paste("Consensus DMPs saved to", out_cons_csv, "(n=", nrow(consensus_df), ")."))
 
     # Concordance plot (logFC Minfi vs Sesame)
-    concord$Consensus <- (is_up | is_down)
+    concord$Consensus <- consensus_sel
     consensus_plot_df <- concord[concord$Consensus %in% TRUE, , drop = FALSE]
     background_df <- concord[!(concord$Consensus %in% TRUE), , drop = FALSE]
     n_background <- max(0, max_points - nrow(consensus_plot_df))

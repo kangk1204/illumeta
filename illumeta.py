@@ -301,9 +301,15 @@ def build_group_map_hint(raw_labels, group_con: str, group_test: str, max_labels
     for label in labels[:max_labels]:
         token = label.replace('"', "'").replace(",", "/").replace(";", "/")
         norm = normalize_group_value(label)
-        if norm == con_norm or norm in CONTROL_SYNONYMS:
+        # Explicit labels win over synonyms (mirror apply_group_mapping) so the hint
+        # never suggests folding a declared group label into the opposite group.
+        if norm == con_norm:
             target = group_con
-        elif norm == test_norm or norm in TEST_SYNONYMS:
+        elif norm == test_norm:
+            target = group_test
+        elif norm in CONTROL_SYNONYMS:
+            target = group_con
+        elif norm in TEST_SYNONYMS:
             target = group_test
         else:
             target = f"<{group_con}|{group_test}>"
@@ -664,9 +670,18 @@ def apply_group_mapping(value, mapping, group_con, group_test):
         if mapped_norm == test_norm:
             return group_test
         return mapped
-    if norm == con_norm or norm in CONTROL_SYNONYMS:
+    # Explicit user labels MUST win over synonym fallback. Otherwise a declared
+    # --group_test label that happens to be a control synonym (e.g. "untreated",
+    # "baseline", "vehicle", "wt") would be routed to the control group, silently
+    # swapping/corrupting the case-control contrast (and a partial collision can
+    # still leave both groups non-empty, so preflight would not catch it).
+    if norm == con_norm:
         return group_con
-    if norm == test_norm or norm in TEST_SYNONYMS:
+    if norm == test_norm:
+        return group_test
+    if norm in CONTROL_SYNONYMS:
+        return group_con
+    if norm in TEST_SYNONYMS:
         return group_test
     return raw
 

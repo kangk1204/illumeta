@@ -906,7 +906,10 @@ def _summarize_branch_concordance(candidate_rows: list[dict[str, object]]) -> li
                 "min_loo_direction_fraction": _min(row.get("loo_direction_fraction") for row in group),
             }
         )
-    out.sort(key=lambda row: (-int(row["n_candidate_branches"]), row["max_random_fdr"], row["max_I2"]))
+    # CpG is the final tie-break so the ordering is total and independent of input
+    # row order (without it, fully tied rows resolve by dict-insertion = file order).
+    # This does not change any value, only stabilizes the order of tied rows.
+    out.sort(key=lambda row: (-int(row["n_candidate_branches"]), row["max_random_fdr"], row["max_I2"], str(row.get("CpG", ""))))
     return out
 
 

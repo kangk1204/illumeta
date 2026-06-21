@@ -482,8 +482,11 @@ def _directional_pc_p(effects: list[float], p_values: list[float], valid: list[b
             p_up.append(math.nan)
             p_down.append(math.nan)
             continue
-        p_up.append(p / 2.0 if effect >= 0 else 1.0 - p / 2.0)
-        p_down.append(p / 2.0 if effect <= 0 else 1.0 - p / 2.0)
+        # Strict sign: an exactly-zero effect supports neither direction (mirrors the n_up/n_down
+        # convention). With >= / <= a directionless cohort would count as strong one-sided support
+        # for BOTH families at once, anti-conservatively lowering pc_directional_p.
+        p_up.append(p / 2.0 if effect > 0 else 1.0 - p / 2.0)
+        p_down.append(p / 2.0 if effect < 0 else 1.0 - p / 2.0)
     pc_up = _fisher_partial_conjunction(p_up, valid, r)
     pc_down = _fisher_partial_conjunction(p_down, valid, r)
     candidates = [p for p in (pc_up, pc_down) if math.isfinite(p)]
@@ -773,7 +776,7 @@ def _analyze_branch(
         "n_meta_analyzable_cpgs": sum(
             1 for row in rows if int(row["n_valid_cohorts"]) >= thresholds.min_cohorts
         ),
-        "n_random_fdr_lt_0_05": sum(
+        "n_random_fdr_hits": sum(
             1 for row in rows if math.isfinite(row["random_fdr"]) and row["random_fdr"] < thresholds.meta_fdr
         ),
         "n_core_candidates": sum(1 for row in rows if row["core_candidate"]),
@@ -1020,7 +1023,7 @@ def _write_report(
     )
     for summary in branch_summaries:
         lines.append(
-            "| {branch} | {n_meta_analyzable_cpgs:,} | {n_random_fdr_lt_0_05:,} | "
+            "| {branch} | {n_meta_analyzable_cpgs:,} | {n_random_fdr_hits:,} | "
             "{n_core_candidates:,} | {n_pc_directional_candidates:,} | {median_i2_analyzable:.2f} | "
             "{median_loo_direction_fraction_core:.2f} |".format(**summary)
         )
@@ -1136,7 +1139,7 @@ def _run_meta_analysis_to_dir(
         "tier3_primary_cohorts",
         "n_total_cpgs",
         "n_meta_analyzable_cpgs",
-        "n_random_fdr_lt_0_05",
+        "n_random_fdr_hits",
         "n_core_candidates",
         "n_pc_directional_candidates",
         "median_i2_analyzable",

@@ -29,6 +29,14 @@ class MetaMathTests(unittest.TestCase):
 
         self.assertAlmostEqual(value, 0.90, places=15)
 
+    def test_directionless_zero_effect_supports_neither_direction(self):
+        # A cohort with exactly logFC==0 is directionless: it must NOT count as strong
+        # one-sided support for both the up and down families (which would anti-conservatively
+        # report ~0.04 here). With strict sign handling it contributes ~1.0 (no support).
+        value = _directional_pc_p([0.0], [0.04], [True], 1)
+
+        self.assertGreater(value, 0.95)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1885,6 +1885,25 @@ resolve_sex_column <- function(targets, preferred = "") {
   hits[1]
 }
 
+# Map IDAT sample column names back to metadata rows by identity.
+# minfi sets colnames(rgSet)/colnames(detP) to sentrix basenames (basename of targets$Basename),
+# which differ from SampleID/gsm on GEO cohorts. rownames(targets) was set to gsm, so matching on
+# gsm alone leaves the index all-NA there and any positional fallback silently relies on column
+# order. Try each plausible key and keep whichever resolves the most samples. Returns an integer
+# index vector into targets rows (NA where a sample could not be resolved by any key).
+resolve_meta_row_idx <- function(sample_ids, targets, gsm_col = "SampleID") {
+  idx <- match(sample_ids, rownames(targets))
+  if (anyNA(idx) && "Basename" %in% colnames(targets)) {
+    alt <- match(sample_ids, basename(as.character(targets$Basename)))
+    if (sum(!is.na(alt)) > sum(!is.na(idx))) idx <- alt
+  }
+  if (anyNA(idx) && !is.null(gsm_col) && nzchar(gsm_col) && gsm_col %in% colnames(targets)) {
+    alt <- match(sample_ids, targets[[gsm_col]])
+    if (sum(!is.na(alt)) > sum(!is.na(idx))) idx <- alt
+  }
+  idx
+}
+
 extract_predicted_sex <- function(sex_obj) {
   if (is.null(sex_obj)) return(NULL)
   if (is.data.frame(sex_obj) || inherits(sex_obj, "DataFrame")) {
@@ -1967,9 +1986,12 @@ run_sex_mismatch_check <- function(rgSet, targets, gsm_col, out_dir, action = "s
       yMed <- yMed[match(sample_ids, rownames(sex_obj))]
     }
   }
-  meta_idx <- match(sample_ids, rownames(targets))
-  if (all(is.na(meta_idx)) && gsm_col %in% colnames(targets)) {
-    meta_idx <- match(sample_ids, targets[[gsm_col]])
+  # colnames(rgSet) are sentrix basenames, which differ from SampleID/gsm on GEO cohorts. The old
+  # code matched only on gsm (== rownames(targets)) and left meta_idx all-NA there, so the mandatory
+  # sex-mismatch QC silently passed every cohort. resolve_meta_row_idx tries each plausible key.
+  meta_idx <- resolve_meta_row_idx(sample_ids, targets, gsm_col)
+  if (all(is.na(meta_idx))) {
+    message("  Sex check: could not align metadata to IDAT samples by any key (SampleID/Basename/gsm); reporting predicted sex only, no mismatch comparison performed.")
   }
   meta_vals <- targets[[sex_col]][meta_idx]
   meta_norm <- normalize_sex_vector(meta_vals)
@@ -7284,9 +7306,9 @@ if (is.finite(QC_MEDIAN_INTENSITY_THRESHOLD)) {
         message(sprintf("WARNING: Removing %d samples due to low signal intensity (< %.1f log2):",
                         length(bad_samples), QC_MEDIAN_INTENSITY_THRESHOLD))
         message(paste(bad_samples, collapse = ", "))
-        targets <- targets[-bad_samples_idx, ]
+        targets <- targets[-bad_samples_idx, , drop = FALSE]
         rgSet <- rgSet[, -bad_samples_idx]
-        detP <- detP[, -bad_samples_idx]
+        detP <- detP[, -bad_samples_idx, drop = FALSE]
         if (nrow(targets) < 2) stop("Too few samples remaining after QC.")
     }
 } else {
@@ -7353,9 +7375,12 @@ message(sprintf("Samples retained after QC - Control: %d, Test: %d (total: %d)",
 
 # Save sample-level QC metrics and figures (publication-friendly)
 tryCatch({
+    # Bind QC plot/CSV group labels by identity (basename usually wins for GEO cohorts), not by
+    # positional order; the positional overwrite below is kept only as a last resort.
+    qc_grp_idx <- resolve_meta_row_idx(colnames(detP), targets, gsm_col)
     qc_metrics <- data.frame(
       Sample = colnames(detP),
-      Group = as.character(targets$primary_group[match(colnames(detP), rownames(targets))]),
+      Group = as.character(targets$primary_group[qc_grp_idx]),
       Detection_Fail_Fraction = colMeans(detP > QC_DETECTION_P_THRESHOLD, na.rm = TRUE),
       stringsAsFactors = FALSE
     )
@@ -7953,7 +7978,19 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   message(paste("Running pipeline for:", prefix))
   # Work on a local copy of targets to avoid altering the shared metadata across pipelines
   targets <- if (is.null(targets_override)) targets_global else targets_override
-  
+
+  # Bind beta columns to metadata rows by identity, not by position. Every paired subset below
+  # (e.g. complete-case covariate drop: betas[, cc_idx] with cc_idx computed from targets) relies
+  # on colnames(betas) == rownames(targets). Align here so a future reorder of any upstream beta
+  # matrix cannot silently swap samples between groups. No-op when already aligned.
+  if (!is.null(colnames(betas)) && !identical(colnames(betas), rownames(targets))) {
+    if (!all(colnames(betas) %in% rownames(targets))) {
+      stop(sprintf("%s: %d beta-matrix sample(s) have no matching metadata row; cannot align samples to groups.",
+                   prefix, sum(!(colnames(betas) %in% rownames(targets)))))
+    }
+    targets <- targets[colnames(betas), , drop = FALSE]
+  }
+
   best_method <- "none"
   batch_evaluated <- FALSE
   batch_candidates_df <- NULL

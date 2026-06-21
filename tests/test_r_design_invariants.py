@@ -382,6 +382,53 @@ class RDesignInvariantTests(unittest.TestCase):
         ).format(fn=fn)
         self.run_r(code)
 
+    def test_resolve_meta_row_idx_binds_by_basename_not_position(self):
+        """[contract] minfi names rgSet/detP columns by sentrix basename, which differs from
+        SampleID/gsm on GEO cohorts. resolve_meta_row_idx must recover the correct targets row
+        per sample via the Basename key (in arbitrary column order), so the mandatory sex QC and
+        QC-plot group labels bind by identity, not by positional order."""
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+        fn = extract_r_function(source, "resolve_meta_row_idx")
+        code = textwrap.dedent(
+            """
+            {fn}
+            targets <- data.frame(
+              SampleID = c("GSM1","GSM2","GSM3"),
+              Basename = c("/data/idat/201_R01C01","/data/idat/201_R02C01","/data/idat/201_R03C01"),
+              Sex = c("M","F","M"),
+              stringsAsFactors = FALSE
+            )
+            rownames(targets) <- targets$SampleID
+            # colnames(rgSet) are sentrix basenames, in a DIFFERENT order than targets rows.
+            sample_ids <- c("201_R02C01","201_R03C01","201_R01C01")
+            idx <- resolve_meta_row_idx(sample_ids, targets, "SampleID")
+            stopifnot(identical(targets$Sex[idx], c("F","M","M")))
+            # Direct SampleID/gsm match still works (e.g. local runs where SampleID == basename).
+            idx2 <- resolve_meta_row_idx(c("GSM3","GSM1","GSM2"), targets, "SampleID")
+            stopifnot(identical(targets$Sex[idx2], c("M","M","F")))
+            # Unresolvable ids -> all NA (caller then reports predicted-only, no false comparison).
+            stopifnot(all(is.na(resolve_meta_row_idx(c("ZZZ","YYY"), targets, "SampleID"))))
+            cat("OK\\n")
+            """
+        ).format(fn=fn)
+        self.run_r(code)
+
+    def test_sex_check_and_qc_labels_bind_by_resolved_index(self):
+        """[contract] Both the sex-mismatch QC join and the QC-plot group label must route
+        through resolve_meta_row_idx (identity binding), not a raw gsm-only match."""
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+        self.assertIn("meta_idx <- resolve_meta_row_idx(sample_ids, targets, gsm_col)", source)
+        self.assertIn("qc_grp_idx <- resolve_meta_row_idx(colnames(detP), targets, gsm_col)", source)
+
+    def test_run_pipeline_aligns_betas_to_targets_by_name(self):
+        """[contract] run_pipeline must bind beta columns to metadata rows by identity so a
+        future upstream reorder cannot silently swap samples between groups on the modeling path."""
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+        self.assertIn("targets <- targets[colnames(betas), , drop = FALSE]", source)
+
     def test_consensus_reports_selection_p_values_as_primary(self):
         with open(ANALYZE_R, "r", encoding="utf-8") as handle:
             source = handle.read()

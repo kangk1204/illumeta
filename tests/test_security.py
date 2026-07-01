@@ -19,18 +19,19 @@ class TestGSEValidation(unittest.TestCase):
         self.assertFalse(is_valid_gse_id("gse12345"))
 
     def test_valid_gse(self):
-        self.assertIsNotNone(self.PATTERN.fullmatch("GSE12345"))
-        self.assertIsNotNone(self.PATTERN.fullmatch("GSE1"))
-        self.assertIsNotNone(self.PATTERN.fullmatch("GSE999999"))
+        # Exercise the PRODUCTION validator, not a regex re-declared in this test file.
+        from illumeta import is_valid_gse_id
+
+        self.assertTrue(is_valid_gse_id("GSE12345"))
+        self.assertTrue(is_valid_gse_id("GSE1"))
+        self.assertTrue(is_valid_gse_id("GSE999999"))
 
     def test_rejects_injection(self):
-        self.assertIsNone(self.PATTERN.fullmatch("GSE12345; rm -rf /"))
-        self.assertIsNone(self.PATTERN.fullmatch("GSE12345\n"))
-        self.assertIsNone(self.PATTERN.fullmatch("GSE12345\nGSE99999"))
-        self.assertIsNone(self.PATTERN.fullmatch("../etc/passwd"))
-        self.assertIsNone(self.PATTERN.fullmatch(""))
-        self.assertIsNone(self.PATTERN.fullmatch("GSE"))
-        self.assertIsNone(self.PATTERN.fullmatch("gse12345"))
+        from illumeta import is_valid_gse_id
+
+        for bad in ["GSE12345; rm -rf /", "GSE12345\n", "GSE12345\nGSE99999",
+                    "../etc/passwd", "", "GSE", "gse12345"]:
+            self.assertFalse(is_valid_gse_id(bad), f"Should reject: {bad!r}")
 
     def test_geo_suppl_url_validates(self):
         from illumeta import geo_suppl_url

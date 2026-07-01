@@ -1,0 +1,4 @@
+# Development/test dependencies (NOT required to run IlluMeta).
+# Install with: pip install -r requirements-dev.txt
+-r requirements.txt
+pytest>=7.0

@@ -3648,7 +3648,14 @@ apply_covariate_governance <- function(targets, covariates, forced_covariates, c
   max_frac <- config_settings$missingness$max_frac
   impute_frac <- config_settings$missingness$impute_max_frac
   for (cv in covariates) {
-    vals <- targets[[cv]]
+    # Rescue a continuous covariate (e.g. age/PMI) that was read as character -- which
+    # happens whenever the column has a blank/non-numeric cell -- and write it back into
+    # `targets` so model.matrix() downstream treats it as ONE numeric term instead of a
+    # many-level factor (or drops it as rank-deficient). normalize_meta_vals only coerces
+    # when >5 distinct finite numeric values, so small-cardinality numeric CODES (batch,
+    # sex 1/2) correctly stay categorical.
+    vals <- normalize_meta_vals(targets[[cv]])
+    targets[[cv]] <- vals
     miss_mask <- is.na(vals) | (is.character(vals) & trimws(vals) == "")
     miss_frac <- mean(miss_mask)
     if (!is.finite(miss_frac)) miss_frac <- 0
@@ -5628,6 +5635,14 @@ apply_batch_correction <- function(betas, method, batch_col, covariates, targets
                                    group_col = "primary_group") {
   combat_par_prior <- if (exists("combat_par_prior", inherits = TRUE)) combat_par_prior else TRUE
   combat_allowed <- if (exists("combat_allowed", inherits = TRUE)) combat_allowed else TRUE
+  # KNOWN LIMITATION (Nygaard et al. 2016): for method %in% c("combat","limma") the batch
+  # signal is subtracted from the data here and the corrected matrix is then tested with
+  # `primary_group` still in the design, so the uncertainty of the batch-parameter estimate
+  # is not propagated -> DMP p-values/FDR are mildly anti-conservative, most when batch
+  # partially correlates with group. Mitigated (group preserved in `mod`, batch-confounded
+  # covariates dropped, lambda/overcorrection guards), but not eliminated. The statistically
+  # cleaner alternative is to carry `batch_col` as a design term (see the ~ 0 + primary_group +
+  # batch path) rather than pre-subtracting; kept as-is for backward-compatible defaults.
   # Apply the selected batch correction method to betas (logit space) while preserving group effects.
   if (is.null(method) || method == "none" || is.null(batch_col) || !(batch_col %in% colnames(targets))) {
     return(list(betas = betas, mvals = logit_offset(betas), method = "none"))
@@ -7559,7 +7574,9 @@ gmSet <- gmSet[common_probes, ]
 # We keep probes where P-value < threshold in ALL samples (strict) or fraction?
 # Original logic: keep_detP <- rowSums(detP < QC_DETECTION_P_THRESHOLD) == ncol(gmSet)
 # This implies ALL samples must pass.
-pass_detP <- rowSums(detP_sub < QC_DETECTION_P_THRESHOLD) == ncol(gmSet)
+# NA-safe: an NA detection p-value must FAIL the probe (drop it), not propagate an
+# NA into the logical index — logical-NA subsetting would inject phantom all-NA rows.
+pass_detP <- rowSums(!is.na(detP_sub) & detP_sub < QC_DETECTION_P_THRESHOLD) == ncol(gmSet)
 gmSet <- gmSet[pass_detP, ]
 
 probes_failed_detection <- length(common_probes) - sum(pass_detP)

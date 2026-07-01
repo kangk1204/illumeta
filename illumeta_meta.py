@@ -587,7 +587,10 @@ def _read_branch_records(
                         annotations[col] = str(row.get(col)).strip()
                 effect = _safe_float(row.get("logFC"))
                 se = _safe_float(row.get("SE"))
-                if not math.isfinite(se):
+                # Reconstruct SE from logFC/t whenever SE is unusable (missing OR
+                # non-positive). Previously a present-but-zero/negative SE skipped the
+                # t-fallback and silently dropped the cohort, even with a valid t.
+                if not math.isfinite(se) or se <= 0:
                     t_stat = _safe_float(row.get("t"))
                     if math.isfinite(effect) and math.isfinite(t_stat) and t_stat != 0:
                         se = abs(effect / t_stat)

@@ -269,11 +269,27 @@ class RDesignInvariantTests(unittest.TestCase):
 
     def test_crf_rss_summary_filename_is_used_by_figure_script(self):
         script = os.path.join(BASE_DIR, "scripts", "generate_application_note_figures.py")
+        if not os.path.exists(script):
+            # This manuscript-figure helper is intentionally .gitignored (it may carry
+            # unpublished paper text) and is therefore absent from the public repo /
+            # clean clones / CI. Skip rather than hard-fail the whole suite.
+            self.skipTest("scripts/generate_application_note_figures.py not present (maintainer-only)")
         with open(script, "r", encoding="utf-8") as handle:
             source = handle.read()
 
         self.assertIn("CRF_RSS_Summary.csv", source)
         self.assertNotIn("CRF_SSS_Summary.csv", source)
+
+    def test_covariate_governance_coerces_continuous_covariates_into_targets(self):
+        # H-Sci guard: a numeric-as-character continuous covariate (age/PMI read as a
+        # string because of a blank cell) must be coerced and WRITTEN BACK into the
+        # modeling frame so model.matrix() gets one numeric term, not a many-level
+        # factor. It is not enough for normalize_meta_vals() to exist in isolation.
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+        gov = extract_r_function(source, "apply_covariate_governance")
+        self.assertIn("normalize_meta_vals(targets[[cv]])", gov)
+        self.assertIn("targets[[cv]] <- vals", gov)
 
     def test_lambda_guard_simplify_is_labeled_diagnostic(self):
         with open(ANALYZE_R, "r", encoding="utf-8") as handle:

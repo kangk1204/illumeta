@@ -18,9 +18,13 @@ jobs:
           python-version: "3.11"
           cache: "pip"
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-dev.txt
       - name: Run unit tests
-        run: python -m unittest discover -s tests -p "test_*.py"
+        # pytest collects BOTH unittest.TestCase classes AND pytest-native suites
+        # (module-level def test_* using tmp_path/parametrize). `unittest discover`
+        # errors on `import pytest` and silently skips the pytest-native tests, so
+        # the robustness/smoke suites never ran under the old command.
+        run: python -m pytest tests
 
   r-syntax:
     runs-on: ubuntu-latest
@@ -60,6 +64,10 @@ jobs:
           cache: "pip"
       - name: Install Python dependencies
         run: pip install -r requirements.txt
+      - name: Put pre-installed Miniconda on PATH
+        # GitHub-hosted runners ship Miniconda at $CONDA but do not add it to PATH.
+        # install_full.sh needs `conda` discoverable or it exits early.
+        run: echo "$CONDA/bin" >> "$GITHUB_PATH"
       - name: Install R + Bioconductor via install_full.sh
         run: ./scripts/install_full.sh --minimal --skip-doctor
       - name: Run illumeta doctor

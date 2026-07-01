@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import base64
+import http.client
 import subprocess
 import os
 import sys
@@ -1458,9 +1459,14 @@ def check_r_package(pkg, env):
             stderr=subprocess.PIPE,
             text=True,
             env=env,
+            timeout=120,
         )
     except FileNotFoundError:
         return False, "Rscript not found"
+    except subprocess.TimeoutExpired:
+        # A hung R (stale lock, lazy annotation fetch) must not stall the whole
+        # per-package loop in doctor/ensure_r_dependencies; treat as unavailable.
+        return False, "Timed out while checking package (R did not respond)"
     if res.returncode == 0 and "OK" in res.stdout:
         return True, ""
     err = (res.stderr + res.stdout).strip()
@@ -1688,15 +1694,23 @@ def run_download(args):
     env = add_conda_paths(env)
 
     try:
+        dl_timeout = parse_analysis_timeout(os.environ.get("ILLUMETA_DOWNLOAD_TIMEOUT", 3600), default=3600)
+    except (ValueError, TypeError):
+        log_err("[!] ILLUMETA_DOWNLOAD_TIMEOUT must be a number of seconds or one of: 0, none, off, unlimited. Using default 3600.")
+        dl_timeout = 3600
+
+    try:
         os.makedirs(out_dir, exist_ok=True)
-        subprocess.run(cmd, check=True, env=env, timeout=3600)
+        subprocess.run(cmd, check=True, env=env, timeout=dl_timeout)
         log(f"[*] Download complete. Fill 'primary_group' in: {os.path.join(out_dir, 'configure.tsv')}")
         log("[*] Tip: you can auto-fill it during analysis with --auto-group/--group-column/--group-key.")
     except KeyboardInterrupt:
         log_err("\n[!] Download interrupted by user.")
         sys.exit(130)
     except subprocess.TimeoutExpired:
-        log_err("[!] Download timed out after 1 hour.")
+        log_err(f"[!] Download timed out after {dl_timeout}s. "
+                "Large *_RAW.tar archives may need more: set ILLUMETA_DOWNLOAD_TIMEOUT "
+                "(seconds, or 'unlimited') and retry.")
         sys.exit(1)
     except subprocess.CalledProcessError as e:
         log_err(f"[!] Error during download step: {e}")
@@ -2822,12 +2836,30 @@ def _atomic_write_text(text, dest_path):
     _atomic_write_bytes(text.encode("utf-8"), dest_path)
 
 def _download_file(url, dest_path):
-    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+    os.makedirs(os.path.dirname(dest_path) or ".", exist_ok=True)
     req = _urllib_request.Request(url, headers={"User-Agent": "IlluMeta/1.0"})
     with _urllib_request.urlopen(req, timeout=30) as resp:
-        data = resp.read(_DOWNLOAD_MAX_SIZE + 1)
+        expected = resp.headers.get("Content-Length")
+        try:
+            data = resp.read(_DOWNLOAD_MAX_SIZE + 1)
+        except (http.client.IncompleteRead, ConnectionError) as err:
+            # A dropped connection mid-transfer raises HTTPException/OSError, neither
+            # of which the callers catch. Re-raise as URLError so _try_download and
+            # ensure_cross_reactive_lists fall back gracefully instead of crashing.
+            raise URLError(f"Incomplete download (connection dropped) for {url}: {err}") from err
         if len(data) > _DOWNLOAD_MAX_SIZE:
             raise ValueError(f"Download exceeds {_DOWNLOAD_MAX_SIZE // (1024*1024)} MB limit: {url}")
+    # Integrity check: a truncated-but-nonempty file would otherwise be written and
+    # then trusted forever by the getsize()>0 cache, silently under-filtering probes.
+    if expected is not None:
+        try:
+            expected_len = int(expected)
+        except (TypeError, ValueError):
+            expected_len = None
+        if expected_len is not None and len(data) < expected_len:
+            raise URLError(
+                f"Truncated download: got {len(data)} of {expected_len} bytes from {url}"
+            )
     _atomic_write_bytes(data, dest_path)
     return dest_path
 
@@ -4839,7 +4871,11 @@ def run_demo(args):
     else:
         log(f"[*] Demo: reusing cached dataset in {demo_dir} (offline).")
 
-    results_dir = os.path.join(demo_dir, f"{group_test}_vs_{group_con}_results")
+    # Must match run_analysis's default folder naming exactly, otherwise the failure
+    # detail and dashboard paths below point at a directory the analysis never wrote
+    # (only bites custom ILLUMETA_DEMO_* labels containing spaces/non-safe chars).
+    demo_folder = safe_path_component(f"{group_test}_vs_{group_con}_results", fallback="analysis_results")
+    results_dir = os.path.join(demo_dir, demo_folder)
     log(f"[*] Demo: running analysis ({group_test} vs {group_con}, auto-grouped)...")
     try:
         rc = subprocess.run(analysis_cmd).returncode
@@ -4859,7 +4895,7 @@ def run_demo(args):
             log_err("[!] Demo analysis failed. Run `illumeta doctor` to check your installation, then retry.")
         sys.exit(rc)
 
-    dashboard = os.path.join(demo_dir, f"{group_test}_vs_{group_con}_results_index.html")
+    dashboard = os.path.join(demo_dir, f"{demo_folder}_index.html")
     log("")
     log("[OK] Demo complete.")
     log(f"     Open the dashboard in a browser: {dashboard}")

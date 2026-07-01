@@ -3994,7 +3994,6 @@ def generate_dashboard(output_dir, group_test, group_con):
         .toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
         .hero-title { font-size: clamp(2rem, 2.8vw, 2.8rem); margin-top: 0.5rem; }
         .hero-sub { margin-top: 0.6rem; font-size: 1rem; opacity: 0.85; }
-        .hero-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1.2rem; }
         .tag {
             background: var(--hero-glass);
             padding: 0.35rem 0.75rem;

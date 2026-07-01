@@ -4349,14 +4349,13 @@ def generate_dashboard(output_dir, group_test, group_con):
 	    </div>
 	""")
 
-    # -- "What should I look at first?" callout --
+    # -- Key-terms glossary strip. (Onboarding "where do I start" guidance lives in the
+    #    single "Beginner Path" section below; this strip keeps only the unique glossary
+    #    instead of repeating the step-by-step guide a second time.) --
     html_parts.append("""
     <div class="callout" style="background:var(--callout-good-bg); border-color:var(--callout-good-border); margin-bottom:1.2rem;">
-        <strong>New to IlluMeta? Start here:</strong>
-        (1) Check the <b>verdict badge</b> below for an overall confidence rating (levels are explained right under the badge).
-        (2) Scroll to <a href="#start" style="color:var(--callout-good-link);font-weight:600;">Beginner Path</a> for a 3-step guide.
-        (3) Open the <b>Intersection (Native)</b> tab for your primary, high-confidence results.
-        <br><small style="color:var(--callout-good-sub);">DMPs = differentially methylated positions (individual CpG sites). DMRs = differentially methylated regions (clusters of CpGs). FDR = false discovery rate (adjusted p-value controlling for multiple testing).</small>
+        <strong>Key terms:</strong>
+        <small style="color:var(--callout-good-sub);">DMP = differentially methylated position (a single CpG site). DMR = differentially methylated region (a cluster of CpGs). FDR = false discovery rate (a p-value adjusted for multiple testing). See <a href="#start" style="color:var(--callout-good-link);font-weight:600;">Beginner Path</a> for a guided 3-step walkthrough.</small>
     </div>
 """)
 
@@ -4811,6 +4810,15 @@ def generate_dashboard(output_dir, group_test, group_con):
         }
         if (dark) document.documentElement.classList.add('dark');
         applyDarkIcons(dark);
+    })();
+
+    // Remove jump-bar links whose target section was not rendered (e.g. Run Controls
+    // & QC or Run Documentation on a partial/failed run) so no anchor is a dead no-op.
+    (function pruneJumpBar() {
+        document.querySelectorAll('.jump-bar a[href^="#"]').forEach(function (a) {
+            const id = a.getAttribute('href').slice(1);
+            if (id && !document.getElementById(id)) a.remove();
+        });
     })();
 </script>
 

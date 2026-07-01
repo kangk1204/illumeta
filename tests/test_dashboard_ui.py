@@ -62,6 +62,22 @@ class DashboardUiTests(unittest.TestCase):
         h = self._render()
         self.assertNotIn('loading="lazy"', h)  # no-op on inline data: URIs
 
+    def test_onboarding_is_not_triplicated(self):
+        # The redundant "New to IlluMeta? Start here" prose (which duplicated Beginner
+        # Path) is gone; the strip keeps only the unique glossary and Beginner Path is
+        # the single onboarding device.
+        h = self._render()
+        self.assertNotIn("New to IlluMeta? Start here:", h)
+        self.assertIn("<strong>Key terms:</strong>", h)
+        self.assertIn("DMP = differentially methylated position", h)
+        self.assertEqual(h.count('id="start"'), 1)
+
+    def test_jump_bar_prunes_dead_anchors(self):
+        # A run-time guard removes jump-bar links whose section was not rendered.
+        h = self._render()
+        self.assertIn("pruneJumpBar", h)
+        self.assertIn('.jump-bar a[href^="#"]', h)
+
     def test_verdict_meaning_is_visible_not_hover_only(self):
         # High-stakes confidence-level definitions must be readable on touch/keyboard,
         # not buried in a hover-only title tooltip.

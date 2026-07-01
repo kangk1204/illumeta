@@ -4257,6 +4257,17 @@ def generate_dashboard(output_dir, group_test, group_con):
             .tab-content { display: block !important; page-break-before: always; }
             .card, .metrics-card, .summary-card { box-shadow: none; border: 1px solid #ccc; }
         }
+        /* Visible, dismissible explanations so key definitions are not hover-only
+           (title tooltips are unreachable on touch and unreliable for screen readers). */
+        details.explain { margin: 0.3rem 0 0.6rem; font-size: 0.8rem; }
+        details.explain > summary {
+            cursor: pointer; color: var(--accent); font-weight: 600; list-style: none;
+        }
+        details.explain > summary::-webkit-details-marker { display: none; }
+        details.explain > summary::before { content: "\\25B8  "; }
+        details.explain[open] > summary::before { content: "\\25BE  "; }
+        details.explain .explain-body { margin-top: 0.45rem; color: var(--muted); line-height: 1.6; }
+        details.explain .explain-body b { color: var(--ink); }
     """
 
     # Construct HTML using lists and joins to be cleaner
@@ -4342,7 +4353,7 @@ def generate_dashboard(output_dir, group_test, group_con):
     html_parts.append("""
     <div class="callout" style="background:var(--callout-good-bg); border-color:var(--callout-good-border); margin-bottom:1.2rem;">
         <strong>New to IlluMeta? Start here:</strong>
-        (1) Check the <b>verdict badge</b> below for an overall confidence rating (hover for details).
+        (1) Check the <b>verdict badge</b> below for an overall confidence rating (levels are explained right under the badge).
         (2) Scroll to <a href="#start" style="color:var(--callout-good-link);font-weight:600;">Beginner Path</a> for a 3-step guide.
         (3) Open the <b>Intersection (Native)</b> tab for your primary, high-confidence results.
         <br><small style="color:var(--callout-good-sub);">DMPs = differentially methylated positions (individual CpG sites). DMRs = differentially methylated regions (clusters of CpGs). FDR = false discovery rate (adjusted p-value controlling for multiple testing).</small>
@@ -4356,7 +4367,17 @@ def generate_dashboard(output_dir, group_test, group_con):
         <div class="summary-grid">
             <div>
                 <div class="verdict-badge {verdict_class}" title="HIGH = Results are robust and suitable for publication. MODERATE = Usable results; review warnings carefully. LOW = Interpret with caution; significant limitations detected. EXPLORATORY = Hypothesis-generating only; not suitable for definitive conclusions.">{verdict} Confidence</div>
-                <div style="font-size:0.78rem;color:#555;margin:0.25rem 0 0.4rem;">{"Results are robust and suitable for publication." if verdict == "HIGH" else "Usable results; review warnings and consider validation." if verdict == "MODERATE" else "Interpret with caution; significant limitations detected." if verdict == "LOW" else "Hypothesis-generating only; not for definitive conclusions."}</div>
+                <div style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.4rem;">{"Results are robust and suitable for publication." if verdict == "HIGH" else "Usable results; review warnings and consider validation." if verdict == "MODERATE" else "Interpret with caution; significant limitations detected." if verdict == "LOW" else "Hypothesis-generating only; not for definitive conclusions."}</div>
+                <details class="explain">
+                    <summary>What do the confidence levels mean?</summary>
+                    <div class="explain-body">
+                        <b>HIGH</b> &mdash; robust; suitable for publication.<br>
+                        <b>MODERATE</b> &mdash; usable; review warnings and consider validation.<br>
+                        <b>LOW</b> &mdash; interpret with caution; significant limitations detected.<br>
+                        <b>EXPLORATORY</b> &mdash; hypothesis-generating only; not for definitive conclusions.<br>
+                        <b>Tier</b> reflects statistical power from total N and the smaller group size; small per-group counts can keep a run in a lower tier even when total N is higher. Higher tiers enable more robust statistical checks.
+                    </div>
+                </details>
                 <div class="summary-meta">Samples: {_h(total_samples)} (Control {_h(n_con)} / Test {_h(n_test)}) · <span title="CRF tier reflects statistical power using total sample size and the smaller group size; small per-group counts can keep a run in a lower tier even when total N is higher. Higher tiers enable more robust statistical checks.">Tier: {_h(tier_label.upper() if tier_label else "N/A")}</span></div>
                 <div class="summary-kpis">
                     <div class="kpi-card" title="The normalization pipeline used as the primary analysis branch. Results from this pipeline drive the executive summary metrics.">

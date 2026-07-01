@@ -62,6 +62,17 @@ class DashboardUiTests(unittest.TestCase):
         h = self._render()
         self.assertNotIn('loading="lazy"', h)  # no-op on inline data: URIs
 
+    def test_verdict_meaning_is_visible_not_hover_only(self):
+        # High-stakes confidence-level definitions must be readable on touch/keyboard,
+        # not buried in a hover-only title tooltip.
+        h = self._render()
+        self.assertIn('<details class="explain">', h)
+        self.assertIn("What do the confidence levels mean?", h)
+        for level in ("<b>HIGH</b>", "<b>MODERATE</b>", "<b>LOW</b>", "<b>EXPLORATORY</b>"):
+            self.assertIn(level, h)
+        # verdict sub-line must not use hardcoded hex that breaks in dark mode
+        self.assertNotIn("color:#555;margin:0.25rem", h)
+
 
 if __name__ == "__main__":
     unittest.main()

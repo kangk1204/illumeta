@@ -763,9 +763,12 @@ def _analyze_branch(
             and row["direction_fraction"] >= thresholds.min_direction_fraction
         )
 
+    # I^2/tau^2 need >=3 cohorts (>=2 df) to be meaningful; a 2-cohort (df=1) heterogeneity
+    # estimate is degenerate, so keep it out of the summary median even when min_cohorts==2
+    # (per-row I2 is still reported for transparency; this only de-contaminates the aggregate).
     analyzable_i2 = [
         row["I2"] for row in rows
-        if int(row["n_valid_cohorts"]) >= thresholds.min_cohorts and math.isfinite(row["I2"])
+        if int(row["n_valid_cohorts"]) >= max(3, thresholds.min_cohorts) and math.isfinite(row["I2"])
     ]
     core_loo = [row["loo_direction_fraction"] for row in rows if row["core_candidate"]]
     summary = {

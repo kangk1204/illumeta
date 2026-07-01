@@ -108,7 +108,8 @@ safe_extract_idats_from_tar <- function(tar_file, exdir) {
   norm_members <- gsub("\\\\", "/", members)
   unsafe <- grepl("^/", norm_members) |
     grepl("(^|/)\\.\\.(/|$)", norm_members) |
-    grepl("^[A-Za-z]:", norm_members)
+    grepl("^[A-Za-z]:", norm_members) |
+    grepl("[[:cntrl:]]", norm_members)  # reject NUL/control chars (name-truncation evasion)
   if (any(unsafe)) {
     stop("Unsafe RAW tar member path(s): ", paste(head(members[unsafe], 5), collapse = ", "))
   }

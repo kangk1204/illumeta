@@ -7587,7 +7587,7 @@ probe_filter_log <- data.frame(step = "raw", removed = 0, remaining = nrow_raw,
 
 # Fix: Filter detP to match gmSet probes first
 common_probes <- intersect(rownames(detP), rownames(gmSet))
-detP_sub <- detP[common_probes, ]
+detP_sub <- detP[common_probes, , drop = FALSE]  # keep matrix shape when a single probe is shared
 gmSet <- gmSet[common_probes, ]
 
 # Identify probes passing detection p-value threshold
@@ -8076,7 +8076,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   # A. PCA and Covariate Check
   vars <- apply(betas, 1, var)
   top_vars <- head(order(vars, decreasing=TRUE), 1000)
-  beta_clust <- betas[top_vars, ]
+  beta_clust <- betas[top_vars, , drop = FALSE]  # keep matrix shape when only 1 probe survives
   
 	  sample_dists <- as.matrix(dist(t(beta_clust)))
 	  dist_df <- as.data.frame(as.table(sample_dists))

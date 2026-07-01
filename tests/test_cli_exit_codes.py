@@ -237,6 +237,29 @@ class CliExitCodeTests(unittest.TestCase):
             self.assertEqual(old_summary.read_text(encoding="utf-8"), '{"code":"OLD"}\n')
             self.assertEqual(old_reason.read_text(encoding="utf-8"), "OLD: previous run\n")
 
+    def test_group_column_and_group_key_conflict_is_nonzero(self):
+        # Supplying both --group-column and --group-key selects two different grouping
+        # sources; run_analysis must fail fast (not silently pick one) before any heavy work.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = root / "configure.tsv"
+            config.write_text(
+                "SampleID\tprimary_group\ns1\tControl\ns2\tCase\n", encoding="utf-8"
+            )
+            output_dir = root / "out"
+            sys.path.insert(0, BASE_DIR)
+            try:
+                import illumeta
+                args = self.make_analysis_args(
+                    config, output_dir, group_column="description", group_key="disease"
+                )
+                with self.assertRaises(SystemExit) as ctx:
+                    illumeta.run_analysis(args)
+            finally:
+                if sys.path[0] == BASE_DIR:
+                    sys.path.pop(0)
+            self.assertEqual(ctx.exception.code, 1)
+
     def test_missing_config_fails_before_r_dependency_setup(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

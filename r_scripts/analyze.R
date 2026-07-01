@@ -508,6 +508,8 @@ normalize_preset <- function(preset, source = "config") {
 
 parse_bool_flag <- function(x, default = NA) {
   if (is.null(x)) return(default)
+  if (length(x) == 0) return(default)
+  if (length(x) != 1) x <- x[[1]]  # tolerate a vector/list-wrapped flag (avoid length>1 condition error)
   if (is.logical(x) && length(x) == 1) return(x)
   if (!nzchar(as.character(x))) return(default)
   val <- tolower(trimws(as.character(x)))
@@ -1063,7 +1065,14 @@ save_datatable <- function(df, filename, dir, sort_col = NULL) {
     buttons = c('csv', 'excel'),
     order = list(list(p_idx, 'asc'))
   ))
-  saveWidget(dt, file = file.path(dir, filename), selfcontained = TRUE)
+  # Downgrade a report-stage HTML-table write failure (e.g. pandoc/self-contained
+  # packaging) to a warning, matching save_interactive_plot/write_matrix_tsv_gz -- a
+  # secondary interactive table must not abort an already-completed analysis.
+  tryCatch(
+    saveWidget(dt, file = file.path(dir, filename), selfcontained = TRUE),
+    error = function(e) {
+      message(sprintf("  Interactive table save skipped (%s): %s", filename, e$message))
+    })
 }
 
 write_matrix_tsv_gz <- function(mat, path, chunk_size = 50000L) {
@@ -4499,13 +4508,13 @@ estimate_cell_counts_safe <- function(rgSet, tissue = "Blood", out_dir = NULL,
       # using minfi's preprocessNoob for consistency with main pipeline
       mSet <- preprocessNoob(rgSet)
       betas <- getBeta(mSet)
-      betas <- betas[rowSums(is.na(betas)) == 0, ] # Remove NAs
-      
+      betas <- betas[rowSums(is.na(betas)) == 0, , drop = FALSE] # Remove NAs (keep matrix shape)
+
       # Select variable probes to speed up and improve signal
       # Top variable probes is usually sufficient for deconvolution
       vars <- apply(betas, 1, var)
       top_idx <- head(order(vars, decreasing = TRUE), min(cell_ref_free_max_probes, nrow(betas)))
-      betas_sub <- betas[top_idx, ]
+      betas_sub <- betas[top_idx, , drop = FALSE]
       
       # Run RefFreeCellMix
       # Fixed K is safer for automation; configurable via cell_deconv.ref_free_k.
@@ -7349,6 +7358,17 @@ if (isTRUE(sex_check_enabled)) {
     stop(sprintf("Sex mismatch detected in %d sample(s). Fix metadata or rerun with --sex-mismatch-action drop|ignore.",
                  sex_mismatch_count))
   }
+  # Under the mandatory 'stop' policy, a skipped check (no sex metadata, getSex failure,
+  # or unalignable prediction) means enforcement did NOT actually verify anything and
+  # mismatch_count stayed 0 -- surface it loudly + in the ledger instead of a silent pass.
+  # (Not a hard stop: absence of a sex column is a common, legitimate case for many GEO
+  # cohorts, so failing by default would break valid runs.)
+  if (isTRUE(sex_check_action == "stop") && !is.null(sex_check_res) && isTRUE(sex_check_res$skipped)) {
+    degraded_reason <- if (is.null(sex_check_res$reason)) "unknown" else sex_check_res$reason
+    message(sprintf("  WARNING: sex-mismatch QC could not run (reason: %s); mandatory 'stop' policy did NOT verify samples. Provide a sex/gender metadata column to enable it.",
+                    degraded_reason))
+    log_decision("qc", "sex_mismatch_check_degraded", "not_enforced", reason = degraded_reason)
+  }
   if (isTRUE(sex_check_action == "drop") &&
       !is.null(sex_check_res) &&
       !is.null(sex_check_res$mismatch_samples) &&
@@ -8489,12 +8509,24 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     log_decision("confounding", "batch_method_override", best_method, reason = "manual_override_post_eval")
     message(paste("  Batch method override applied:", best_method))
   }
-  if (crf_enabled && best_method == "combat" && !isTRUE(combat_allowed)) {
-    message("  CRF guard: ComBat disabled for this sample size tier; falling back to none.")
-    log_decision("crf", "combat_guard", "disabled", reason = crf_tier)
+  # Reconcile the REPORTED method with what apply_batch_correction() will actually do.
+  # apply_batch_correction guards ComBat unconditionally when !combat_allowed (returns
+  # "none"), and the "sva" branch is a no-op when SVA is disabled. Without this block a
+  # manual override (e.g. --batch_method sva with SVA disabled, or combat on a tier whose
+  # policy forbids it when CRF is off) would leave best_method claiming a correction that
+  # never happens. Mirror the guards here so best_method == applied_batch_method (truthful
+  # reporting). This changes only the label/log, not whether correction runs.
+  if (best_method == "combat" && !isTRUE(combat_allowed)) {
+    message("  ComBat unavailable for this sample-size tier; batch method downgraded to none.")
+    if (crf_enabled) log_decision("crf", "combat_guard", "disabled", reason = crf_tier)
     best_method <- "none"
   }
-  
+  if (best_method == "sva" && isTRUE(disable_sva)) {
+    message("  SVA is disabled; 'sva' batch method downgraded to none (no surrogate variables estimated).")
+    log_decision("confounding", "batch_method_override", "none", reason = "sva_disabled")
+    best_method <- "none"
+  }
+
   # Build Design Matrix
   formula_str <- "~ 0 + primary_group"
   if (length(covariates) > 0) formula_str <- paste(formula_str, "+", paste(covariates, collapse = " + "))
@@ -10271,6 +10303,16 @@ tryCatch({
   
   write_json(summary_payload, file.path(out_dir, "summary.json"), auto_unbox = TRUE, pretty = TRUE, na = "null")
   message("Summary statistics saved to summary.json")
+
+  # Hard-fail on a genuine model-fit failure. primary_result_mode == "analysis_failed"
+  # means the chosen primary branch's limma fit failed (see branch builders), which is a
+  # real failure -- not a valid null/low-power result. Exit non-zero so the Python wrapper
+  # (subprocess check=True) writes a failure_summary and callers/CI don't mistake a broken
+  # run for a genuine 0-DMP finding. summary.json is already written above for debugging.
+  if (identical(as.character(primary_result_mode), "analysis_failed")) {
+    message("ERROR: primary differential-methylation model failed for all branches (primary_result_mode = analysis_failed).")
+    quit(status = 1)
+  }
 
   tryCatch({
     ledger_path <- file.path(out_dir, "decision_ledger.tsv")

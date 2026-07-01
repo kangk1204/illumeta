@@ -319,6 +319,12 @@ def main():
                 )
 
     print(f"[*] Ablation results saved under: {out_root}")
+    failed = [r["variant"] for r in manifest_rows if str(r.get("status", "")).startswith("failed(")]
+    if failed:
+        # Propagate a non-zero exit so CI/batch drivers detect failures without parsing
+        # the manifest TSV (previously main() always returned 0).
+        print(f"[!] {len(failed)} ablation variant(s) failed: {', '.join(failed)}", file=sys.stderr)
+        return 1
     return 0
 
 

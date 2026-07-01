@@ -2112,11 +2112,21 @@ def run_analysis(args):
         sys.exit(1)
 
     if args.beginner_safe:
-        # Enforce more conservative defaults for novice safety
+        # Enforce more conservative defaults for novice safety (announce any change so an
+        # explicit user value that gets clamped is not silently overridden).
         if args.min_total_size < 8:
+            log(f"[*] beginner-safe: raising --min-total-size {args.min_total_size} -> 8")
             args.min_total_size = 8
         if args.delta_beta <= 0:
+            log(f"[*] beginner-safe: raising --delta-beta {args.delta_beta} -> 0.05")
             args.delta_beta = 0.05
+
+    if args.group_column and args.group_key:
+        # Two different grouping sources; picking one silently would risk the wrong
+        # scientific contrast, so fail fast (mirrors the other conflict guards below).
+        log_err("[!] Conflicting options: --group-column and --group-key both provided.")
+        log_err("    They select different grouping sources. Use only one.")
+        sys.exit(1)
 
     if args.disable_auto_covariates and args.auto_covariates_enabled:
         raw = str(args.auto_covariates_enabled).strip().lower()
@@ -2447,7 +2457,9 @@ def run_analysis(args):
         cmd.extend(["--dmr_min_cpgs", str(args.dmr_min_cpgs)])
     if args.dmr_maxgap is not None:
         cmd.extend(["--dmr_maxgap", str(args.dmr_maxgap)])
-    if args.beginner_safe_delta_beta is not None:
+    if args.beginner_safe and args.beginner_safe_delta_beta is not None:
+        # Only forward when beginner-safe is active; otherwise R ignores it anyway and the
+        # "ignoring this option" message above would contradict the forwarded flag.
         cmd.extend(["--beginner_safe_delta_beta", str(args.beginner_safe_delta_beta)])
     if args.logit_offset is not None:
         cmd.extend(["--logit_offset", str(args.logit_offset)])

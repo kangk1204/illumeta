@@ -21,6 +21,7 @@ New to IlluMeta? You only need these three steps. Everything below this box is r
 
 ```bash
 # 1) Install conda (Miniforge) if you don't have it — see "Quick Start" below for the snippet.
+#    macOS only: also run `xcode-select --install` first (install_full.sh requires it).
 # 2) Clone + install (one time, ~30-60 min):
 git clone https://github.com/kangk1204/illumeta.git && cd illumeta
 ./scripts/install_full.sh

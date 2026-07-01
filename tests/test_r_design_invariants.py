@@ -297,6 +297,16 @@ class RDesignInvariantTests(unittest.TestCase):
         self.assertIn("single_sample_group", source)
         self.assertIn("min(n_con, n_test) < 2", source)
 
+    def test_identifier_covariates_are_kept_categorical_not_coerced_continuous(self):
+        # A numeric-looking batch/identifier column (Sentrix chip barcode, sample id) must
+        # NOT be coerced to a continuous covariate; it is kept categorical (factor).
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            gov = extract_r_function(handle.read(), "apply_covariate_governance")
+        self.assertIn("sentrix", gov.lower())
+        self.assertIn("as.factor(as.character(targets[[cv]]))", gov)
+        # the coercion must be gated behind the id-like check, not applied unconditionally
+        self.assertIn("normalize_meta_vals(targets[[cv]])", gov)
+
     def test_covariate_governance_coerces_continuous_covariates_into_targets(self):
         # H-Sci guard: a numeric-as-character continuous covariate (age/PMI read as a
         # string because of a blank cell) must be coerced and WRITTEN BACK into the

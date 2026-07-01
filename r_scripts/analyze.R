@@ -3663,7 +3663,16 @@ apply_covariate_governance <- function(targets, covariates, forced_covariates, c
     # many-level factor (or drops it as rank-deficient). normalize_meta_vals only coerces
     # when >5 distinct finite numeric values, so small-cardinality numeric CODES (batch,
     # sex 1/2) correctly stay categorical.
-    vals <- normalize_meta_vals(targets[[cv]])
+    # Batch / technical IDENTIFIER columns (Sentrix chip barcodes, sample IDs, plate/well)
+    # are numeric-looking but categorical: forcing them continuous would model a chip
+    # barcode as a linear covariate. Keep id-like columns categorical; only rescue genuine
+    # continuous measurements (age/PMI). The (^|_)id$ anchor avoids matching words like
+    # "thyroid"; age/pmi/bmi/rin etc. do not match any token.
+    if (grepl("(sentrix|barcode|(^|_)plate|well|slide|(^|_)array|chip|(^|_)id$|sample_?name|geo_accession|position)", tolower(cv))) {
+      vals <- as.factor(as.character(targets[[cv]]))
+    } else {
+      vals <- normalize_meta_vals(targets[[cv]])
+    }
     targets[[cv]] <- vals
     miss_mask <- is.na(vals) | (is.character(vals) & trimws(vals) == "")
     miss_frac <- mean(miss_mask)

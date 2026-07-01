@@ -3102,7 +3102,7 @@ def _thumb(png_path, max_width=260):
         return (
             f'<img src="data:image/png;base64,{data}" '
             f'style="width:100%;max-width:{max_width}px;border-radius:8px;margin-bottom:0.8rem;" '
-            f'alt="Plot preview" loading="lazy">'
+            f'alt="Plot preview" decoding="async">'
         )
     except OSError:
         return ""
@@ -3587,7 +3587,7 @@ def generate_dashboard(output_dir, group_test, group_con):
         if os.path.exists(fpath):
             rel_path = f"{results_folder_name_html}/{html.escape(filename, quote=True)}"
             return f'<a class="pill" href="{rel_path}" target="_blank">{label}</a>'
-        return f'<span class="pill muted">{label}</span>'
+        return f'<span class="pill muted" title="Not generated for this run">{label}</span>'
 
     # Calculated values for Summary
     n_con = safe_int(stats.get('n_con'))
@@ -3839,9 +3839,13 @@ def generate_dashboard(output_dir, group_test, group_con):
             --muted: #6f7a76;
             --shadow: 0 12px 30px rgba(27, 38, 40, 0.12);
             --callout-bg: #fdf9f2;
+            --callout-good-bg: #eaf6ed;
+            --callout-good-border: #b6d7c0;
+            --callout-good-link: #1a6b3c;
+            --callout-good-sub: #55605c;
             --pill-bg: #eef4f2;
             --pill-muted-bg: #f1f0ed;
-            --pill-muted-color: #9aa4a1;
+            --pill-muted-color: #7b8681;
             --nav-tab-bg: #eef4f2;
             --jump-bg: #f2eee6;
             --jump-hover: #e7dfd2;
@@ -3880,6 +3884,10 @@ def generate_dashboard(output_dir, group_test, group_con):
             --muted: #8fa3a0;
             --shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
             --callout-bg: #1a2226;
+            --callout-good-bg: #152a1f;
+            --callout-good-border: #2c4a37;
+            --callout-good-link: #6fd39a;
+            --callout-good-sub: #9fb3ac;
             --pill-bg: #1a2e2c;
             --pill-muted-bg: #222a2d;
             --pill-muted-color: #6b7d7a;
@@ -4157,7 +4165,10 @@ def generate_dashboard(output_dir, group_test, group_con):
             padding: 0.6rem 1.4rem;
             cursor: pointer;
             font-weight: 700;
+            font-family: inherit;
+            font-size: 1rem;
             color: var(--primary);
+            border: none;
             border-radius: 999px;
             background: var(--nav-tab-bg);
             transition: all 0.2s ease;
@@ -4231,6 +4242,21 @@ def generate_dashboard(output_dir, group_test, group_con):
             .summary-grid { grid-template-columns: 1fr; }
             .stat-row { grid-template-columns: 1fr; }
         }
+        /* Keyboard focus indicator (was entirely absent, leaving keyboard users lost). */
+        a:focus-visible, button:focus-visible, .nav-tab:focus-visible,
+        .pill:focus-visible, .jump-bar a:focus-visible, .icon-btn:focus-visible {
+            outline: 3px solid var(--accent-2);
+            outline-offset: 2px;
+            border-radius: 8px;
+        }
+        /* Print / "Save as PDF": flatten the ink-heavy header and force ALL pipeline
+           tabs to print (otherwise only the last-clicked tab appears in the printout). */
+        @media print {
+            header { background: none !important; color: #000; box-shadow: none; }
+            .jump-bar, .hero-actions, .nav-tabs { display: none !important; }
+            .tab-content { display: block !important; page-break-before: always; }
+            .card, .metrics-card, .summary-card { box-shadow: none; border: 1px solid #ccc; }
+        }
     """
 
     # Construct HTML using lists and joins to be cleaner
@@ -4255,17 +4281,17 @@ def generate_dashboard(output_dir, group_test, group_con):
             <div class="hero-top">
                 <div class="hero-eyebrow">IlluMeta Analysis</div>
                 <div class="hero-actions">
-                    <a class="icon-btn" href="{results_folder_name_html}/" title="Open results directory ({results_folder_name_html}/)">
+                    <a class="icon-btn" href="{results_folder_name_html}/" aria-label="Open results directory" title="Open results directory ({results_folder_name_html}/)">
                         <svg viewBox="0 0 24 24" aria-hidden="true">
                             <path d="M10 4l2 2h8a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2h6z"></path>
                         </svg>
                     </a>
-                    <button class="icon-btn" type="button" onclick="copyResultsPath()" title="Copy results path to clipboard">
+                    <button class="icon-btn" type="button" onclick="copyResultsPath()" aria-label="Copy results path to clipboard" title="Copy results path to clipboard">
                         <svg viewBox="0 0 24 24" aria-hidden="true">
                             <path d="M16 1H6a2 2 0 00-2 2v12h2V3h10V1zm3 4H10a2 2 0 00-2 2v14a2 2 0 002 2h9a2 2 0 002-2V7a2 2 0 00-2-2zm0 16h-9V7h9v14z"></path>
                         </svg>
                     </button>
-                    <button class="icon-btn" type="button" id="darkToggle" onclick="toggleDark()" title="Toggle dark mode">
+                    <button class="icon-btn" type="button" id="darkToggle" onclick="toggleDark()" aria-label="Toggle dark mode" title="Toggle dark mode">
                         <svg id="iconSun" viewBox="0 0 24 24" aria-hidden="true">
                             <path d="M12 7a5 5 0 100 10 5 5 0 000-10zm0-3a1 1 0 001-1V1a1 1 0 00-2 0v2a1 1 0 001 1zm0 16a1 1 0 00-1 1v2a1 1 0 002 0v-2a1 1 0 00-1-1zm9-9h-2a1 1 0 000 2h2a1 1 0 000-2zM6 12a1 1 0 00-1-1H3a1 1 0 000 2h2a1 1 0 001-1zm12.36-5.64a1 1 0 00.71-.29l1.41-1.41a1 1 0 10-1.41-1.41l-1.42 1.41a1 1 0 00.71 1.7zM5.64 17.64a1 1 0 00-.71.29l-1.41 1.41a1 1 0 101.41 1.41l1.41-1.41a1 1 0 00-.7-1.7zm12.72 0a1 1 0 00-.7 1.7l1.41 1.42a1 1 0 101.41-1.42l-1.41-1.41a1 1 0 00-.71-.29zM5.64 6.36a1 1 0 00.7-.3L7.76 4.65a1 1 0 00-1.41-1.41L4.93 4.65a1 1 0 00.71 1.71z"></path>
                         </svg>
@@ -4277,11 +4303,6 @@ def generate_dashboard(output_dir, group_test, group_con):
             </div>
             <h1 class="hero-title">Analysis Dashboard</h1>
             <p class="hero-sub">Comparison: <strong>{group_test}</strong> (Test) vs <strong>{group_con}</strong> (Control)</p>
-            <div class="hero-tags">
-                <span class="tag">Samples: {total_samples}</span>
-                <span class="tag">Intersection (Native): {intersect_native_total} · Strict: {intersect_total}</span>
-                <span class="tag">Minfi: {minfi_total} · Sesame strict: {sesame_total} · Sesame native: {sesame_native_total}</span>
-            </div>
         </div>
         <div class="hero-grid">
             <div class="hero-card">
@@ -4294,10 +4315,14 @@ def generate_dashboard(output_dir, group_test, group_con):
                 <div class="hero-card-value">{intersect_native_total}</div>
                 <div class="hero-card-sub">Native ▲ {intersect_native_up} ▼ {intersect_native_down} · Strict ▲ {intersect_up} ▼ {intersect_down}</div>
             </div>
-            <div class="hero-card">
+            <div class="hero-card" title="DMP counts per pipeline: Minfi (Noob) / Sesame (Strict, Minfi-aligned) / Sesame (Native, pOOBAH). Large per-pipeline counts with a small Intersection can indicate pipeline-specific artifacts.">
                 <div class="hero-card-title">Pipeline DMPs</div>
-                <div class="hero-card-value">{minfi_total} | {sesame_total} | {sesame_native_total}</div>
-                <div class="hero-card-sub">Minfi ▲ {minfi_up} ▼ {minfi_down} · Strict ▲ {sesame_up} ▼ {sesame_down} · Native ▲ {sesame_native_up} ▼ {sesame_native_down}</div>
+                <div class="hero-card-value" style="display:flex;flex-wrap:wrap;gap:6px 16px;font-size:1.15rem;">
+                    <span>Minfi <b>{minfi_total}</b></span>
+                    <span>Sesame <b>{sesame_total}</b></span>
+                    <span>Native <b>{sesame_native_total}</b></span>
+                </div>
+                <div class="hero-card-sub">Minfi ▲ {minfi_up} ▼ {minfi_down} · Sesame ▲ {sesame_up} ▼ {sesame_down} · Native ▲ {sesame_native_up} ▼ {sesame_native_down}</div>
             </div>
         </div>
     </div>
@@ -4315,12 +4340,12 @@ def generate_dashboard(output_dir, group_test, group_con):
 
     # -- "What should I look at first?" callout --
     html_parts.append("""
-    <div class="callout" style="background:#eaf6ed; border-color:#b6d7c0; margin-bottom:1.2rem;">
+    <div class="callout" style="background:var(--callout-good-bg); border-color:var(--callout-good-border); margin-bottom:1.2rem;">
         <strong>New to IlluMeta? Start here:</strong>
         (1) Check the <b>verdict badge</b> below for an overall confidence rating (hover for details).
-        (2) Scroll to <a href="#start" style="color:#1a6b3c;font-weight:600;">Beginner Path</a> for a 3-step guide.
+        (2) Scroll to <a href="#start" style="color:var(--callout-good-link);font-weight:600;">Beginner Path</a> for a 3-step guide.
         (3) Open the <b>Intersection (Native)</b> tab for your primary, high-confidence results.
-        <br><small style="color:#555;">DMPs = differentially methylated positions (individual CpG sites). DMRs = differentially methylated regions (clusters of CpGs). FDR = false discovery rate (adjusted p-value controlling for multiple testing).</small>
+        <br><small style="color:var(--callout-good-sub);">DMPs = differentially methylated positions (individual CpG sites). DMRs = differentially methylated regions (clusters of CpGs). FDR = false discovery rate (adjusted p-value controlling for multiple testing).</small>
     </div>
 """)
 
@@ -4532,11 +4557,15 @@ def generate_dashboard(output_dir, group_test, group_con):
         docs_section_parts.append('</div>')
 
     html_parts.append('<div id="pipelines" class="section-title">Results by Pipeline</div>')
-    html_parts.append('<div class="nav-tabs" id="navTabs">')
+    html_parts.append('<div class="nav-tabs" id="navTabs" role="tablist" aria-label="Analysis pipeline">')
     for idx, (pipe_id, pipe_label, _) in enumerate(pipeline_defs):
         active_class = " active" if idx == 0 else ""
+        selected = "true" if idx == 0 else "false"
+        tabindex = "0" if idx == 0 else "-1"
         html_parts.append(
-            f'    <div class="nav-tab{active_class}" data-tab="{pipe_id}" onclick="switchTab(\'{pipe_id}\')">{pipe_label}</div>'
+            f'    <button type="button" class="nav-tab{active_class}" id="tab-{pipe_id}" role="tab" '
+            f'aria-selected="{selected}" aria-controls="{pipe_id}" tabindex="{tabindex}" '
+            f'data-tab="{pipe_id}" onclick="switchTab(\'{pipe_id}\')">{pipe_label}</button>'
         )
     html_parts.append('</div>')
     html_parts.append('<div class="tab-shell">')
@@ -4544,7 +4573,7 @@ def generate_dashboard(output_dir, group_test, group_con):
     # Loop for Pipelines
     for idx, (pipe_id, _, _) in enumerate(pipeline_defs):
         active_class = "active" if idx == 0 else ""
-        html_parts.append(f'    <div id="{pipe_id}" class="tab-content {active_class}">\n')
+        html_parts.append(f'    <div id="{pipe_id}" class="tab-content {active_class}" role="tabpanel" aria-labelledby="tab-{pipe_id}" tabindex="0">\n')
         
         # Metrics block (if available)
         metrics = load_metrics(pipe_id)
@@ -4699,11 +4728,41 @@ def generate_dashboard(output_dir, group_test, group_con):
 
     function switchTab(tabName) {
         document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-        document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
-        document.getElementById(tabName).classList.add('active');
+        document.querySelectorAll('.nav-tab').forEach(el => {
+            el.classList.remove('active');
+            el.setAttribute('aria-selected', 'false');
+            el.setAttribute('tabindex', '-1');
+        });
+        const panel = document.getElementById(tabName);
+        if (panel) panel.classList.add('active');
         const match = Array.from(document.querySelectorAll('.nav-tab')).find(el => el.dataset.tab === tabName);
-        if (match) match.classList.add('active');
+        if (match) {
+            match.classList.add('active');
+            match.setAttribute('aria-selected', 'true');
+            match.setAttribute('tabindex', '0');
+        }
     }
+
+    // Arrow/Home/End keyboard navigation for the pipeline tablist (WAI-ARIA tabs pattern).
+    // Enter/Space activation is native to the <button> tabs via their onclick handler.
+    (function initTablistKeys() {
+        const list = document.getElementById('navTabs');
+        if (!list) return;
+        list.addEventListener('keydown', function (e) {
+            const tabs = Array.from(list.querySelectorAll('.nav-tab'));
+            const i = tabs.indexOf(document.activeElement);
+            if (i < 0) return;
+            let n = null;
+            if (e.key === 'ArrowRight' || e.key === 'ArrowDown') n = (i + 1) % tabs.length;
+            else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') n = (i - 1 + tabs.length) % tabs.length;
+            else if (e.key === 'Home') n = 0;
+            else if (e.key === 'End') n = tabs.length - 1;
+            if (n === null) return;
+            e.preventDefault();
+            tabs[n].focus();
+            switchTab(tabs[n].dataset.tab);
+        });
+    })();
 
     function applyDarkIcons(dark) {
         const sun = document.getElementById('iconSun');

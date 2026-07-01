@@ -7405,6 +7405,14 @@ if (n_con < MIN_GROUP_SIZE_WARN || n_test < MIN_GROUP_SIZE_WARN) {
   message("WARNING: Very small sample size after QC (n < 3 in one or both groups).")
   message(sprintf("         Control: %d, Test: %d", n_con, n_test))
 }
+if (min(n_con, n_test) < 2) {
+  # A single-sample group has no within-group replication: its group mean rests on one
+  # observation and limma p-values borrow variance genome-wide, so DMP stats are anti-
+  # conservative. Record it durably (not a hard stop -- some exploratory runs are intentional)
+  # so the meta layer / reviewer can down-weight or exclude the run.
+  log_decision("qc", "single_sample_group", "flagged",
+               reason = sprintf("min_group_n=%d; DMP p-values rest on borrowed variance", min(n_con, n_test)))
+}
 
 message(sprintf("Samples retained after QC - Control: %d, Test: %d (total: %d)", n_con, n_test, n_con + n_test))
 

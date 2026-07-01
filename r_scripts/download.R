@@ -165,6 +165,21 @@ safe_extract_idats_from_tar <- function(tar_file, exdir) {
   if (any(invalid)) {
     stop("Unsafe RAW tar member(s) are not regular IDAT files: ", paste(head(extracted[invalid], 5), collapse = ", "))
   }
+  # Best-effort hard-link guard (defense-in-depth): a tar hard-link member named *.idat can
+  # share a host file's inode, landing a regular file inside exdir that passes the symlink,
+  # escape, and regular-file checks above. base R exposes no link count, so shell out to
+  # `stat` on our own (already path-validated) extracted files and reject any IDAT with >1
+  # hard link. Fail-open if `stat` is unavailable/incompatible (the other guards still apply).
+  hard_nlinks <- suppressWarnings(vapply(extracted, function(f) {
+    out <- tryCatch(system2("stat", c("-c", "%h", f), stdout = TRUE, stderr = FALSE),
+                    error = function(e) NA_character_)
+    if (length(out) != 1L) return(NA_integer_)
+    suppressWarnings(as.integer(out))
+  }, integer(1)))
+  hardlinked <- !is.na(hard_nlinks) & hard_nlinks > 1L
+  if (any(hardlinked)) {
+    stop("Unsafe RAW tar hard-link member(s): ", paste(head(basename(extracted[hardlinked]), 5), collapse = ", "))
+  }
   extracted
 }
 

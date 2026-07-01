@@ -280,6 +280,23 @@ class RDesignInvariantTests(unittest.TestCase):
         self.assertIn("CRF_RSS_Summary.csv", source)
         self.assertNotIn("CRF_SSS_Summary.csv", source)
 
+    def test_raw_tar_extraction_has_hardlink_guard(self):
+        # A tar hard-link member named *.idat can share a host file's inode and pass the
+        # symlink/escape/regular-file checks; a best-effort link-count guard must reject it.
+        with open(DOWNLOAD_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+        self.assertIn("hard-link", source.lower())
+        self.assertIn('system2("stat"', source)
+        self.assertIn("hardlinked", source)
+
+    def test_single_sample_group_is_recorded_in_decision_ledger(self):
+        # A single-sample group yields anti-conservative DMP stats; it must be flagged durably
+        # (not a hard stop) so the meta layer can down-weight the run.
+        with open(ANALYZE_R, "r", encoding="utf-8") as handle:
+            source = handle.read()
+        self.assertIn("single_sample_group", source)
+        self.assertIn("min(n_con, n_test) < 2", source)
+
     def test_covariate_governance_coerces_continuous_covariates_into_targets(self):
         # H-Sci guard: a numeric-as-character continuous covariate (age/PMI read as a
         # string because of a blank cell) must be coerced and WRITTEN BACK into the

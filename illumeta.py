@@ -5206,6 +5206,11 @@ def main():
         sys.exit(run_search(args))
     if args.command == "meta":
         try:
+            # Ensure the module's own directory is importable even when
+            # PYTHONSAFEPATH=1 (Python 3.11+) suppresses adding the script
+            # directory to sys.path[0]. illumeta_meta.py lives beside this file.
+            if BASE_DIR not in sys.path:
+                sys.path.insert(0, BASE_DIR)
             from illumeta_meta import run_meta_cli
         except ImportError as exc:
             log_err(f"[!] Meta-analysis module unavailable: {exc}")

@@ -144,6 +144,12 @@ lambda_guard:
   min_samples: 8
   action: warn  # none | warn | warn_simplify | simplify  (matches the built-in default)
 
+bacon:
+  enabled: true       # Bayesian bias-and-inflation recalibration of EWAS statistics (van Iterson 2017)
+  min_probes: 100     # minimum finite effect/SE pairs required to run bacon
+  niter: 5000         # Gibbs sampler iterations
+  nburnin: 2000       # burn-in iterations
+
 sva:
   group_p_threshold: 1.0e-6
   group_eta2_threshold: 0.5

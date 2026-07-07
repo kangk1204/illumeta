@@ -398,6 +398,12 @@ CONFIG_DEFAULTS <- list(
     min_samples = 8,
     action = "warn"
   ),
+  bacon = list(
+    enabled = TRUE,
+    min_probes = 100,
+    niter = 5000,
+    nburnin = 2000
+  ),
   sva = list(
     group_p_threshold = 1e-6,
     group_eta2_threshold = 0.5
@@ -878,6 +884,9 @@ branch_suffixes <- c(
   "_DMPs_full.csv", "_DMPs.csv", "_Metrics.csv", "_BetaMatrix.tsv.gz", "_DMRs.csv",
   "_Stratified_Meta_DMPs.csv", "_Pooled_Batch_DMPs.csv", "_Overlap_Restricted_DMPs.csv",
   "_LambdaGuard_DMPs.csv", "_LambdaGuard_Metrics.csv",
+  "_Bacon_Metrics.csv",
+  "_Design_Diagnostics.csv", "_Design_Diagnostics.txt",
+  "_Tissue_Confounding_Diagnostics.csv",
   "_Tier3_Primary_DMPs.csv", "_Tier3_Primary_DMRs.csv"
 )
 stale_success_files <- c(
@@ -1259,6 +1268,212 @@ compute_genomic_lambda <- function(pvals) {
   chisq_vals <- chisq_vals[is.finite(chisq_vals)]
   if (length(chisq_vals) < 2) return(NA_real_)
   median(chisq_vals, na.rm = TRUE) / qchisq(0.5, 1)
+}
+
+#' Bayesian bias-and-inflation correction of EWAS test statistics via bacon.
+#'
+#' Takes a limma topTable data.frame (with logFC and t columns) and returns the
+#' same data.frame with bacon-recalibrated statistics appended:
+#'   t.bacon, P.Value.bacon, adj.P.Val.bacon, logFC.bacon
+#' plus attributes lambda_before / inflation_bacon / bias_bacon.
+#'
+#' bacon (van Iterson et al. 2017, Genome Biol 18:19) fits a three-component
+#' normal mixture to the observed test-statistic distribution to estimate the
+#' empirical null, and recalibrates p-values against it. This is the EWAS
+#' standard for controlling residual bias/inflation that survives batch and
+#' surrogate-variable adjustment; conventional genomic control is known to be
+#' overly conservative for methylation data.
+#'
+#' Fails safe: if bacon is unavailable, too few probes, or errors, the input is
+#' returned unchanged with status attribute "skipped".
+apply_bacon_correction <- function(res, prefix = "", min_probes = 100L,
+                                    niter = 5000L, nburnin = 2000L,
+                                    label = "") {
+  status <- "ok"
+  res$logFC.bacon <- res$logFC
+  res$t.bacon <- res$t
+  res$P.Value.bacon <- res$P.Value
+  res$adj.P.Val.bacon <- res$adj.P.Val
+  attr(res, "bacon_status") <- "skipped"
+  attr(res, "lambda_before") <- compute_genomic_lambda(res$P.Value)
+  attr(res, "inflation_bacon") <- NA_real_
+  attr(res, "bias_bacon") <- NA_real_
+  attr(res, "lambda_after") <- attr(res, "lambda_before")
+  if (!requireNamespace("bacon", quietly = TRUE)) {
+    message(sprintf("  [bacon] package unavailable; skipping recalibration%s.",
+                    if (nzchar(label)) paste0(" (", label, ")") else ""))
+    return(res)
+  }
+  if (is.null(res) || nrow(res) < min_probes) {
+    message(sprintf("  [bacon] < %d probes; skipping recalibration.", min_probes))
+    return(res)
+  }
+  es <- suppressWarnings(as.numeric(res$logFC))
+  tstat <- suppressWarnings(as.numeric(res$t))
+  # standard error implied by the moderated t: SE = logFC / t
+  se <- es / tstat
+  ok <- is.finite(es) & is.finite(se) & se > 0
+  if (sum(ok) < min_probes) {
+    message("  [bacon] too few finite effect/SE pairs; skipping.")
+    return(res)
+  }
+  bc <- tryCatch(
+    bacon::bacon(effectsizes = matrix(es[ok], ncol = 1),
+                 standarderrors = matrix(se[ok], ncol = 1),
+                 niter = niter, nburnin = nburnin, verbose = FALSE),
+    error = function(e) { message("  [bacon] failed: ", conditionMessage(e)); NULL })
+  if (is.null(bc)) return(res)
+  infl <- tryCatch(as.numeric(bacon::inflation(bc))[1], error = function(e) NA_real_)
+  bias_v <- tryCatch(as.numeric(bacon::bias(bc))[1], error = function(e) NA_real_)
+  pv <- tryCatch(bacon::pval(bc)[, 1], error = function(e) NULL)
+  esc <- tryCatch(bacon::es(bc)[, 1], error = function(e) NULL)
+  tsc <- tryCatch(bacon::tstat(bc)[, 1], error = function(e) NULL)
+  if (is.null(pv)) return(res)
+  res$P.Value.bacon[ok] <- pv
+  if (!is.null(esc)) res$logFC.bacon[ok] <- esc
+  if (!is.null(tsc)) res$t.bacon[ok] <- tsc
+  res$adj.P.Val.bacon <- p.adjust(res$P.Value.bacon, method = "BH")
+  attr(res, "bacon_status") <- "ok"
+  attr(res, "inflation_bacon") <- infl
+  attr(res, "bias_bacon") <- bias_v
+  attr(res, "lambda_after") <- compute_genomic_lambda(res$P.Value.bacon)
+  message(sprintf("  [bacon] %s inflation=%.3f bias=%.4f  lambda %.3f -> %.3f",
+                  if (nzchar(label)) label else prefix,
+                  infl, bias_v,
+                  attr(res, "lambda_before"), attr(res, "lambda_after")))
+  res
+}
+
+#' Cramér's V association between two categorical vectors (0 = independent,
+#' 1 = perfect association). Returns NA when either side is degenerate.
+.cramers_v_pair <- function(a, b) {
+  ok <- !is.na(a) & !is.na(b)
+  a <- a[ok]; b <- b[ok]
+  if (length(a) < 2 || length(unique(a)) < 2 || length(unique(b)) < 2) return(NA_real_)
+  tbl <- table(a, b)
+  chi <- suppressWarnings(chisq.test(tbl)$statistic)
+  n <- sum(tbl)
+  denom <- n * (min(nrow(tbl), ncol(tbl)) - 1)
+  if (!is.finite(chi) || denom <= 0) return(NA_real_)
+  as.numeric(sqrt(chi / denom))
+}
+
+#' [Guardrail] Detect batch-vs-tissue/covariate confounding.
+#'
+#' The identifiability guard tests batch against the primary group only, so a
+#' batch (Sentrix chip/position) that is perfectly confounded with a tissue or
+#' region variable — but balanced against case/control — passes the group guard
+#' yet, if "corrected", would remove genuine biological (tissue) variance rather
+#' than technical noise. This routine scans every low-cardinality categorical
+#' metadata column (auto-flagging tissue/region-like names) for association with
+#' the selected batch, writes a diagnostic table, and returns tissue-like columns
+#' that are strongly batch-confounded so the caller can retain them as protected
+#' covariates instead of silently absorbing them into the batch term.
+detect_tissue_batch_confounding <- function(meta, batch_col, group_col, out_dir, prefix = "",
+                                            v_threshold = 0.8, max_levels = 12L) {
+  res <- list(diagnostics = NULL, confounded_tissue_cols = character(0))
+  if (is.null(batch_col) || is.na(batch_col) || !(batch_col %in% colnames(meta))) return(res)
+  batch_v <- as.character(meta[[batch_col]])
+  tissue_kw <- "tissue|region|cortex|cerebell|entorhinal|frontal|temporal|hippocamp|gyrus|brain|source_name|cell_type|celltype|neun|sorted|blood|granulo|monocyte|mtg|prefrontal|nuclei"
+  rows <- list()
+  for (col in colnames(meta)) {
+    if (col %in% c(batch_col, group_col, "geo_accession")) next
+    vals <- meta[[col]]
+    if (is.numeric(vals) || is.integer(vals)) next
+    vals <- as.character(vals)
+    nlev <- length(unique(vals[!is.na(vals) & nzchar(vals)]))
+    if (nlev < 2 || nlev > max_levels) next
+    v_batch <- .cramers_v_pair(batch_v, vals)
+    v_group <- .cramers_v_pair(as.character(meta[[group_col]]), vals)
+    is_tissue_like <- grepl(tissue_kw, col, ignore.case = TRUE) ||
+      grepl(tissue_kw, paste(utils::head(unique(vals), 20), collapse = " "), ignore.case = TRUE)
+    rows[[length(rows) + 1]] <- data.frame(
+      variable = col, n_levels = nlev,
+      cramer_v_with_batch = v_batch,
+      cramer_v_with_group = v_group,
+      tissue_like = is_tissue_like,
+      batch_confounded = isTRUE(is.finite(v_batch) && v_batch >= v_threshold),
+      stringsAsFactors = FALSE)
+  }
+  if (length(rows) == 0) return(res)
+  diag_df <- do.call(rbind, rows)
+  diag_df <- diag_df[order(-diag_df$cramer_v_with_batch), ]
+  res$diagnostics <- diag_df
+  if (!is.null(out_dir) && dir.exists(out_dir)) {
+    tryCatch(write.csv(diag_df, file.path(out_dir, paste0(prefix, "_Tissue_Confounding_Diagnostics.csv")),
+                       row.names = FALSE), error = function(e) NULL)
+  }
+  # tissue-like variables that are strongly confounded with the batch: these are
+  # the ones whose "batch" variance is really biology and must be protected.
+  flagged <- diag_df[diag_df$tissue_like & diag_df$batch_confounded, , drop = FALSE]
+  if (nrow(flagged) > 0) {
+    res$confounded_tissue_cols <- flagged$variable
+    for (i in seq_len(nrow(flagged))) {
+      message(sprintf(
+        "  [tissue-guard] '%s' is confounded with batch '%s' (Cramer's V=%.2f, V_with_group=%.2f) -> biological, retaining as protected covariate, not batch.",
+        flagged$variable[i], batch_col, flagged$cramer_v_with_batch[i], flagged$cramer_v_with_group[i]))
+    }
+  }
+  res
+}
+
+#' [Guardrail] Experimental-design diagnostic: is case/control randomised across
+#' the technical batch (Sentrix chip / row position)?
+#'
+#' Systematic (non-random) placement of cases and controls onto chips/positions
+#' is the root cause of unremovable batch-group confounding. This routine reports,
+#' per batch variable, the chip-vs-group Cramér's V, the fraction of chips that are
+#' single-group (a hallmark of poor randomisation), and a plain verdict, so users
+#' see design problems *before* interpreting DMPs. Diagnostic only — never alters
+#' the analysis.
+diagnose_experimental_design <- function(meta, group_col, out_dir, prefix = "",
+                                         batch_candidates = c("Sentrix_ID", "Sentrix_Position", "Slide", "Array")) {
+  present <- intersect(batch_candidates, colnames(meta))
+  if (length(present) == 0) return(NULL)
+  grp <- as.character(meta[[group_col]])
+  rows <- list()
+  for (bc in present) {
+    chip <- as.character(meta[[bc]])
+    ok <- !is.na(chip) & nzchar(chip) & !is.na(grp) & nzchar(grp)
+    if (sum(ok) < 4) next
+    tbl <- table(chip[ok], grp[ok])
+    n_chips <- nrow(tbl)
+    single_group <- sum(rowSums(tbl > 0) == 1)
+    v <- .cramers_v_pair(chip[ok], grp[ok])
+    frac_single <- if (n_chips > 0) single_group / n_chips else NA_real_
+    verdict <- if (!is.finite(v)) "undetermined" else if (v >= 0.8) "SEVERE: batch nearly confounded with group" else if (v >= 0.5) "moderate: partial confounding" else "ok: case/control interleaved across batch"
+    rows[[length(rows) + 1]] <- data.frame(
+      batch_variable = bc, n_batches = n_chips,
+      single_group_batches = single_group,
+      frac_single_group = round(frac_single, 3),
+      cramer_v_batch_group = round(v, 3),
+      verdict = verdict, stringsAsFactors = FALSE)
+  }
+  if (length(rows) == 0) return(NULL)
+  design_df <- do.call(rbind, rows)
+  if (!is.null(out_dir) && dir.exists(out_dir)) {
+    path <- file.path(out_dir, paste0(prefix, "_Design_Diagnostics.csv"))
+    tryCatch(write.csv(design_df, path, row.names = FALSE), error = function(e) NULL)
+    txt <- c("EXPERIMENTAL DESIGN DIAGNOSTIC",
+             "Checks whether case/control is randomised across technical batches.",
+             "Non-random placement is the root cause of unremovable batch-group confounding.",
+             "")
+    for (i in seq_len(nrow(design_df))) {
+      txt <- c(txt, sprintf("  %s: %d batches, %d single-group (%.0f%%), chip~group Cramer's V=%.2f -> %s",
+                            design_df$batch_variable[i], design_df$n_batches[i],
+                            design_df$single_group_batches[i], 100 * design_df$frac_single_group[i],
+                            design_df$cramer_v_batch_group[i], design_df$verdict[i]))
+    }
+    tryCatch(writeLines(txt, file.path(out_dir, paste0(prefix, "_Design_Diagnostics.txt"))),
+             error = function(e) NULL)
+  }
+  for (i in seq_len(nrow(design_df))) {
+    if (grepl("SEVERE", design_df$verdict[i])) {
+      message(sprintf("  [design-guard] %s: chip~group Cramer's V=%.2f -- %s",
+                      design_df$batch_variable[i], design_df$cramer_v_batch_group[i], design_df$verdict[i]))
+    }
+  }
+  design_df
 }
 
 #' Unified calibration score from a (permutation-null) genomic-inflation lambda.
@@ -8432,6 +8647,38 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     message("  No eligible batch candidate found after confounding checks.")
   }
 
+  # [Guardrail] Experimental-design diagnostic: report whether case/control is
+  # randomised across the technical batches, before any correction is applied.
+  design_diag <- tryCatch(
+    diagnose_experimental_design(targets, "primary_group", out_dir, prefix = prefix),
+    error = function(e) { message("  [design-guard] skipped: ", conditionMessage(e)); NULL })
+
+  # [Guardrail] Tissue/region-vs-batch confounding: the identifiability guard only
+  # tests batch against the primary group, so a batch that is confounded with a
+  # tissue/region variable (but balanced against case/control) would pass yet, if
+  # corrected, would strip biological rather than technical variance. Detect such
+  # variables and retain them as protected covariates instead of absorbing them
+  # into the batch term.
+  if (!is.null(batch_col)) {
+    tissue_guard <- tryCatch(
+      detect_tissue_batch_confounding(targets, batch_col, "primary_group", out_dir, prefix = prefix),
+      error = function(e) { message("  [tissue-guard] skipped: ", conditionMessage(e)); NULL })
+    if (!is.null(tissue_guard) && length(tissue_guard$confounded_tissue_cols) > 0) {
+      protect_cols <- intersect(tissue_guard$confounded_tissue_cols, colnames(targets))
+      protect_cols <- protect_cols[vapply(protect_cols,
+        function(x) length(unique(targets[[x]])) > 1, logical(1))]
+      new_protect <- setdiff(protect_cols, covariates)
+      if (length(new_protect) > 0) {
+        covariates <- unique(c(covariates, new_protect))
+        forced_covariates <- unique(c(forced_covariates, new_protect))
+        message(sprintf("  [tissue-guard] retaining %s as protected covariate(s) so batch correction preserves tissue biology.",
+                        paste(new_protect, collapse = ", ")))
+        for (nc in new_protect) log_decision("tissue_guard", nc, "protected_covariate",
+                                             reason = "batch_confounded_tissue")
+      }
+    }
+  }
+
   # PVCA-based confounding index (batch/group) on the pre-correction matrix.
   # CI ~ 0: little batch; CI ~ 1: batch comparable to group; CI > 1: batch dominates (risk).
   if (!is.null(batch_col) && batch_col %in% colnames(targets)) {
@@ -8942,6 +9189,34 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   res$Mean_Beta_Con <- mean_beta_con[res$CpG]
   res$Mean_Beta_Test <- mean_beta_test[res$CpG]
   res$Delta_Beta <- delta_beta[res$CpG]
+
+  # [bacon] Bayesian bias-and-inflation recalibration of the primary EWAS statistics.
+  # Appends t.bacon/P.Value.bacon/adj.P.Val.bacon/logFC.bacon and records the
+  # empirical-null inflation/bias plus lambda before/after in the branch summary.
+  bacon_cfg <- tryCatch(config_settings$bacon, error = function(e) NULL)
+  bacon_enabled <- is.null(bacon_cfg) || isTRUE(bacon_cfg$enabled)
+  bacon_inflation <- NA_real_; bacon_bias <- NA_real_
+  bacon_lambda_before <- NA_real_; bacon_lambda_after <- NA_real_; bacon_status <- "disabled"
+  if (bacon_enabled) {
+    res <- apply_bacon_correction(
+      res, prefix = prefix,
+      min_probes = if (!is.null(bacon_cfg$min_probes)) as.integer(bacon_cfg$min_probes) else 100L,
+      niter = if (!is.null(bacon_cfg$niter)) as.integer(bacon_cfg$niter) else 5000L,
+      nburnin = if (!is.null(bacon_cfg$nburnin)) as.integer(bacon_cfg$nburnin) else 2000L,
+      label = prefix)
+    bacon_status <- attr(res, "bacon_status")
+    bacon_inflation <- attr(res, "inflation_bacon")
+    bacon_bias <- attr(res, "bias_bacon")
+    bacon_lambda_before <- attr(res, "lambda_before")
+    bacon_lambda_after <- attr(res, "lambda_after")
+    bacon_metrics <- data.frame(
+      metric = c("bacon_status", "bacon_inflation", "bacon_bias",
+                 "bacon_lambda_before", "bacon_lambda_after"),
+      value = c(bacon_status, bacon_inflation, bacon_bias,
+                bacon_lambda_before, bacon_lambda_after))
+    tryCatch(write.csv(bacon_metrics, file.path(out_dir, paste0(prefix, "_Bacon_Metrics.csv")),
+                       row.names = FALSE), error = function(e) NULL)
+  }
 
   effect_metrics <- compute_effect_size_consistency(
     raw_res = raw_res,
@@ -9915,6 +10190,11 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     lambda_guard_action = lambda_guard_action,
     lambda_guard_threshold = lambda_guard_threshold,
     lambda_guard_lambda = lambda_guard_lambda,
+    bacon_status = if (exists("bacon_status")) bacon_status else "disabled",
+    bacon_inflation = if (exists("bacon_inflation")) bacon_inflation else NA_real_,
+    bacon_bias = if (exists("bacon_bias")) bacon_bias else NA_real_,
+    bacon_lambda_before = if (exists("bacon_lambda_before")) bacon_lambda_before else NA_real_,
+    bacon_lambda_after = if (exists("bacon_lambda_after")) bacon_lambda_after else NA_real_,
     tier3_mode = tier3_mode,
     tier3_ineligible = tier3_ineligible,
     tier3_low_power = tier3_low_power,

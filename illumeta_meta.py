@@ -22,6 +22,13 @@ DEFAULT_BRANCH_FILES = {
     "sesame_native": "Sesame_Native_DMPs_full.csv",
 }
 
+# When True, the meta-analysis reads the bacon-recalibrated per-cohort statistics
+# (logFC.bacon / P.Value.bacon / t.bacon) instead of the raw limma columns, so the
+# pooled effects are built on empirically-null-calibrated inputs. Set by the CLI
+# (--use-bacon). Module-level rather than threaded through every helper because the
+# meta CLI is a single-shot, single-threaded run.
+_USE_BACON = False
+
 # When a cohort's primary result is a tier3 mode (stratified-meta / low-power), its
 # recommended per-cohort DMP table is the *_Tier3_Primary_DMPs.csv produced by that
 # tier, not the naive-pooled *_DMPs_full.csv whose inflated lambda is the very reason
@@ -556,11 +563,25 @@ def _read_branch_records(
             reader = csv.DictReader(handle, delimiter=delimiter)
             if not reader.fieldnames:
                 raise ValueError(f"No header found in {table_path}")
-            missing_required = [col for col in ("CpG", "logFC", "P.Value") if col not in reader.fieldnames]
+            # Column selection: with use_bacon, prefer the bacon-recalibrated
+            # statistics (logFC.bacon / P.Value.bacon / t.bacon) so the meta-analysis
+            # pools empirically-null-calibrated effects. Fall back to the standard
+            # columns (with a warning) when a cohort table predates bacon.
+            eff_col, p_col, t_col = "logFC", "P.Value", "t"
+            if _USE_BACON:
+                if "P.Value.bacon" in reader.fieldnames and "logFC.bacon" in reader.fieldnames:
+                    eff_col, p_col = "logFC.bacon", "P.Value.bacon"
+                    t_col = "t.bacon" if "t.bacon" in reader.fieldnames else "t"
+                else:
+                    warnings.append(
+                        f"{branch}/{cohort.cohort_id}: --use-bacon requested but "
+                        f"{actual_filename} lacks bacon columns; using standard logFC/P.Value"
+                    )
+            missing_required = [col for col in ("CpG", eff_col, p_col) if col not in reader.fieldnames]
             if missing_required:
                 raise ValueError(f"{table_path} missing required columns: {', '.join(missing_required)}")
-            if "SE" not in reader.fieldnames and "t" not in reader.fieldnames:
-                raise ValueError(f"{table_path} must include either SE or t for meta-analysis")
+            if "SE" not in reader.fieldnames and t_col not in reader.fieldnames:
+                raise ValueError(f"{table_path} must include either SE or {t_col} for meta-analysis")
             seen_cpgs: set[str] = set()
             for row in reader:
                 cpg = str(row.get("CpG") or "").strip()
@@ -585,20 +606,22 @@ def _read_branch_records(
                 for col in ANNOTATION_COLUMNS:
                     if not annotations.get(col) and not _is_missing(row.get(col)):
                         annotations[col] = str(row.get(col)).strip()
-                effect = _safe_float(row.get("logFC"))
+                effect = _safe_float(row.get(eff_col))
                 se = _safe_float(row.get("SE"))
-                # Reconstruct SE from logFC/t whenever SE is unusable (missing OR
+                # Reconstruct SE from effect/t whenever SE is unusable (missing OR
                 # non-positive). Previously a present-but-zero/negative SE skipped the
                 # t-fallback and silently dropped the cohort, even with a valid t.
+                # Under --use-bacon the t-column is the bacon-recalibrated t so that
+                # the implied SE matches the bacon effect size.
                 if not math.isfinite(se) or se <= 0:
-                    t_stat = _safe_float(row.get("t"))
+                    t_stat = _safe_float(row.get(t_col))
                     if math.isfinite(effect) and math.isfinite(t_stat) and t_stat != 0:
                         se = abs(effect / t_stat)
                 if not math.isfinite(se) or se <= 0:
                     se = math.nan
                 rec["effects"][cohort_idx] = effect
                 rec["ses"][cohort_idx] = se
-                rec["p_values"][cohort_idx] = _safe_p_value(row.get("P.Value"))
+                rec["p_values"][cohort_idx] = _safe_p_value(row.get(p_col))
                 rec["deltas"][cohort_idx] = _safe_float(row.get("Delta_Beta"))
     if not records:
         warnings.append(f"{branch}: no CpG records loaded from {filename}; branch output is empty")
@@ -1222,6 +1245,10 @@ def run_meta_cli(args) -> int:
     allow_missing_summary = bool(getattr(args, "allow_missing_summary", False))
     prefer_tier3 = bool(getattr(args, "tier3_primary", True))
     allow_missing_tier3 = bool(getattr(args, "allow_missing_tier3_primary", False))
+    global _USE_BACON
+    _USE_BACON = bool(getattr(args, "use_bacon", False))
+    if _USE_BACON:
+        _log("Bacon mode: pooling bacon-recalibrated per-cohort statistics (logFC.bacon / P.Value.bacon).")
     cohorts: list[MetaCohort] = []
     if args.manifest:
         cohorts.extend(load_meta_manifest(_resolve_path(args.manifest, project_root), project_root, allow_missing_summary))

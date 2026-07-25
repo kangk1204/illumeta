@@ -1,0 +1,25 @@
+{
+  "artifact": "docs/dashboard_demo/Case_vs_Control_results_index.html",
+  "artifact_sha256": "ec081d083a649129d78d93e7061ed7808706863fde255bdc1a22643bd0222115",
+  "fixture_only": true,
+  "generated_at": "2026-07-23T00:00:00Z",
+  "generator": "scripts/build_dashboard_demo.py",
+  "inputs": {
+    "docs/dashboard_demo/Case_vs_Control_results/CRF_MMC_Summary.csv": "05091a6b6f3173b9bd1bffbe2a00bd2cc4dc17e72f4f08f7ff971bfcb0504917",
+    "docs/dashboard_demo/Case_vs_Control_results/CRF_NCS_Summary.csv": "105ee996f6dc3549f5806d3b0b5e9102b315bb8759495bbfa13a9ee651949197",
+    "docs/dashboard_demo/Case_vs_Control_results/CRF_RSS_Summary.csv": "07c2bad28e29441f28a2308081bf999f2852e956d857579fec936d465035cf9c",
+    "docs/dashboard_demo/Case_vs_Control_results/CRF_Sample_Tier.csv": "bec470a59810618bd79f550ac693283f1d435168710b264cedd770ab88434a7a",
+    "docs/dashboard_demo/Case_vs_Control_results/Intersection_Native_Consensus_DMPs.csv": "f01c1efad0f5b604c6ff05bffdf257de6162b41c0cd91e573ced2b9a746e5a7c",
+    "docs/dashboard_demo/Case_vs_Control_results/Intersection_Native_Consensus_DMPs.html": "e62fd9717e8a33ffc1908a0db202499814d9cc8879b2545984ad90ea7397b77d",
+    "docs/dashboard_demo/Case_vs_Control_results/Minfi_Metrics.csv": "6687008af1c94efe3604280309443a44cb49197065e80d9a0f6cb2722a98be98",
+    "docs/dashboard_demo/Case_vs_Control_results/Minfi_Top_DMPs.html": "04282bde122ac09a1ec8191d8e7f249724ff375c8199c07e868f946d536c3d21",
+    "docs/dashboard_demo/Case_vs_Control_results/Minfi_Volcano.html": "503b75c9e35abe858baf718e7ed8e03ff54846ab07893a402f2ec89831e2e997",
+    "docs/dashboard_demo/Case_vs_Control_results/QC_Summary.csv": "d02ddb75f0b72660a028698e4ff22d51dbd71eddce988db42bbac0ced9b748eb",
+    "docs/dashboard_demo/Case_vs_Control_results/analysis_parameters.json": "effc86c81cb3b10e2a62e611800a3b57dd1d7e1b7fd11a8b5e0328173b1fbac4",
+    "docs/dashboard_demo/Case_vs_Control_results/methods.md": "539cb80c090d8681aa8c1d54d432ead0672e1b51f89fd3be4b284b764574e274",
+    "docs/dashboard_demo/Case_vs_Control_results/sessionInfo.txt": "c535c6edfabc2e9fea91f58cc811a40d606f964cfe1a08a8cb97d287ed6e517a",
+    "docs/dashboard_demo/Case_vs_Control_results/summary.json": "9bacdf25f0794109a374e7208f64e897c2f2d5444a9625b31716522972b78967"
+  },
+  "source_date_epoch": 1784764800,
+  "study_result": false
+}

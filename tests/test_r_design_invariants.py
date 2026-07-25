@@ -245,7 +245,7 @@ class RDesignInvariantTests(unittest.TestCase):
         self.assertIn("sesame_native_summary <- NULL", sesame_block)
         self.assertLess(sesame_block.index("sesame_native_summary <- NULL"), sesame_block.index("if (!is.null(beta_sesame_native))"))
 
-    def test_manuscript_facing_effect_labels_use_m_value_scale(self):
+    def test_report_effect_labels_use_m_value_scale(self):
         with open(ANALYZE_R, "r", encoding="utf-8") as handle:
             source = handle.read()
 
@@ -266,19 +266,6 @@ class RDesignInvariantTests(unittest.TestCase):
         self.assertIn("sesame_reference_cell_counts_supported <- function", source)
         sesame_block = source.split("estimate_sesame_cell_counts(sdf_list", 1)[0]
         self.assertIn("sesame_reference_cell_counts_supported(tissue_use)", sesame_block)
-
-    def test_crf_rss_summary_filename_is_used_by_figure_script(self):
-        script = os.path.join(BASE_DIR, "scripts", "generate_application_note_figures.py")
-        if not os.path.exists(script):
-            # This manuscript-figure helper is intentionally .gitignored (it may carry
-            # unpublished paper text) and is therefore absent from the public repo /
-            # clean clones / CI. Skip rather than hard-fail the whole suite.
-            self.skipTest("scripts/generate_application_note_figures.py not present (maintainer-only)")
-        with open(script, "r", encoding="utf-8") as handle:
-            source = handle.read()
-
-        self.assertIn("CRF_RSS_Summary.csv", source)
-        self.assertNotIn("CRF_SSS_Summary.csv", source)
 
     def test_raw_tar_extraction_has_hardlink_guard(self):
         # A tar hard-link member named *.idat can share a host file's inode and pass the

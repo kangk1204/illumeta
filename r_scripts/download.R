@@ -28,6 +28,25 @@ ts_message <- function(..., domain = NULL, appendLF = TRUE) {
 }
 message <- ts_message
 
+# Sanitize a data frame before writing an unquoted TSV: GEO metadata values can contain
+# embedded tabs, newlines, and carriage returns that would otherwise corrupt the rectangular
+# TSV (the Python reader assumes stable columns). Replace field separators/line breaks in
+# every character (and factor) column with a single space; collapse runs of whitespace.
+sanitize_tsv_frame <- function(df) {
+  for (j in seq_along(df)) {
+    col <- df[[j]]
+    if (is.factor(col)) col <- as.character(col)
+    if (is.character(col)) {
+      col <- gsub("[\t\r\n]+", " ", col)         # kill separators / line breaks
+      col <- gsub("[[:cntrl:]]", " ", col)         # any other control chars
+      col <- gsub("[ ]{2,}", " ", col)             # collapse whitespace runs
+      col <- trimws(col)
+      df[[j]] <- col
+    }
+  }
+  df
+}
+
 if (is.null(opt$gse)){
   print_help(opt_parser)
   stop("GSE ID must be supplied", call.=FALSE)
@@ -165,18 +184,33 @@ safe_extract_idats_from_tar <- function(tar_file, exdir) {
   if (any(invalid)) {
     stop("Unsafe RAW tar member(s) are not regular IDAT files: ", paste(head(extracted[invalid], 5), collapse = ", "))
   }
-  # Best-effort hard-link guard (defense-in-depth): a tar hard-link member named *.idat can
+  # Hard-link guard (defense-in-depth), FAIL-CLOSED: a tar hard-link member named *.idat can
   # share a host file's inode, landing a regular file inside exdir that passes the symlink,
-  # escape, and regular-file checks above. base R exposes no link count, so shell out to
-  # `stat` on our own (already path-validated) extracted files and reject any IDAT with >1
-  # hard link. Fail-open if `stat` is unavailable/incompatible (the other guards still apply).
-  hard_nlinks <- suppressWarnings(vapply(extracted, function(f) {
+  # escape, and regular-file checks above. We read the link count cross-platform, preferring
+  # base R's own file.info()$nlink (available on this platform), and falling back to GNU
+  # `stat -c %h` / BSD `stat -f %l` only if needed. If NO method yields a link count for a
+  # file, we STOP rather than proceed: an unverifiable link count is treated as unsafe.
+  get_nlink <- function(f) {
+    # 1) base R (most portable): file.info() carries an 'nlink' column on POSIX.
+    fi <- suppressWarnings(file.info(f))
+    if ("nlink" %in% colnames(fi) && !is.na(fi$nlink)) return(as.integer(fi$nlink))
+    # 2) GNU stat
     out <- tryCatch(system2("stat", c("-c", "%h", f), stdout = TRUE, stderr = FALSE),
-                    error = function(e) NA_character_)
-    if (length(out) != 1L) return(NA_integer_)
-    suppressWarnings(as.integer(out))
-  }, integer(1)))
-  hardlinked <- !is.na(hard_nlinks) & hard_nlinks > 1L
+                    error = function(e) character(0))
+    if (length(out) == 1L && !is.na(suppressWarnings(as.integer(out)))) return(as.integer(out))
+    # 3) BSD/macOS stat
+    out <- tryCatch(system2("stat", c("-f", "%l", f), stdout = TRUE, stderr = FALSE),
+                    error = function(e) character(0))
+    if (length(out) == 1L && !is.na(suppressWarnings(as.integer(out)))) return(as.integer(out))
+    return(NA_integer_)
+  }
+  hard_nlinks <- suppressWarnings(vapply(extracted, get_nlink, integer(1)))
+  unverifiable <- is.na(hard_nlinks)
+  if (any(unverifiable)) {
+    stop("Cannot verify hard-link count for RAW tar member(s); refusing to proceed (fail-closed): ",
+         paste(head(basename(extracted[unverifiable]), 5), collapse = ", "))
+  }
+  hardlinked <- hard_nlinks > 1L
   if (any(hardlinked)) {
     stop("Unsafe RAW tar hard-link member(s): ", paste(head(basename(extracted[hardlinked]), 5), collapse = ", "))
   }
@@ -461,7 +495,7 @@ if (length(dup_cols) > 0) {
 
 # Save original (full) metadata snapshot
 config_orig_path <- file.path(out_dir, "configure_original.tsv")
-write.table(simple_meta, config_orig_path, sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(sanitize_tsv_frame(simple_meta), config_orig_path, sep = "\t", quote = FALSE, row.names = FALSE)
 message(paste("Original metadata saved to:", config_orig_path))
 
 # Retain all columns except degenerate ones; always keep geo_accession for ID mapping
@@ -488,7 +522,7 @@ if (nrow(dropped) > 0) {
 }
 
 config_path <- file.path(out_dir, "configure.tsv")
-write.table(filtered_meta, config_path, sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(sanitize_tsv_frame(filtered_meta), config_path, sep = "\t", quote = FALSE, row.names = FALSE)
 
 message("Metadata saved.")
 message("IMPORTANT: Fill in 'primary_group' in configure.tsv before analysis (or use illumeta.py --auto-group to populate it).")

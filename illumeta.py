@@ -376,6 +376,26 @@ def parse_analysis_timeout(value=None, default=86400):
     return int(timeout_sec) if timeout_sec.is_integer() else timeout_sec
 
 
+def argparse_int_at_least_one(value: str) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        raise argparse.ArgumentTypeError("must be an integer >= 1")
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be an integer >= 1")
+    return parsed
+
+
+def argparse_nonnegative_finite_float(value: str) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        raise argparse.ArgumentTypeError("must be a finite number >= 0")
+    if not math.isfinite(parsed) or parsed < 0:
+        raise argparse.ArgumentTypeError("must be a finite number >= 0")
+    return parsed
+
+
 def profile_values(values):
     cleaned = []
     for v in values:
@@ -1256,6 +1276,8 @@ CORE_R_PACKAGES = [
     "IlluminaHumanMethylationEPICmanifest",
     "IlluminaHumanMethylation450kanno.ilmn12.hg19",
     "IlluminaHumanMethylationEPICanno.ilm10b4.hg19",
+    "bacon",
+    "missMethyl",
 ]
 EPICV2_R_PACKAGES = [
     "IlluminaHumanMethylationEPICv2manifest",
@@ -2088,8 +2110,36 @@ def resolve_analysis_config_path(args):
     return None
 
 
+def _validate_analysis_thresholds(args):
+    """Fail-closed domain validation for analysis CLI thresholds.
+
+    Rejects out-of-domain values before they reach the R layer, where an invalid
+    threshold (e.g. pval>1 or a negative fold-change) would otherwise silently
+    select every probe or none. Raises SystemExit with a clear message.
+    """
+    import math
+    errs = []
+    pval = getattr(args, "pval", None)
+    if pval is not None and not (isinstance(pval, (int, float)) and math.isfinite(pval) and 0 < pval <= 1):
+        errs.append(f"--pval must satisfy 0 < pval <= 1 (got {pval})")
+    lfc = getattr(args, "lfc", None)
+    if lfc is not None and not (isinstance(lfc, (int, float)) and math.isfinite(lfc) and lfc >= 0):
+        errs.append(f"--lfc must be finite and >= 0 (got {lfc})")
+    db = getattr(args, "delta_beta", None)
+    if db is not None and not (isinstance(db, (int, float)) and math.isfinite(db) and db >= 0):
+        errs.append(f"--delta-beta must be finite and >= 0 (got {db})")
+    mp = getattr(args, "max_plots", None)
+    if mp is not None and not (isinstance(mp, int) and mp >= 1):
+        errs.append(f"--max_plots must be an integer >= 1 (got {mp})")
+    if errs:
+        for e in errs:
+            log_err(f"[!] Invalid threshold: {e}")
+        sys.exit(2)
+
+
 def run_analysis(args):
     """Executes the analysis step."""
+    _validate_analysis_thresholds(args)
     config_path = resolve_analysis_config_path(args)
     
     if not config_path:
@@ -2537,17 +2587,17 @@ def run_analysis(args):
             reason_filename="dashboard_failure_reason.txt",
         )
 
-    if getattr(args, "require_publication_artifacts", False):
-        _require_publication_artifacts(output_dir)
+    if getattr(args, "require_output_artifacts", False):
+        _require_output_artifacts(output_dir)
 
 
-def _require_publication_artifacts(output_dir):
-    """Submission-mode gate for the 'publication-ready' contract.
+def _require_output_artifacts(output_dir):
+    """Fail-closed gate for the complete output contract.
 
     Dashboard generation is non-fatal in normal runs, so a successful exit does not
-    by itself prove the output is complete. When --require-publication-artifacts is
-    set, verify every required artifact is present and no failure marker remains;
-    exit non-zero (with a failure summary) otherwise.
+    by itself prove the output is complete. When the strict artifact check is set,
+    verify every required artifact is present and no failure marker remains; exit
+    non-zero with a failure summary otherwise.
     """
     required = ("summary.json", "analysis_parameters.json", "methods.md", "sessionInfo.txt")
     missing = [name for name in required if not os.path.isfile(os.path.join(output_dir, name))]
@@ -2569,7 +2619,7 @@ def _require_publication_artifacts(output_dir):
     # Existence alone is insufficient: an interrupted R write can leave a 0-byte or
     # truncated summary.json that the tolerant dashboard generator turns into all-zeros
     # output. Validate size and, for JSON artifacts, parseability + required keys so the
-    # submission gate cannot certify a silently-empty result as publication-ready.
+    # strict gate cannot certify a silently empty result as complete.
     present_required = [
         name for name in required
         if os.path.isfile(os.path.join(output_dir, name))
@@ -2609,35 +2659,183 @@ def _require_publication_artifacts(output_dir):
     if summary_payload is not None:
         missing_summary_keys = [k for k in required_summary_keys if k not in summary_payload]
 
+    # Count parity (P2-3): nonzero headline consensus counts must be backed by the
+    # linked strict/native consensus CSVs. Validate rows, unique CpGs, and direction
+    # split so displayed numbers and downloadable evidence cannot diverge silently.
+    consensus_problems = []
+    invalid_summary_counts = []
+    if summary_payload is not None:
+        parsed_counts = {}
+        for key in (
+            "intersect_up", "intersect_down",
+            "intersect_native_up", "intersect_native_down",
+        ):
+            if key not in summary_payload:
+                continue
+            parsed = _output_nonnegative_integer(summary_payload[key])
+            if parsed is None:
+                invalid_summary_counts.append(
+                    f"{key}={summary_payload[key]!r} (expected a non-negative integer)"
+                )
+            else:
+                parsed_counts[key] = parsed
+
+        if all(key in parsed_counts for key in ("intersect_up", "intersect_down")):
+            consensus_problems.extend(_validate_output_consensus_csv(
+                output_dir,
+                "strict-consensus",
+                "Intersection_Consensus_DMPs.csv",
+                parsed_counts["intersect_up"],
+                parsed_counts["intersect_down"],
+            ))
+        if all(key in parsed_counts for key in ("intersect_native_up", "intersect_native_down")):
+            consensus_problems.extend(_validate_output_consensus_csv(
+                output_dir,
+                "native-consensus",
+                "Intersection_Native_Consensus_DMPs.csv",
+                parsed_counts["intersect_native_up"],
+                parsed_counts["intersect_native_down"],
+            ))
+
     problems = []
     if missing:
         problems.append("missing required artifacts: " + ", ".join(missing))
+    problems.extend(consensus_problems)
     if empty:
         problems.append("empty (0-byte) artifacts: " + ", ".join(empty))
     if invalid_json:
         problems.append("invalid JSON artifacts: " + ", ".join(invalid_json))
     if missing_summary_keys:
         problems.append("summary.json missing required keys: " + ", ".join(missing_summary_keys))
+    if invalid_summary_counts:
+        problems.append("summary.json invalid consensus counts: " + ", ".join(invalid_summary_counts))
     if failure_markers:
         problems.append("failure markers present: " + ", ".join(failure_markers))
     if problems:
-        message = "Publication-artifact validation failed: " + "; ".join(problems)
+        message = "Output-artifact validation failed: " + "; ".join(problems)
         log_err(f"[!] {message}")
         write_failure_summary(
             output_dir,
-            "publication_validation",
-            "PUBLICATION_ARTIFACTS_INCOMPLETE",
+            "output_validation",
+            "OUTPUT_ARTIFACTS_INCOMPLETE",
             message,
             details={
                 "missing": missing,
                 "empty": empty,
                 "invalid_json": invalid_json,
                 "missing_summary_keys": missing_summary_keys,
+                "invalid_summary_counts": invalid_summary_counts,
                 "failure_markers": failure_markers,
+                "consensus_problems": consensus_problems,
             },
         )
         sys.exit(1)
-    log(f"[OK] Publication artifacts validated in {output_dir}")
+    log(f"[OK] Output artifacts validated in {output_dir}")
+
+
+def _validate_output_consensus_csv(output_dir, label, filename, expected_up, expected_down):
+    expected_total = expected_up + expected_down
+    path = os.path.join(output_dir, filename)
+    if not os.path.isfile(path):
+        if expected_total == 0:
+            return []
+        return [f"{label} count is {expected_total} but {filename} is missing"]
+
+    rows = 0
+    up = 0
+    down = 0
+    missing_direction = 0
+    cpgs = []
+    try:
+        with open(path, "r", encoding="utf-8", newline="") as fh:
+            reader = csv.DictReader(fh)
+            if not reader.fieldnames:
+                return [f"{label} CSV {filename} has no header"]
+            cpg_column = _output_cpg_column(reader.fieldnames)
+            if not cpg_column:
+                return [f"{label} CSV {filename} has no CpG column"]
+            for row in reader:
+                rows += 1
+                cpg = (row.get(cpg_column) or "").strip()
+                if cpg:
+                    cpgs.append(cpg)
+                direction = _output_row_direction(row)
+                if direction > 0:
+                    up += 1
+                elif direction < 0:
+                    down += 1
+                else:
+                    missing_direction += 1
+    except (OSError, csv.Error) as exc:
+        return [f"could not read {label} CSV {filename} ({type(exc).__name__})"]
+
+    unique_cpgs = len(set(cpgs))
+    problems = []
+    if rows != expected_total:
+        problems.append(
+            f"{label} row-count mismatch: summary shows {expected_total} but {filename} has {rows} rows"
+        )
+    if unique_cpgs != expected_total:
+        problems.append(
+            f"{label} unique-CpG mismatch: summary shows {expected_total} but {filename} has {unique_cpgs} unique CpGs"
+        )
+    if up != expected_up or down != expected_down:
+        detail = f" ({missing_direction} rows lacked a usable direction)" if missing_direction else ""
+        problems.append(
+            f"{label} direction-split mismatch: summary shows up={expected_up}, down={expected_down} "
+            f"but {filename} has up={up}, down={down}{detail}"
+        )
+    return problems
+
+
+def _output_nonnegative_integer(value):
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(parsed) or parsed < 0 or not parsed.is_integer():
+        return None
+    return int(parsed)
+
+
+def _output_cpg_column(fieldnames):
+    for candidate in ("CpG", "cpg", "CpG_ID", "cpg_id", "Name", "IlmnID"):
+        if candidate in fieldnames:
+            return candidate
+    return None
+
+
+def _output_row_direction(row):
+    branch_keys = (
+        "logFC.Minfi",
+        "logFC.Sesame",
+        "Delta_Beta.Minfi",
+        "Delta_Beta.Sesame",
+    )
+    present_branch_keys = [key for key in branch_keys if key in row]
+    if present_branch_keys:
+        values = [safe_float(row.get(key)) for key in present_branch_keys]
+        if any(value is None or value == 0 for value in values):
+            return 0
+        signs = {1 if value > 0 else -1 for value in values}
+        return signs.pop() if len(signs) == 1 else 0
+
+    aggregate_keys = ("logFC_mean", "Delta_Beta", "delta_beta_mean", "delta_beta")
+    values = []
+    for key in aggregate_keys:
+        if key not in row:
+            continue
+        value = safe_float(row.get(key))
+        if value is not None:
+            values.append(value)
+    if not values or any(value == 0 for value in values):
+        return 0
+    signs = {1 if value > 0 else -1 for value in values}
+    if len(signs) == 1:
+        return signs.pop()
+    return 0
 
 
 def safe_int(val):
@@ -2668,12 +2866,14 @@ def safe_float(val):
         return None
     return num
 
-def _as_bool(val):
+def _as_optional_bool(val):
     if isinstance(val, bool):
         return val
     if val is None:
-        return False
+        return None
     if isinstance(val, (int, float)):
+        if not math.isfinite(val):
+            return None
         return bool(val)
     if isinstance(val, str):
         val = val.strip().lower()
@@ -2681,17 +2881,30 @@ def _as_bool(val):
             return True
         if val in {"false", "f", "0", "no", "n", ""}:
             return False
-    return False
+    return None
+
+def _as_bool(val):
+    return _as_optional_bool(val) is True
 
 def collect_dashboard_warnings(stats, analysis_params, qc_summary, cell_summary=None, cell_assoc=None):
     warnings = []
     if analysis_params:
-        unsafe_skip = _as_bool(analysis_params.get("unsafe_skip_cross_reactive"))
-        cross_active = _as_bool(analysis_params.get("cross_reactive_active")) or _as_bool(analysis_params.get("cross_reactive_enabled"))
-        cross_count = safe_int(analysis_params.get("cross_reactive_count", 0))
-        if unsafe_skip or not cross_active:
+        unsafe_skip = _as_optional_bool(
+            analysis_params.get("unsafe_skip_cross_reactive")
+        )
+        cross_active = None
+        for key in ("cross_reactive_active", "cross_reactive_enabled"):
+            if key in analysis_params:
+                cross_active = _as_optional_bool(analysis_params.get(key))
+                if cross_active is not None:
+                    break
+        if unsafe_skip is True or cross_active is False:
             warnings.append("Cross-reactive probe filtering was skipped (unsafe).")
-        elif cross_active and cross_count == 0:
+        elif (
+            cross_active is True
+            and "cross_reactive_count" in analysis_params
+            and safe_int(analysis_params.get("cross_reactive_count")) == 0
+        ):
             warnings.append("Cross-reactive probe list missing or empty; filtering may not have been applied.")
 
         sex_action = (analysis_params.get("sex_check_action") or "").lower()
@@ -3120,7 +3333,7 @@ def generate_dashboard(output_dir, group_test, group_con):
     
     # Reordered: Consensus + Native/Strict pipelines
     pipeline_defs = [
-        ("Intersection_Native", "Intersection (Native · High-confidence)", "intersection"),
+        ("Intersection_Native", "Intersection (Native consensus)", "intersection"),
         ("Intersection", "Intersection (Strict)", "intersection"),
         ("Minfi", "Minfi (Noob)", "pipeline"),
         ("Sesame", "Sesame (Strict)", "pipeline"),
@@ -3739,11 +3952,11 @@ def generate_dashboard(output_dir, group_test, group_con):
     key_findings = []
     if intersect_native_total:
         key_findings.append(
-            f"{intersect_native_total} high-confidence DMPs (Intersection Native: ↑{intersect_native_up} ↓{intersect_native_down})."
+            f"{intersect_native_total} same-direction consensus DMPs (Intersection Native: ↑{intersect_native_up} ↓{intersect_native_down})."
         )
     elif intersect_total:
         key_findings.append(
-            f"{intersect_total} high-confidence DMPs (Intersection Strict: ↑{intersect_up} ↓{intersect_down})."
+            f"{intersect_total} same-direction consensus DMPs (Intersection Strict: ↑{intersect_up} ↓{intersect_down})."
         )
     else:
         key_findings.append("No consensus DMPs passed the significance thresholds.")
@@ -3824,8 +4037,9 @@ def generate_dashboard(output_dir, group_test, group_con):
 
     # CSS Style Block (Using format to avoid curly brace hell)
     style_block = """
-        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
-        /* Offline fallback: system sans-serif fonts are used when Google Fonts unavailable */
+        /* Fully offline/self-contained: no remote font import. The dashboard renders with the
+           platform's native UI sans-serif stack (declared in the font-family rules below), so
+           it works with the network disabled and embeds no third-party requests. */
         :root {
             --ink: #1d2628;
             --primary: #2f6b64;
@@ -3918,7 +4132,7 @@ def generate_dashboard(output_dir, group_test, group_con):
         }
         html { scroll-behavior: smooth; }
         body {
-            font-family: "Manrope", "IBM Plex Sans", "Helvetica Neue", sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             margin: 0;
             color: var(--ink);
             background-color: var(--bg);
@@ -3927,7 +4141,7 @@ def generate_dashboard(output_dir, group_test, group_con):
                 radial-gradient(circle at 90% 20%, var(--bg-grad-b), transparent 40%),
                 radial-gradient(circle at 50% 85%, var(--bg-grad-c), transparent 45%);
         }
-        h1, h2, h3 { font-family: "Space Grotesk", "Manrope", sans-serif; margin: 0; }
+        h1, h2, h3 { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 0; }
         header {
             background: linear-gradient(120deg, var(--header-grad-start), var(--header-grad-mid) 55%, var(--header-grad-end));
             color: #f7f5f0;
@@ -4280,6 +4494,7 @@ def generate_dashboard(output_dir, group_test, group_con):
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="data:,">
     <title>IlluMeta Analysis: {group_test} vs {group_con}</title>
     <style>{style_block}</style>
 </head>
@@ -4321,7 +4536,7 @@ def generate_dashboard(output_dir, group_test, group_con):
                 <div class="hero-card-sub">Control {n_con} / Test {n_test}</div>
             </div>
             <div class="hero-card">
-                <div class="hero-card-title">Intersection (Native · High-confidence)</div>
+                <div class="hero-card-title">Intersection (Native consensus)</div>
                 <div class="hero-card-value">{intersect_native_total}</div>
                 <div class="hero-card-sub">Native ▲ {intersect_native_up} ▼ {intersect_native_down} · Strict ▲ {intersect_up} ▼ {intersect_down}</div>
             </div>
@@ -4364,12 +4579,12 @@ def generate_dashboard(output_dir, group_test, group_con):
     <div class="summary-card">
         <div class="summary-grid">
             <div>
-                <div class="verdict-badge {verdict_class}" title="HIGH = Results are robust and suitable for publication. MODERATE = Usable results; review warnings carefully. LOW = Interpret with caution; significant limitations detected. EXPLORATORY = Hypothesis-generating only; not suitable for definitive conclusions.">{verdict} Confidence</div>
-                <div style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.4rem;">{"Results are robust and suitable for publication." if verdict == "HIGH" else "Usable results; review warnings and consider validation." if verdict == "MODERATE" else "Interpret with caution; significant limitations detected." if verdict == "LOW" else "Hypothesis-generating only; not for definitive conclusions."}</div>
+                <div class="verdict-badge {verdict_class}" title="HIGH = Strong cross-route agreement after configured checks. MODERATE = Usable results; review warnings carefully. LOW = Interpret with caution; significant limitations detected. EXPLORATORY = Hypothesis-generating only; not for definitive conclusions.">{verdict} Confidence</div>
+                <div style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.4rem;">{"Strong cross-route agreement after configured checks." if verdict == "HIGH" else "Usable results; review warnings and consider validation." if verdict == "MODERATE" else "Interpret with caution; significant limitations detected." if verdict == "LOW" else "Hypothesis-generating only; not for definitive conclusions."}</div>
                 <details class="explain">
                     <summary>What do the confidence levels mean?</summary>
                     <div class="explain-body">
-                        <b>HIGH</b> &mdash; robust; suitable for publication.<br>
+                        <b>HIGH</b> &mdash; strong cross-route agreement after configured checks.<br>
                         <b>MODERATE</b> &mdash; usable; review warnings and consider validation.<br>
                         <b>LOW</b> &mdash; interpret with caution; significant limitations detected.<br>
                         <b>EXPLORATORY</b> &mdash; hypothesis-generating only; not for definitive conclusions.<br>
@@ -4438,7 +4653,7 @@ def generate_dashboard(output_dir, group_test, group_con):
          "detection P failure fraction < 0.20, and consistent signal intensity across samples. If many samples "
          "fail, your downstream results may be unreliable.",
          [("QC_Summary.csv", "QC Summary"), ("Sample_QC_DetectionP_FailFraction.html", "Detection P"), ("Sample_QC_Intensity_Medians.html", "Intensity")]),
-        ("Step 2", "Review the High-confidence Intersection",
+        ("Step 2", "Review the Same-direction Consensus",
          "The Intersection (Native) tab shows CpGs significant in BOTH pipelines (Minfi and SeSAMe) with the "
          "same direction of change. These are your most reliable hits. Check the concordance plot to confirm "
          "pipelines agree, and use the consensus DMP table for your primary results.",
@@ -4833,6 +5048,16 @@ def generate_dashboard(output_dir, group_test, group_con):
         log(f"[*] Dashboard generated: {dashboard_path}")
     except OSError as e:
         log_err(f"[!] Failed to write dashboard: {e}")
+        # Leave a machine-readable failure marker so the strict artifact gate treats a
+        # dashboard write failure as fatal instead of accepting a missing dashboard.
+        try:
+            write_failure_summary(
+                output_dir, "dashboard", "DASHBOARD_WRITE_FAILED", str(e),
+                summary_filename="dashboard_failure_summary.json",
+                reason_filename="dashboard_failure_reason.txt",
+            )
+        except Exception:
+            pass
 
 
 DEFAULT_DEMO_GSE = "GSE125605"
@@ -5019,10 +5244,10 @@ def main():
                                help="Required keywords to AND with IDAT/platform filter (e.g., 'breast cancer')")
     parser_search.add_argument("-o", "--output", default="geo_idat_methylation.tsv", help="Output TSV path")
     parser_search.add_argument("--email", default=None, help="Your email (NCBI etiquette; optional)")
-    parser_search.add_argument("--retmax", type=int, default=500, help="Maximum records to fetch (default: 500)")
+    parser_search.add_argument("--retmax", type=argparse_int_at_least_one, default=500, help="Maximum records to fetch (default: 500)")
     parser_search.add_argument("--no-check-suppl", dest="check_suppl", action="store_false", default=True,
                                help="Disable supplementary listing check (default: on)")
-    parser_search.add_argument("--sleep", type=float, default=0.5,
+    parser_search.add_argument("--sleep", type=argparse_nonnegative_finite_float, default=0.5,
                                help="Sleep seconds between E-utility requests (default: 0.5)")
     
     # Analysis Command
@@ -5095,8 +5320,8 @@ def main():
     parser_analysis.add_argument("--cell-adjustment-on-high-eta2", type=str, choices=["warn", "stop"],
                                  help="Action when cell vs group Eta^2 exceeds threshold (warn|stop)")
     parser_analysis.add_argument("--skip-sesame", action="store_true", help="Skip Sesame pipeline (Minfi only)")
-    parser_analysis.add_argument("--require-publication-artifacts", action="store_true",
-                                 help="Submission mode: after analysis, fail unless summary.json, analysis_parameters.json, methods.md, sessionInfo.txt and the dashboard HTML are all present and no failure markers remain")
+    parser_analysis.add_argument("--require-output-artifacts", action="store_true",
+                                 help="After analysis, fail unless summary.json, analysis_parameters.json, methods.md, sessionInfo.txt and the dashboard HTML are present and no failure markers remain")
     parser_analysis.add_argument("--sesame-typeinorm", dest="sesame_typeinorm", action="store_true",
                                  help="Enable sesame dyeBiasCorrTypeINorm (default: disabled for stability)")
     parser_analysis.add_argument("--permutations", type=int, default=20,

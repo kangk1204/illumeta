@@ -5,7 +5,6 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${ROOT_DIR}/environment.yml"
 ENV_NAME=""
 RUN_DOCTOR=1
-INSTALL_PAPER=0
 INSTALL_MINIMAL=0
 INSTALL_CLOCKS=0
 INSTALL_DEVTOOLS=0
@@ -18,7 +17,6 @@ Usage: scripts/install_full.sh [options]
 
 Options:
   --r45              Use environment-r45.yml (R 4.5)
-  --paper            Also install Python deps for paper/figure generation (requirements-paper.txt)
   --minimal          Core-only R install (skip optional cell refs/RefFreeEWAS/planet; some features disabled)
   --clocks           Install optional epigenetic clock packages (methylclock/wateRmelon)
   --devtools         Install optional devtools/tidyverse (for development)
@@ -39,16 +37,20 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --env-file)
+      if [[ $# -lt 2 ]]; then
+        echo "[!] --env-file requires a path."
+        exit 2
+      fi
       ENV_FILE="$2"
       shift 2
       ;;
     --env)
+      if [[ $# -lt 2 ]]; then
+        echo "[!] --env requires a name."
+        exit 2
+      fi
       ENV_NAME="$2"
       shift 2
-      ;;
-    --paper)
-      INSTALL_PAPER=1
-      shift
       ;;
     --minimal)
       INSTALL_MINIMAL=1
@@ -125,7 +127,7 @@ print_conda_install_hint() {
   echo "    Install Miniforge, then rerun this script."
   if [[ -n "${url}" ]]; then
     if [[ "$(uname -s)" == "Linux" ]]; then
-      echo "    (Ubuntu/WSL) sudo apt-get update && sudo apt-get install -y curl"
+      echo "    (Ubuntu/WSL) sudo apt-get update && sudo apt-get install -y ca-certificates curl git"
     fi
     echo "    curl -L -o Miniforge3.sh ${url}"
     echo "    bash Miniforge3.sh -b -p \"\$HOME/miniforge3\""
@@ -182,7 +184,7 @@ if [[ "${PRECHECK_ONLY}" -eq 1 ]]; then
   exit 0
 fi
 
-LOG_DIR="${ROOT_DIR}/projects"
+LOG_DIR="${ILLUMETA_LOG_DIR:-${ROOT_DIR}/projects}"
 mkdir -p "${LOG_DIR}"
 RUN_ID="$(date +%Y%m%d_%H%M%S)"
 LOG_FILE="${LOG_DIR}/illumeta_install_full_${RUN_ID}.log"
@@ -194,33 +196,63 @@ echo "[*] Env name: ${ENV_NAME}"
 echo "[*] R options: minimal=${INSTALL_MINIMAL} epicv2=${INSTALL_EPICV2} clocks=${INSTALL_CLOCKS} devtools=${INSTALL_DEVTOOLS}"
 echo "[*] Log file: ${LOG_FILE}"
 
-ENV_EXISTS=0
-if "${CONDA_BIN}" env list | awk '{print $1}' | grep -qx "${ENV_NAME}"; then
-  ENV_EXISTS=1
+CONDA_ATTEMPTS="${ILLUMETA_CONDA_ATTEMPTS:-3}"
+CONDA_RETRY_DELAY="${ILLUMETA_CONDA_RETRY_DELAY:-5}"
+if ! [[ "${CONDA_ATTEMPTS}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "[!] ILLUMETA_CONDA_ATTEMPTS must be a positive integer."
+  exit 2
+fi
+if ! [[ "${CONDA_RETRY_DELAY}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+  echo "[!] ILLUMETA_CONDA_RETRY_DELAY must be a non-negative number."
+  exit 2
 fi
 
-if [[ "${ENV_EXISTS}" -eq 1 ]]; then
-  echo "[*] Updating conda env..."
-  "${CONDA_BIN}" env update -n "${ENV_NAME}" -f "${ENV_FILE}" --prune
-else
-  echo "[*] Creating conda env..."
-  if ! "${CONDA_BIN}" env create -n "${ENV_NAME}" -f "${ENV_FILE}"; then
-    if [[ "${CONDA_BIN}" == "conda" ]]; then
-      echo "[!] env create failed; retrying with --solver=classic"
-      "${CONDA_BIN}" env create -n "${ENV_NAME}" -f "${ENV_FILE}" --solver=classic
-    else
-      exit 1
-    fi
+conda_env_exists() {
+  "${CONDA_BIN}" env list | awk '{print $1}' | grep -qx "${ENV_NAME}"
+}
+
+run_conda_env_transaction() {
+  local solver="${1:-}"
+  local -a solver_args=()
+  if [[ -n "${solver}" ]]; then
+    solver_args=("--solver=${solver}")
   fi
-fi
+
+  if conda_env_exists; then
+    echo "[*] Updating conda env..."
+    "${CONDA_BIN}" env update -n "${ENV_NAME}" -f "${ENV_FILE}" --prune "${solver_args[@]}"
+  else
+    echo "[*] Creating conda env..."
+    "${CONDA_BIN}" env create -n "${ENV_NAME}" -f "${ENV_FILE}" "${solver_args[@]}"
+  fi
+}
+
+attempt=1
+while true; do
+  solver=""
+  if [[ "${attempt}" -eq "${CONDA_ATTEMPTS}" && "${attempt}" -gt 1 ]] \
+    && [[ "$(basename "${CONDA_BIN}")" == "conda" ]]; then
+    solver="classic"
+    echo "[*] Final conda attempt uses --solver=classic."
+  fi
+
+  if run_conda_env_transaction "${solver}"; then
+    break
+  fi
+  if [[ "${attempt}" -ge "${CONDA_ATTEMPTS}" ]]; then
+    echo "[!] Conda environment transaction failed after ${CONDA_ATTEMPTS} attempt(s)."
+    exit 1
+  fi
+
+  echo "[!] Conda environment transaction failed (attempt ${attempt}/${CONDA_ATTEMPTS})."
+  echo "    Retrying in ${CONDA_RETRY_DELAY}s; conda package archives may remain cached."
+  sleep "${CONDA_RETRY_DELAY}"
+  ((attempt += 1))
+done
 
 echo "[*] Ensuring Python deps..."
 "${CONDA_BIN}" run -n "${ENV_NAME}" python -m pip install --upgrade pip
 "${CONDA_BIN}" run -n "${ENV_NAME}" python -m pip install -r "${ROOT_DIR}/requirements.txt"
-if [[ "${INSTALL_PAPER}" -eq 1 ]]; then
-  echo "[*] Installing paper/figure Python deps (requirements-paper.txt)..."
-  "${CONDA_BIN}" run -n "${ENV_NAME}" python -m pip install -r "${ROOT_DIR}/requirements-paper.txt"
-fi
 
 export ILLUMETA_USE_CONDA_LIBS="${ILLUMETA_USE_CONDA_LIBS:-1}"
 export ILLUMETA_CLEAN_MISMATCHED_RLIB="${ILLUMETA_CLEAN_MISMATCHED_RLIB:-1}"

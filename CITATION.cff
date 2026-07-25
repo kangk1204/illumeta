@@ -6,7 +6,7 @@ authors:
     orcid: "https://orcid.org/0000-0003-0611-9320"
 title: "IlluMeta: Automated Dual-Pipeline DNA Methylation Analysis"
 version: 1.0.0
-date-released: 2026-02-05
+date-released: 2026-07-07
 url: "https://github.com/kangk1204/illumeta"
 repository-code: "https://github.com/kangk1204/illumeta"
 license: Apache-2.0
@@ -24,6 +24,6 @@ preferred-citation:
   authors:
     - family-names: "Kang"
       given-names: "Keunsoo"
-  title: "IlluMeta: an automated dual-pipeline framework for robust DNA methylation analysis"
+  title: "IlluMeta: an auditable dual-pipeline workflow for public DNA methylation arrays"
   year: 2026
-  abstract: "IlluMeta is an automated pipeline that simultaneously runs minfi and sesame normalization workflows, providing consensus high-confidence CpG calls with sample-size adaptive robustness assessment."
+  abstract: "IlluMeta processes public Illumina methylation arrays with Minfi and SeSAMe, records adjustment and warning decisions, and exports auditable consensus results."

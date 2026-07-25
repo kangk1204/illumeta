@@ -123,7 +123,7 @@ if (!exists("findbars")) {
 # DESCRIPTION:
 #   Core statistical analysis engine for IlluMeta. Implements dual-pipeline
 #   methylation analysis using minfi (Noob normalization) and sesame, with
-#   consensus intersection for high-confidence CpG calls.
+#   same-direction consensus intersection for cross-pipeline robustness checks.
 #
 # MAIN FEATURES:
 #   - Dual-pipeline normalization (minfi Noob + sesame)
@@ -263,6 +263,24 @@ opt <- parse_args(opt_parser, convert_hyphens_to_underscores = TRUE)
 ts_message <- function(..., domain = NULL, appendLF = TRUE) {
   base::message(sprintf("[%s] %s", format(Sys.time(), "%H:%M:%S"), paste(..., collapse = " ")),
                 domain = domain, appendLF = appendLF)
+}
+
+# Fail-closed domain validation for analysis thresholds (mirrors the Python CLI guard).
+# An invalid threshold reaching limma/plotting would silently select all probes or none.
+{
+  .thr_errs <- character(0)
+  if (!(is.finite(opt$pval) && opt$pval > 0 && opt$pval <= 1))
+    .thr_errs <- c(.thr_errs, sprintf("--pval must satisfy 0 < pval <= 1 (got %s)", opt$pval))
+  if (!(is.finite(opt$lfc) && opt$lfc >= 0))
+    .thr_errs <- c(.thr_errs, sprintf("--lfc must be finite and >= 0 (got %s)", opt$lfc))
+  if (!(is.finite(opt$delta_beta) && opt$delta_beta >= 0))
+    .thr_errs <- c(.thr_errs, sprintf("--delta_beta must be finite and >= 0 (got %s)", opt$delta_beta))
+  if (!(is.finite(opt$max_plots) && opt$max_plots >= 1))
+    .thr_errs <- c(.thr_errs, sprintf("--max_plots must be an integer >= 1 (got %s)", opt$max_plots))
+  if (length(.thr_errs) > 0) {
+    for (.e in .thr_errs) message(sprintf("[FATAL] Invalid threshold: %s", .e))
+    quit(status = 2, save = "no")
+  }
 }
 message <- ts_message
 
@@ -1046,7 +1064,7 @@ save_static_plot <- function(p, filename, dir, width = 7, height = 4, dpi = STAT
   }, error = function(e) {
     message(sprintf("  Static plot save skipped (%s): %s", filename, e$message))
   })
-  # Also save PDF version for publication-ready figures
+  # Also save a PDF version for portable vector output.
   pdf_name <- if (grepl("\\.png$", filename, ignore.case = TRUE)) {
     sub("\\.png$", ".pdf", filename, ignore.case = TRUE)
   } else {
@@ -1268,6 +1286,20 @@ compute_genomic_lambda <- function(pvals) {
   chisq_vals <- chisq_vals[is.finite(chisq_vals)]
   if (length(chisq_vals) < 2) return(NA_real_)
   median(chisq_vals, na.rm = TRUE) / qchisq(0.5, 1)
+}
+
+subsample_qq_df <- function(qq_df, max_points) {
+  max_points <- suppressWarnings(as.integer(max_points))
+  if (!is.finite(max_points) || max_points <= 0 || nrow(qq_df) <= max_points) {
+    return(qq_df)
+  }
+  idx <- unique(round(seq(1, nrow(qq_df), length.out = max_points)))
+  idx <- idx[is.finite(idx) & idx >= 1 & idx <= nrow(qq_df)]
+  if (length(idx) < max_points) {
+    missing <- setdiff(seq_len(nrow(qq_df)), idx)
+    idx <- c(idx, head(missing, max_points - length(idx)))
+  }
+  qq_df[sort(idx[seq_len(max_points)]), , drop = FALSE]
 }
 
 #' Bayesian bias-and-inflation correction of EWAS test statistics via bacon.
@@ -6376,10 +6408,7 @@ emit_tier3_primary_outputs <- function(meta_res, betas, targets, curr_anno, pref
     expected <- -log10(ppoints(n_p))
     observed <- -log10(pmax(sort(p_vals), .Machine$double.xmin))
     qq_df <- data.frame(Expected = expected, Observed = observed)
-    if (nrow(qq_df) > max_points) {
-      idx <- unique(c(1:1000, seq(1001, n_p, length.out = max_points)))
-      qq_df <- qq_df[idx, ]
-    }
+    qq_df <- subsample_qq_df(qq_df, max_points)
     p_qq <- ggplot(qq_df, aes(x = Expected, y = Observed)) +
       geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
       geom_point(alpha = 0.5, size = 1) +
@@ -6610,10 +6639,7 @@ run_lambda_guard <- function(betas, targets, group_col, prefix, out_dir, max_poi
   expected <- -log10(ppoints(length(p_vals)))
   observed <- -log10(pmax(sort(p_vals), .Machine$double.xmin))
   qq_df <- data.frame(Expected = expected, Observed = observed)
-  if (nrow(qq_df) > max_points) {
-    idx <- unique(c(1:1000, seq(1001, nrow(qq_df), length.out = max_points)))
-    qq_df <- qq_df[idx, ]
-  }
+  qq_df <- subsample_qq_df(qq_df, max_points)
   p_qq <- ggplot(qq_df, aes(x = Expected, y = Observed)) +
     geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
     geom_point(alpha = 0.5, size = 1) +
@@ -7640,7 +7666,7 @@ if (min(n_con, n_test) < 2) {
 
 message(sprintf("Samples retained after QC - Control: %d, Test: %d (total: %d)", n_con, n_test, n_con + n_test))
 
-# Save sample-level QC metrics and figures (publication-friendly)
+# Save sample-level QC metrics and portable figures.
 tryCatch({
     # Bind QC plot/CSV group labels by identity (basename usually wins for GEO cohorts), not by
     # positional order; the positional overwrite below is kept only as a last resort.
@@ -9082,7 +9108,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   beta_out_path <- file.path(out_dir, paste0(prefix, "_BetaMatrix.tsv.gz"))
   write_matrix_tsv_gz(betas, beta_out_path)
 
-  # Effect sizes on the beta scale (paper-friendly interpretability)
+  # Effect sizes on the beta scale for direct biological interpretation.
   con_mask <- targets$primary_group == clean_con
   test_mask <- targets$primary_group == clean_test
   mean_beta_con <- rowMeans(betas[, con_mask, drop = FALSE], na.rm = TRUE)
@@ -9331,10 +9357,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   observed <- -log10(pmax(sort(p_vals), .Machine$double.xmin))
   qq_df <- data.frame(Expected = expected, Observed = observed)
 
-  if (nrow(qq_df) > max_points) {
-      idx <- unique(c(1:1000, seq(1001, n_p, length.out=max_points)))
-      qq_df <- qq_df[idx, ]
-  }
+  qq_df <- subsample_qq_df(qq_df, max_points)
   
   p_qq <- ggplot(qq_df, aes(x=Expected, y=Observed)) +
       geom_abline(intercept=0, slope=1, color="red", linetype="dashed") +
@@ -10222,7 +10245,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
 
 #' Dual-Pipeline Consensus Intersection Analysis
 #'
-#' Identifies high-confidence differentially methylated positions by requiring
+#' Identifies same-direction consensus differentially methylated positions by requiring
 #' significance in both Minfi and Sesame pipelines. Primary reported consensus
 #' p-values use the conservative selection-rule maximum across pipelines because
 #' Minfi and Sesame are run on the same samples and are not independent. Fisher's
@@ -10999,7 +11022,7 @@ tryCatch({
     "",
     "## Consensus (intersection) call set",
     "- Consensus DMPs are defined as CpGs significant in **both** minfi and sesame with the **same direction** under the same thresholds.",
-    "- Intersection is intended as a high-confidence subset; pipeline-specific results may capture additional true positives and are reported as sensitivity/discovery sets.",
+    "- Intersection is a same-direction cross-pipeline robustness subset, not independent replication; pipeline-specific results are reported as sensitivity/discovery sets.",
     "- Consensus table `P.Value`/`adj.P.Val` use the conservative selection rule (`max` of the two pipeline p-values/FDR values) because minfi and sesame share samples and are statistically dependent. Fisher's combined probability test is retained only as auxiliary `P.Value.fisher_ranking` / `adj.P.Val.fisher_ranking` columns.",
     "- Consensus is computed for both the strict (Minfi-aligned) and native Sesame views.",
     "- Consensus outputs: `Intersection_Consensus_DMPs.*` and `Intersection_Native_Consensus_DMPs.*`, plus concordance/overlap plots.",

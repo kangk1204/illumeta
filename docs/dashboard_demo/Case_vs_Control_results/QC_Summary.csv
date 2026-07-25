@@ -1,0 +1,12 @@
+metric,value
+Total_samples_input,12
+Samples_failed_QC,0
+Samples_passed_QC,12
+Samples_failed_sex_mismatch,0
+Sex_mismatch_samples,0
+Total_probes_raw,10000
+Probes_failed_detection,120
+Probes_cross_reactive,350
+Probes_with_SNPs,500
+Probes_sex_chromosomes,200
+Probes_final,8830

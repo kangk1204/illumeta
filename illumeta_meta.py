@@ -1101,8 +1101,12 @@ def _write_report(
         "For each preprocessing branch, cohort-level logFC estimates and standard errors were combined per CpG.",
         "When an SE column was absent, SE was reconstructed as abs(logFC / t) from the limma moderated t-statistic.",
         "Fixed-effect estimates used inverse-variance weights. Random-effects estimates used a DerSimonian-Laird tau2 estimator.",
+        "Random-effects significance used a two-sided Wald test referenced to a standard normal distribution; no Knapp-Hartung small-sample adjustment was applied.",
+        "Because at most five cohorts contributed to a CpG, the normal-reference random-effects p-values can be anti-conservative and are used only as prioritization statistics, not confirmatory inference.",
         "Benjamini-Hochberg FDR was applied within each branch. Directional partial-conjunction p-values used a two-direction correction for selecting up or down replication.",
         "Directional consistency, I2, sample-size-weighted delta beta, and leave-one-cohort-out directional stability were used as robustness filters.",
+        "The reported direction was defined by the inverse-variance-weighted pooled logFC on the M-value scale; the sample-size-weighted pooled delta beta was used only as a magnitude filter.",
+        "Near beta-scale boundaries, M-value logFC and pooled delta beta can differ in sign because the logit transform is nonlinear; the M-value direction is authoritative in those rows.",
         "Minfi, Sesame strict, and Sesame native branches were not pooled as independent cohorts; branch concordance was used only as a preprocessing sensitivity criterion.",
         "",
     ]

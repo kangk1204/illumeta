@@ -23,6 +23,9 @@ def safe_job_name(name: str, fallback: str = "job") -> str:
 
 
 def load_jobs(path: Path):
+    # Resolve relative config paths against the jobs-file's own parent directory, not the
+    # process working directory, so the smoke workflow runs correctly from any cwd.
+    jobs_dir = path.expanduser().resolve().parent
     with path.open(newline="") as fh:
         reader = csv.DictReader(fh, delimiter="\t")
         if not reader.fieldnames:
@@ -35,7 +38,10 @@ def load_jobs(path: Path):
             job = {k: (v or "").strip() for k, v in row.items()}
             if not job["config"]:
                 continue
-            job["config"] = str(Path(job["config"]).expanduser())
+            cfg = Path(job["config"]).expanduser()
+            if not cfg.is_absolute():
+                cfg = (jobs_dir / cfg)
+            job["config"] = str(cfg)
             raw_name = job.get("name") or Path(job["config"]).stem
             job["raw_name"] = raw_name
             job["name"] = safe_job_name(raw_name)

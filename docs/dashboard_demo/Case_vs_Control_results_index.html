@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="data:,">
+    <title>IlluMeta Analysis: Case vs Control</title>
+    <style>
+        /* Fully offline/self-contained: no remote font import. The dashboard renders with the
+           platform's native UI sans-serif stack (declared in the font-family rules below), so
+           it works with the network disabled and embeds no third-party requests. */
+        :root {
+            --ink: #1d2628;
+            --primary: #2f6b64;
+            --accent: #2f7a7b;
+            --accent-2: #f2b45d;
+            --rose: #e07a5f;
+            --bg: #f6f1e8;
+            --card: #ffffff;
+            --card-alt: #f7f2ea;
+            --line: #e4ddd2;
+            --muted: #6f7a76;
+            --shadow: 0 12px 30px rgba(27, 38, 40, 0.12);
+            --callout-bg: #fdf9f2;
+            --callout-good-bg: #eaf6ed;
+            --callout-good-border: #b6d7c0;
+            --callout-good-link: #1a6b3c;
+            --callout-good-sub: #55605c;
+            --pill-bg: #eef4f2;
+            --pill-muted-bg: #f1f0ed;
+            --pill-muted-color: #7b8681;
+            --nav-tab-bg: #eef4f2;
+            --jump-bg: #f2eee6;
+            --jump-hover: #e7dfd2;
+            --kpi-bg: #f7f2ea;
+            --progress-track: #e6dfd4;
+            --metrics-border: #eee4d8;
+            --warning-bg: #fff3d6;
+            --warning-border: #f0c36a;
+            --warning-text: #7a4c14;
+            --warn-info-bg: #dbeafe;
+            --warn-info-color: #1d4ed8;
+            --warn-imp-bg: #fef3c7;
+            --warn-imp-color: #92400e;
+            --warn-crit-bg: #fde2e2;
+            --warn-crit-color: #b91c1c;
+            --header-grad-start: #1f3f3c;
+            --header-grad-mid: #2f6b64;
+            --header-grad-end: #3d8b7d;
+            --hero-glass: rgba(255, 255, 255, 0.12);
+            --hero-glass-border: rgba(255, 255, 255, 0.2);
+            --bg-grad-a: rgba(242, 180, 93, 0.12);
+            --bg-grad-b: rgba(47, 122, 123, 0.12);
+            --bg-grad-c: rgba(224, 122, 95, 0.08);
+            --btn-hover: #256a6b;
+        }
+        html.dark {
+            --ink: #e2e8ec;
+            --primary: #5ec4b8;
+            --accent: #4db8b0;
+            --accent-2: #e8a940;
+            --rose: #d97758;
+            --bg: #13191c;
+            --card: #1c2528;
+            --card-alt: #232d31;
+            --line: #2e3a3e;
+            --muted: #8fa3a0;
+            --shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+            --callout-bg: #1a2226;
+            --callout-good-bg: #152a1f;
+            --callout-good-border: #2c4a37;
+            --callout-good-link: #6fd39a;
+            --callout-good-sub: #9fb3ac;
+            --pill-bg: #1a2e2c;
+            --pill-muted-bg: #222a2d;
+            --pill-muted-color: #6b7d7a;
+            --nav-tab-bg: #1a2e2c;
+            --jump-bg: #232d31;
+            --jump-hover: #2e3a3e;
+            --kpi-bg: #232d31;
+            --progress-track: #2e3a3e;
+            --metrics-border: #2e3a3e;
+            --warning-bg: #302818;
+            --warning-border: #7a5c20;
+            --warning-text: #e8c36a;
+            --warn-info-bg: #172440;
+            --warn-info-color: #60a5fa;
+            --warn-imp-bg: #302818;
+            --warn-imp-color: #fbbf24;
+            --warn-crit-bg: #301414;
+            --warn-crit-color: #f87171;
+            --header-grad-start: #0e1e1c;
+            --header-grad-mid: #17403c;
+            --header-grad-end: #1e564e;
+            --hero-glass: rgba(255, 255, 255, 0.06);
+            --hero-glass-border: rgba(255, 255, 255, 0.10);
+            --bg-grad-a: rgba(242, 180, 93, 0.06);
+            --bg-grad-b: rgba(47, 122, 123, 0.06);
+            --bg-grad-c: rgba(224, 122, 95, 0.04);
+            --btn-hover: #3a9490;
+        }
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            color: var(--ink);
+            background-color: var(--bg);
+            background-image:
+                radial-gradient(circle at 10% 10%, var(--bg-grad-a), transparent 45%),
+                radial-gradient(circle at 90% 20%, var(--bg-grad-b), transparent 40%),
+                radial-gradient(circle at 50% 85%, var(--bg-grad-c), transparent 45%);
+        }
+        h1, h2, h3 { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 0; }
+        header {
+            background: linear-gradient(120deg, var(--header-grad-start), var(--header-grad-mid) 55%, var(--header-grad-end));
+            color: #f7f5f0;
+            padding: 3.2rem 1.5rem 3.5rem;
+        }
+        .hero {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: minmax(260px, 1.2fr) minmax(240px, 0.8fr);
+            gap: 28px;
+            align-items: center;
+        }
+        .hero-eyebrow {
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.2em;
+            color: rgba(247, 245, 240, 0.65);
+        }
+        .hero-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+        .hero-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .icon-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 38px;
+            height: 38px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            color: #f7f5f0;
+            text-decoration: none;
+            cursor: pointer;
+            transition: transform 0.2s ease, background 0.2s ease;
+        }
+        .icon-btn:hover { background: rgba(255, 255, 255, 0.18); transform: translateY(-1px); }
+        .icon-btn svg { width: 18px; height: 18px; fill: currentColor; opacity: 0.95; }
+        button.icon-btn { appearance: none; -webkit-appearance: none; }
+        .toast {
+            position: fixed;
+            bottom: 18px;
+            left: 50%;
+            transform: translateX(-50%) translateY(0);
+            background: rgba(31, 63, 60, 0.92);
+            color: #fff;
+            padding: 10px 14px;
+            border-radius: 999px;
+            font-size: 0.9rem;
+            box-shadow: 0 12px 26px rgba(0, 0, 0, 0.18);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            z-index: 9999;
+        }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
+        .hero-title { font-size: clamp(2rem, 2.8vw, 2.8rem); margin-top: 0.5rem; }
+        .hero-sub { margin-top: 0.6rem; font-size: 1rem; opacity: 0.85; }
+        .tag {
+            background: var(--hero-glass);
+            padding: 0.35rem 0.75rem;
+            border-radius: 999px;
+            font-size: 0.85rem;
+        }
+        .hero-grid { display: grid; gap: 12px; }
+        .hero-card {
+            background: var(--hero-glass);
+            border: 1px solid var(--hero-glass-border);
+            border-radius: 14px;
+            padding: 1rem 1.2rem;
+            backdrop-filter: blur(8px);
+        }
+        .hero-card-title { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.12em; opacity: 0.7; }
+        .hero-card-value { font-size: 1.8rem; font-weight: 700; margin-top: 0.3rem; }
+        .hero-card-sub { font-size: 0.9rem; opacity: 0.8; margin-top: 0.4rem; }
+
+        .container { max-width: 1200px; margin: -2.2rem auto 3rem; padding: 0 20px 2rem; }
+        .jump-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            padding: 0.75rem 1rem;
+            border-radius: 14px;
+            background: var(--card);
+            box-shadow: var(--shadow);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .jump-bar a {
+            text-decoration: none;
+            color: var(--ink);
+            font-weight: 600;
+            font-size: 0.9rem;
+            padding: 0.35rem 0.75rem;
+            border-radius: 999px;
+            background: var(--jump-bg);
+        }
+        .jump-bar a:hover { background: var(--jump-hover); }
+
+        .section-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin: 2.2rem 0 0.8rem;
+        }
+        .tab-content .section-title {
+            font-size: 1.05rem;
+            color: var(--ink);
+            margin-top: 1.6rem;
+        }
+        .section-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; margin-bottom: 20px; }
+        .callout {
+            background: var(--callout-bg);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 1rem 1.2rem;
+            color: var(--muted);
+            box-shadow: 0 8px 22px rgba(27, 38, 40, 0.06);
+        }
+        .callout strong { color: var(--ink); }
+        .warning-panel {
+            background: var(--warning-bg);
+            border: 1px solid var(--warning-border);
+            border-radius: 16px;
+            padding: 1rem 1.2rem;
+            color: var(--warning-text);
+            box-shadow: var(--shadow);
+            margin: 1.6rem 0 2rem;
+        }
+        .warning-panel h3 {
+            margin: 0 0 0.6rem;
+            font-size: 1rem;
+        }
+        .warning-panel ul {
+            margin: 0;
+            padding-left: 1.2rem;
+        }
+
+        .summary-card {
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 22px;
+            padding: 1.6rem;
+            box-shadow: var(--shadow);
+            margin-bottom: 1.6rem;
+        }
+        .summary-grid {
+            display: grid;
+            grid-template-columns: minmax(240px, 0.9fr) minmax(260px, 1.1fr);
+            gap: 18px;
+            align-items: start;
+        }
+        .verdict-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 0.45rem 0.9rem;
+            border-radius: 12px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+        }
+        .verdict-high { background: #10B981; color: #fff; }
+        .verdict-moderate { background: #F59E0B; color: #fff; }
+        .verdict-low { background: #F97316; color: #fff; }
+        .verdict-exploratory { background: #EF4444; color: #fff; }
+        .summary-meta { margin-top: 0.6rem; color: var(--muted); font-size: 0.95rem; }
+        .summary-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-top: 1rem; }
+        .kpi-card { background: var(--kpi-bg); border-radius: 12px; padding: 0.7rem 0.9rem; }
+        .kpi-label { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
+        .kpi-value { font-weight: 700; margin-top: 0.2rem; }
+        .summary-list { margin: 0.4rem 0 0; padding-left: 1.2rem; color: var(--ink); }
+        .summary-list li { margin-bottom: 0.4rem; }
+        .summary-stats { margin-top: 1.2rem; display: grid; gap: 12px; }
+        .stat-row { display: grid; grid-template-columns: minmax(140px, 0.6fr) minmax(140px, 1.4fr); gap: 10px; align-items: center; }
+        .stat-label { font-weight: 600; color: var(--muted); font-size: 0.9rem; }
+        .stat-value { font-weight: 700; }
+        .progress-bar { width: 100%; height: 8px; border-radius: 999px; background: var(--progress-track); overflow: hidden; }
+        .progress-bar span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+        .progress-bar.warn span { background: var(--accent-2); }
+        .progress-bar.danger span { background: var(--rose); }
+
+        .warn-summary { margin-top: 1.2rem; }
+        .warn-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0.6rem 0; }
+        .warn-chip { padding: 0.35rem 0.7rem; border-radius: 999px; font-size: 0.85rem; font-weight: 700; }
+        .warn-critical { background: var(--warn-crit-bg); color: var(--warn-crit-color); }
+        .warn-important { background: var(--warn-imp-bg); color: var(--warn-imp-color); }
+        .warn-info { background: var(--warn-info-bg); color: var(--warn-info-color); }
+        .warn-details { background: var(--callout-bg); border: 1px dashed var(--line); border-radius: 12px; padding: 0.8rem 1rem; }
+        .warn-details summary { cursor: pointer; font-weight: 700; }
+
+        .step-card {
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            padding: 1.2rem 1.4rem;
+            box-shadow: var(--shadow);
+        }
+        .step-card h3 { margin-bottom: 0.4rem; }
+        .step-label {
+            font-size: 0.75rem;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: var(--accent);
+            margin-bottom: 0.4rem;
+        }
+        .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 0.8rem; }
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 0.35rem 0.7rem;
+            border-radius: 999px;
+            background: var(--pill-bg);
+            color: var(--primary);
+            text-decoration: none;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .pill.muted { background: var(--pill-muted-bg); color: var(--pill-muted-color); }
+
+        .nav-tabs { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 1.5rem; }
+        .nav-tab {
+            padding: 0.6rem 1.4rem;
+            cursor: pointer;
+            font-weight: 700;
+            font-family: inherit;
+            font-size: 1rem;
+            color: var(--primary);
+            border: none;
+            border-radius: 999px;
+            background: var(--nav-tab-bg);
+            transition: all 0.2s ease;
+        }
+        .nav-tab.active { background: var(--accent); color: #fff; }
+        .nav-tab:hover { transform: translateY(-2px); }
+
+        .tab-shell { margin-top: 1.2rem; }
+        .tab-content { display: none; animation: riseIn 0.5s ease; }
+        .tab-content.active { display: block; }
+
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px; }
+        .card {
+            background: var(--card);
+            border-radius: 16px;
+            border: 1px solid var(--line);
+            box-shadow: 0 10px 22px rgba(27, 38, 40, 0.08);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            animation: riseIn 0.55s ease both;
+            animation-delay: calc(var(--i, 1) * 40ms);
+        }
+        .card-header {
+            padding: 0.9rem 1rem;
+            font-weight: 700;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--card-alt);
+        }
+        .card-badge {
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+        }
+        .badge-plot { background: rgba(47, 122, 123, 0.15); color: var(--accent); }
+        .badge-table { background: rgba(242, 180, 93, 0.2); color: #a86814; }
+        .badge-csv, .badge-tsv { background: rgba(224, 122, 95, 0.2); color: #b05643; }
+        .badge-doc { background: rgba(31, 63, 60, 0.15); color: #1f3f3c; }
+        .card-body { padding: 1.2rem 1.2rem 1.4rem; flex-grow: 1; }
+        .card-desc { font-size: 0.9rem; color: var(--muted); line-height: 1.5; margin-bottom: 1.2rem; }
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            padding: 0.65rem 0;
+            background: var(--accent);
+            color: #fff;
+            text-decoration: none;
+            border-radius: 10px;
+            font-weight: 700;
+            transition: all 0.2s ease;
+        }
+        .btn:hover { background: var(--btn-hover); transform: translateY(-1px); }
+
+        .empty-msg { text-align: center; padding: 2rem; color: var(--muted); font-style: italic; }
+        .metrics-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 1rem 1.2rem; box-shadow: 0 8px 18px rgba(27, 38, 40, 0.06); }
+        .metrics-title { font-weight: 700; margin-bottom: 0.6rem; color: var(--primary); }
+        .metrics-row { display: flex; justify-content: space-between; gap: 12px; font-size: 0.95rem; padding: 6px 0; border-bottom: 1px dashed var(--metrics-border); }
+        .metrics-row:last-child { border-bottom: none; }
+
+        @keyframes riseIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+        @media (max-width: 900px) {
+            header { padding: 2.6rem 1.4rem 3rem; }
+            .hero { grid-template-columns: 1fr; }
+            .container { margin-top: -1.6rem; }
+            .summary-grid { grid-template-columns: 1fr; }
+            .stat-row { grid-template-columns: 1fr; }
+        }
+        /* Keyboard focus indicator (was entirely absent, leaving keyboard users lost). */
+        a:focus-visible, button:focus-visible, .nav-tab:focus-visible,
+        .pill:focus-visible, .jump-bar a:focus-visible, .icon-btn:focus-visible {
+            outline: 3px solid var(--accent-2);
+            outline-offset: 2px;
+            border-radius: 8px;
+        }
+        /* Print / "Save as PDF": flatten the ink-heavy header and force ALL pipeline
+           tabs to print (otherwise only the last-clicked tab appears in the printout). */
+        @media print {
+            header { background: none !important; color: #000; box-shadow: none; }
+            .jump-bar, .hero-actions, .nav-tabs { display: none !important; }
+            .tab-content { display: block !important; page-break-before: always; }
+            .card, .metrics-card, .summary-card { box-shadow: none; border: 1px solid #ccc; }
+        }
+        /* Visible, dismissible explanations so key definitions are not hover-only
+           (title tooltips are unreachable on touch and unreliable for screen readers). */
+        details.explain { margin: 0.3rem 0 0.6rem; font-size: 0.8rem; }
+        details.explain > summary {
+            cursor: pointer; color: var(--accent); font-weight: 600; list-style: none;
+        }
+        details.explain > summary::-webkit-details-marker { display: none; }
+        details.explain > summary::before { content: "\25B8  "; }
+        details.explain[open] > summary::before { content: "\25BE  "; }
+        details.explain .explain-body { margin-top: 0.45rem; color: var(--muted); line-height: 1.6; }
+        details.explain .explain-body b { color: var(--ink); }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="hero">
+        <div>
+            <div class="hero-top">
+                <div class="hero-eyebrow">IlluMeta Analysis</div>
+                <div class="hero-actions">
+                    <a class="icon-btn" href="Case_vs_Control_results/" aria-label="Open results directory" title="Open results directory (Case_vs_Control_results/)">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M10 4l2 2h8a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2h6z"></path>
+                        </svg>
+                    </a>
+                    <button class="icon-btn" type="button" onclick="copyResultsPath()" aria-label="Copy results path to clipboard" title="Copy results path to clipboard">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M16 1H6a2 2 0 00-2 2v12h2V3h10V1zm3 4H10a2 2 0 00-2 2v14a2 2 0 002 2h9a2 2 0 002-2V7a2 2 0 00-2-2zm0 16h-9V7h9v14z"></path>
+                        </svg>
+                    </button>
+                    <button class="icon-btn" type="button" id="darkToggle" onclick="toggleDark()" aria-label="Toggle dark mode" title="Toggle dark mode">
+                        <svg id="iconSun" viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M12 7a5 5 0 100 10 5 5 0 000-10zm0-3a1 1 0 001-1V1a1 1 0 00-2 0v2a1 1 0 001 1zm0 16a1 1 0 00-1 1v2a1 1 0 002 0v-2a1 1 0 00-1-1zm9-9h-2a1 1 0 000 2h2a1 1 0 000-2zM6 12a1 1 0 00-1-1H3a1 1 0 000 2h2a1 1 0 001-1zm12.36-5.64a1 1 0 00.71-.29l1.41-1.41a1 1 0 10-1.41-1.41l-1.42 1.41a1 1 0 00.71 1.7zM5.64 17.64a1 1 0 00-.71.29l-1.41 1.41a1 1 0 101.41 1.41l1.41-1.41a1 1 0 00-.7-1.7zm12.72 0a1 1 0 00-.7 1.7l1.41 1.42a1 1 0 101.41-1.42l-1.41-1.41a1 1 0 00-.71-.29zM5.64 6.36a1 1 0 00.7-.3L7.76 4.65a1 1 0 00-1.41-1.41L4.93 4.65a1 1 0 00.71 1.71z"></path>
+                        </svg>
+                        <svg id="iconMoon" viewBox="0 0 24 24" aria-hidden="true" style="display:none;">
+                            <path d="M21.64 13a1 1 0 00-1.05-.14 8.05 8.05 0 01-3.37.73A8.15 8.15 0 019.08 5.49a8.59 8.59 0 01.25-2 1 1 0 00-1.28-1.18A10 10 0 1021.78 14a1 1 0 00-.14-1z"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <h1 class="hero-title">Analysis Dashboard</h1>
+            <p class="hero-sub">Comparison: <strong>Case</strong> (Test) vs <strong>Control</strong> (Control)</p>
+        </div>
+        <div class="hero-grid">
+            <div class="hero-card">
+                <div class="hero-card-title">Samples</div>
+                <div class="hero-card-value">12</div>
+                <div class="hero-card-sub">Control 6 / Test 6</div>
+            </div>
+            <div class="hero-card">
+                <div class="hero-card-title">Intersection (Native consensus)</div>
+                <div class="hero-card-value">5</div>
+                <div class="hero-card-sub">Native ▲ 3 ▼ 2 · Strict ▲ 2 ▼ 1</div>
+            </div>
+            <div class="hero-card" title="DMP counts per pipeline: Minfi (Noob) / Sesame (Strict, Minfi-aligned) / Sesame (Native, pOOBAH). Large per-pipeline counts with a small Intersection can indicate pipeline-specific artifacts.">
+                <div class="hero-card-title">Pipeline DMPs</div>
+                <div class="hero-card-value" style="display:flex;flex-wrap:wrap;gap:6px 16px;font-size:1.15rem;">
+                    <span>Minfi <b>7</b></span>
+                    <span>Sesame <b>6</b></span>
+                    <span>Native <b>6</b></span>
+                </div>
+                <div class="hero-card-sub">Minfi ▲ 4 ▼ 3 · Sesame ▲ 3 ▼ 3 · Native ▲ 3 ▼ 3</div>
+            </div>
+        </div>
+    </div>
+</header>
+
+	<div class="container">
+	    <div class="callout warning" role="note"><strong>Synthetic interface fixture.</strong> The displayed values test dashboard behavior and are not study results.</div>
+	    <div class="jump-bar">
+	        <a href="#summary">Executive Summary</a>
+	        <a href="#start">Beginner Path</a>
+	        <a href="#controls">Run Controls & QC</a>
+	        <a href="#pipelines">Results by Pipeline</a>
+	        <a href="#docs">Run Documentation</a>
+	    </div>
+
+    <div class="callout" style="background:var(--callout-good-bg); border-color:var(--callout-good-border); margin-bottom:1.2rem;">
+        <strong>Key terms:</strong>
+        <small style="color:var(--callout-good-sub);">DMP = differentially methylated position (a single CpG site). DMR = differentially methylated region (a cluster of CpGs). FDR = false discovery rate (a p-value adjusted for multiple testing). See <a href="#start" style="color:var(--callout-good-link);font-weight:600;">Beginner Path</a> for a guided 3-step walkthrough.</small>
+    </div>
+
+    <div id="summary" class="section-title">Executive Summary</div>
+    <div class="summary-card">
+        <div class="summary-grid">
+            <div>
+                <div class="verdict-badge verdict-moderate" title="HIGH = Strong cross-route agreement after configured checks. MODERATE = Usable results; review warnings carefully. LOW = Interpret with caution; significant limitations detected. EXPLORATORY = Hypothesis-generating only; not for definitive conclusions.">MODERATE Confidence</div>
+                <div style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.4rem;">Usable results; review warnings and consider validation.</div>
+                <details class="explain">
+                    <summary>What do the confidence levels mean?</summary>
+                    <div class="explain-body">
+                        <b>HIGH</b> &mdash; strong cross-route agreement after configured checks.<br>
+                        <b>MODERATE</b> &mdash; usable; review warnings and consider validation.<br>
+                        <b>LOW</b> &mdash; interpret with caution; significant limitations detected.<br>
+                        <b>EXPLORATORY</b> &mdash; hypothesis-generating only; not for definitive conclusions.<br>
+                        <b>Tier</b> reflects statistical power from total N and the smaller group size; small per-group counts can keep a run in a lower tier even when total N is higher. Higher tiers enable more robust statistical checks.
+                    </div>
+                </details>
+                <div class="summary-meta">Samples: 12 (Control 6 / Test 6) · <span title="CRF tier reflects statistical power using total sample size and the smaller group size; small per-group counts can keep a run in a lower tier even when total N is higher. Higher tiers enable more robust statistical checks.">Tier: SMALL</span></div>
+                <div class="summary-kpis">
+                    <div class="kpi-card" title="The normalization pipeline used as the primary analysis branch. Results from this pipeline drive the executive summary metrics.">
+                        <div class="kpi-label">Primary Branch</div>
+                        <div class="kpi-value">Minfi</div>
+                    </div>
+                    <div class="kpi-card" title="Number of consensus DMPs (differentially methylated positions) found significant in BOTH pipelines with concordant direction. These are your most reliable results.">
+                        <div class="kpi-label">Intersection (Native)</div>
+                        <div class="kpi-value">5</div>
+                    </div>
+                    <div class="kpi-card" title="DMP counts for each pipeline: Minfi (Noob normalization) / Sesame (strict, Minfi-aligned) / Sesame Native (pOOBAH-preserved). Higher counts in individual pipelines with low intersection may indicate pipeline-specific artifacts.">
+                        <div class="kpi-label">Pipelines</div>
+                        <div class="kpi-value">7 / 6 / 6</div>
+                    </div>
+                </div>
+            </div>
+            <div>
+                <div class="metrics-title">Key Findings</div>
+                <ul class="summary-list"><li>5 same-direction consensus DMPs (Intersection Native: ↑3 ↓2).</li><li>Top genes: SYNTH_A (1 CpGs), SYNTH_B (1 CpGs), SYNTH_C (1 CpGs).</li><li>Median |Δβ|=0.080, max |Δβ|=0.120 (moderate effect sizes).</li></ul>
+            </div>
+        </div>
+        <div class="summary-stats">
+            <div class="stat-row" title="Method concordance measures how well Minfi and SeSAMe agree. Core % = overlap of top hits (intersection/union). rho = Spearman correlation of effect sizes. dir = direction concordance. MMC = composite heuristic score (identity + effect + direction). Higher is better.">
+                <div class="stat-label">Method concordance</div>
+                <div>
+                    <div class="stat-value">68% core · ρ=0.82 · dir=0.91 · MMC=0.79</div>
+                    <div class="progress-bar "><span style="width:68%"></span></div>
+                </div>
+            </div>
+            <div class="stat-row" title="Resampling Stability Score (RSS) assesses reproducibility under resampling (bootstrap, leave-pair-out, or split-half). Overlap = intersection rate of top hits. RSS = 0.5×Jaccard + 0.5×RBO (rank-biased overlap, p=0.9). Sign = effect direction consistency among shared hits.">
+                <div class="stat-label">Stability (RSS)</div>
+                <div>
+                    <div class="stat-value">RSS 0.65 · Overlap 0.74 · Jaccard 0.59 · RBO 0.71 · Sign 93%</div>
+                    <div class="progress-bar "><span style="width:74%"></span></div>
+                </div>
+            </div>
+            <div class="stat-row" title="Negative Control Stability (NCS) measures genomic inflation (lambda) on negative-control probes (e.g., SNP probes). Values near 1.0 and higher NCS score indicate lower confounding. The score is tier-adaptive and heuristic.">
+                <div class="stat-label">Negative control</div>
+                <div class="stat-value">λ=1.03 [0.98, 1.08] · score=0.92</div>
+            </div>
+        </div>
+        <div class="warn-summary">
+            <div class="metrics-title">Warnings & Recommendations</div>
+            <div class="warn-chips">
+                <span class="warn-chip warn-critical">Critical 0</span>
+                <span class="warn-chip warn-important">Important 0</span>
+                <span class="warn-chip warn-info">Info 1</span>
+            </div>
+            <details class="warn-details" open>
+                <summary>View details</summary>
+                <strong>Info</strong><ul><li>CRF tier: small sample size; validate findings independently.</li></ul>
+            </details>
+        </div>
+    </div>
+<div id="start" class="section-title">Beginner Path</div><div class="section-grid"><div class="step-card" style="--i:1;">
+            <div class="step-label">Step 1</div>
+            <h3>Check sample quality</h3>
+            <p class="card-desc">Before interpreting any results, confirm that samples passed QC. Look for: >90% samples passing, detection P failure fraction < 0.20, and consistent signal intensity across samples. If many samples fail, your downstream results may be unreliable.</p>
+            <div class="pill-row"><a class="pill" href="Case_vs_Control_results/QC_Summary.csv" target="_blank">QC Summary</a> <span class="pill muted" title="Not generated for this run">Detection P</span> <span class="pill muted" title="Not generated for this run">Intensity</span></div>
+        </div><div class="step-card" style="--i:2;">
+            <div class="step-label">Step 2</div>
+            <h3>Review the Same-direction Consensus</h3>
+            <p class="card-desc">The Intersection (Native) tab shows CpGs significant in BOTH pipelines (Minfi and SeSAMe) with the same direction of change. These are your most reliable hits. Check the concordance plot to confirm pipelines agree, and use the consensus DMP table for your primary results.</p>
+            <div class="pill-row"><a class="pill" href="Case_vs_Control_results/Intersection_Native_Consensus_DMPs.html" target="_blank">Intersection DMPs (Native)</a> <span class="pill muted" title="Not generated for this run">Intersection DMPs (Strict)</span> <span class="pill muted" title="Not generated for this run">Concordance (Native)</span> <span class="pill muted" title="Not generated for this run">Concordance (Strict)</span></div>
+        </div><div class="step-card" style="--i:3;">
+            <div class="step-label">Step 3</div>
+            <h3>Explore individual pipelines</h3>
+            <p class="card-desc">For deeper analysis, check the volcano plots (effect size vs. significance), Manhattan plots (genomic distribution), and DMR tables (region-level changes). Compare Minfi and Sesame results to understand where methods agree and diverge.</p>
+            <div class="pill-row"><a class="pill" href="Case_vs_Control_results/Minfi_Volcano.html" target="_blank">Minfi Volcano</a> <span class="pill muted" title="Not generated for this run">Sesame Volcano (Strict)</span> <span class="pill muted" title="Not generated for this run">Sesame Volcano (Native)</span> <span class="pill muted" title="Not generated for this run">Minfi DMRs</span></div>
+        </div></div><div class="callout"><strong>Beginner tip:</strong> If results look inconsistent, check QC and batch diagnostics before focusing on DMPs/DMRs. Lambda (&lambda;) near 1.0 is ideal; values &gt;1.5 suggest bias. Zero consensus DMPs with many pipeline-specific DMPs means the two methods disagree&mdash;investigate QC and batch correction.</div><div id="controls" class="section-title">Run Controls & QC</div><div class="section-grid">        <div class="metrics-card">
+            <div class="metrics-title">Analysis Parameters</div>
+            <div class="metrics-row" title="FDR (False Discovery Rate): adjusted p-value threshold controlling for multiple testing. |logFC|: minimum absolute limma effect on the methylation M-value scale. |DeltaBeta|: minimum absolute difference in beta-values (0-1 scale). Stricter thresholds yield fewer but more confident results."><span>FDR / |logFC| / |DeltaBeta|</span><span>0.05 / 0.5 / 0.0</span></div>
+            <div class="metrics-row"><span>Tissue</span><span>Synthetic dashboard QA fixture (fixture)</span></div>
+            <div class="metrics-row"><span>Array type</span><span>450K</span></div>
+            <div class="metrics-row" title="Correction Robustness Framework tier. Minimal (<12): exploratory only, SVA disabled. Small (12-23): limited power. Moderate (24-49): full pipeline. Large (>=50): all checks powered."><span>CRF sample tier</span><span>small</span></div>
+            <div class="metrics-row"><span>Cell reference</span><span>not_applicable (not_applicable)</span></div>
+            <div class="metrics-row"><span>Auto covariates</span><span>enabled=False, alpha=0.01, max_pcs=5</span></div>
+            <div class="metrics-row"><span>Auto covariate guards</span><span>exclude_group=True, p&lt;0.05, max_cor=0.7</span></div>
+            <div class="metrics-row"><span>Sesame native NA max</span><span>0.1</span></div>
+            <div class="metrics-row"><span>Over/Under guard</span><span>0.8 / 1</span></div>
+            <div class="metrics-row"><span>SVA</span><span>True (best_method_or_no_batch)</span></div>
+            <div class="metrics-row"><span>Clock covariates</span><span>False</span></div>
+            <div class="metrics-row"><span>SV group filter</span><span>P&lt;0.05, Eta^2&gt;0.14</span></div>
+            <div class="metrics-row"><span>PVCA min n</span><span>10</span></div>
+            <div class="metrics-row"><span>DMR (maxgap/p)</span><span>500 / 0.05</span></div>
+        </div>
+        <div class="metrics-card">
+            <div class="metrics-title">QC Summary</div>
+            <div class="metrics-row"><span>Samples (pass/fail)</span><span>12 / 0</span></div>
+            <div class="metrics-row"><span>Probes final</span><span>8830</span></div>
+            <div class="metrics-row"><span>Probes dropped (det/cross/SNP/sex)</span><span>120 / 350 / 500 / 200</span></div>
+            <div class="metrics-row"><span>Sex mismatches (flagged/dropped)</span><span>0 / 0</span></div>
+        </div>
+</div><div id="pipelines" class="section-title">Results by Pipeline</div><div class="nav-tabs" id="navTabs" role="tablist" aria-label="Analysis pipeline">    <button type="button" class="nav-tab active" id="tab-Intersection_Native" role="tab" aria-selected="true" aria-controls="Intersection_Native" tabindex="0" data-tab="Intersection_Native" onclick="switchTab('Intersection_Native')">Intersection (Native consensus)</button>    <button type="button" class="nav-tab" id="tab-Intersection" role="tab" aria-selected="false" aria-controls="Intersection" tabindex="-1" data-tab="Intersection" onclick="switchTab('Intersection')">Intersection (Strict)</button>    <button type="button" class="nav-tab" id="tab-Minfi" role="tab" aria-selected="false" aria-controls="Minfi" tabindex="-1" data-tab="Minfi" onclick="switchTab('Minfi')">Minfi (Noob)</button>    <button type="button" class="nav-tab" id="tab-Sesame" role="tab" aria-selected="false" aria-controls="Sesame" tabindex="-1" data-tab="Sesame" onclick="switchTab('Sesame')">Sesame (Strict)</button>    <button type="button" class="nav-tab" id="tab-Sesame_Native" role="tab" aria-selected="false" aria-controls="Sesame_Native" tabindex="-1" data-tab="Sesame_Native" onclick="switchTab('Sesame_Native')">Sesame (Native)</button></div><div class="tab-shell">    <div id="Intersection_Native" class="tab-content active" role="tabpanel" aria-labelledby="tab-Intersection_Native" tabindex="0">
+        <div class="section-title">Consensus Highlights</div>
+        <div class="grid">
+            <div class="card" style="--i:1;">
+                <div class="card-header">
+                    Consensus DMPs Table
+                    <span class="card-badge badge-table">TABLE</span>
+                </div>
+                <div class="card-body">
+                    <p class="card-desc">CpGs significant in both pipelines with consistent direction.</p>
+                    <a href="Case_vs_Control_results/Intersection_Native_Consensus_DMPs.html" target="_blank" class="btn">Open Result</a>
+                </div>
+            </div>
+            <div class="card" style="--i:2;">
+                <div class="card-header">
+                    Consensus DMPs CSV
+                    <span class="card-badge badge-csv">CSV</span>
+                </div>
+                <div class="card-body">
+                    <p class="card-desc">Consensus DMP list (CSV).</p>
+                    <a href="Case_vs_Control_results/Intersection_Native_Consensus_DMPs.csv" target="_blank" class="btn">Open Result</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="Intersection" class="tab-content " role="tabpanel" aria-labelledby="tab-Intersection" tabindex="0">
+        <div class="empty-msg">No results found for this pipeline.</div>    </div>
+    <div id="Minfi" class="tab-content " role="tabpanel" aria-labelledby="tab-Minfi" tabindex="0">
+        <div class="metrics-card">
+            <div class="metrics-title">Model & Batch Summary</div>
+            <div class="metrics-row" title="Genomic inflation factor. Ideal: 0.9-1.1. Values >1.2 suggest p-value inflation (possible batch effects or widespread signal). Values <0.9 suggest over-correction."><span>λ (inflation)</span><span>1.030</span></div>
+            <div class="metrics-row"><span>Batch method</span><span>SVA</span></div>
+            <div class="metrics-row"><span>Samples / CpGs</span><span>12 / 8830</span></div>
+            <div class="metrics-row"><span>Covariates used (n)</span><span>2</span></div>
+            <div class="metrics-row"><span>Covariates used</span><span>age;sex</span></div>
+            <div class="metrics-row"><span>SVs used</span><span>2</span></div>
+            <div class="metrics-row"><span>Batch p&lt;0.05 (Before→After)</span><span>3 → 0</span></div>
+            <div class="metrics-row"><span>Min batch p (Before→After)</span><span>1.00e-04 → 0.3500</span></div>
+            <div class="metrics-row"><span>Group min p (Before→After)</span><span>0.0100 → 0.0020</span></div>
+            <div class="metrics-row"><span>Correction guide</span><span>Correction looks adequate (λ=1.030, batch p&lt;0.05 after=0, group min p after=0.002).</span></div>
+            <div class="metrics-row"><span>Perm mean/max sig (null)</span><span>1 / 2</span></div>
+            <div class="metrics-row" title="Heuristic context metric: (observed λ on vp_top CpGs) / (null λ from permuted labels; same vp_top CpGs). Large values indicate enrichment vs null but do NOT rule out group-linked confounding."><span>λ ratio (obs/null)</span><span>1.40 [moderate enrichment (heuristic)]</span></div>
+        </div>
+<div class="callout" style="margin:0.6rem 0 1rem;"><strong>How to read "Model &amp; Batch Summary":</strong> This panel summarizes the statistical model used for DMP/DMR testing in this pipeline (selected batch correction, covariates, and SVs). Lambda (&lambda;) near 1.0 is ideal; values &gt;1.2 suggest possible inflation (residual confounding), while values &lt;0.9 can indicate over-correction. If batch-associated probes remain after correction, review the diagnostic plots before interpreting hits.</div>
+        <div class="section-title">Primary Results</div>
+        <div class="grid">
+            <div class="card" style="--i:1;">
+                <div class="card-header">
+                    Volcano Plot
+                    <span class="card-badge badge-plot">PLOT</span>
+                </div>
+                <div class="card-body">
+                    <p class="card-desc">Visualizes significant changes (LogFC vs P-value).</p>
+                    <a href="Case_vs_Control_results/Minfi_Volcano.html" target="_blank" class="btn">Open Result</a>
+                </div>
+            </div>
+            <div class="card" style="--i:2;">
+                <div class="card-header">
+                    Top DMPs Table
+                    <span class="card-badge badge-table">TABLE</span>
+                </div>
+                <div class="card-body">
+                    <p class="card-desc">Searchable table of differentially methylated probes.</p>
+                    <a href="Case_vs_Control_results/Minfi_Top_DMPs.html" target="_blank" class="btn">Open Result</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="Sesame" class="tab-content " role="tabpanel" aria-labelledby="tab-Sesame" tabindex="0">
+        <div class="empty-msg">No results found for this pipeline.</div>    </div>
+    <div id="Sesame_Native" class="tab-content " role="tabpanel" aria-labelledby="tab-Sesame_Native" tabindex="0">
+        <div class="empty-msg">No results found for this pipeline.</div>    </div>
+</div>
+<div id="docs" class="section-title">Run Documentation</div><div class="grid">            <div class="card" style="--i:1;">
+                <div class="card-header">
+                    Methods Summary
+                    <span class="card-badge badge-doc">DOC</span>
+                </div>
+                <div class="card-body">
+                    <p class="card-desc">Auto-generated methods text for the run.</p>
+                    <a href="Case_vs_Control_results/methods.md" target="_blank" class="btn">Open File</a>
+                </div>
+            </div>
+            <div class="card" style="--i:2;">
+                <div class="card-header">
+                    Analysis Parameters
+                    <span class="card-badge badge-doc">DOC</span>
+                </div>
+                <div class="card-body">
+                    <p class="card-desc">Run settings and thresholds (JSON).</p>
+                    <a href="Case_vs_Control_results/analysis_parameters.json" target="_blank" class="btn">Open File</a>
+                </div>
+            </div>
+            <div class="card" style="--i:3;">
+                <div class="card-header">
+                    R Session Info
+                    <span class="card-badge badge-doc">DOC</span>
+                </div>
+                <div class="card-body">
+                    <p class="card-desc">Full R session and package versions.</p>
+                    <a href="Case_vs_Control_results/sessionInfo.txt" target="_blank" class="btn">Open File</a>
+                </div>
+            </div>
+            <div class="card" style="--i:4;">
+                <div class="card-header">
+                    CRF MMC Summary (CSV)
+                    <span class="card-badge badge-csv">CSV</span>
+                </div>
+                <div class="card-body">
+                    <p class="card-desc">Multi-method concordance summary for the primary branch.</p>
+                    <a href="Case_vs_Control_results/CRF_MMC_Summary.csv" target="_blank" class="btn">Open File</a>
+                </div>
+            </div>
+            <div class="card" style="--i:5;">
+                <div class="card-header">
+                    CRF NCS Summary (CSV)
+                    <span class="card-badge badge-csv">CSV</span>
+                </div>
+                <div class="card-body">
+                    <p class="card-desc">Negative control stability summary for the primary branch.</p>
+                    <a href="Case_vs_Control_results/CRF_NCS_Summary.csv" target="_blank" class="btn">Open File</a>
+                </div>
+            </div>
+            <div class="card" style="--i:6;">
+                <div class="card-header">
+                    CRF RSS Summary (CSV)
+                    <span class="card-badge badge-csv">CSV</span>
+                </div>
+                <div class="card-body">
+                    <p class="card-desc">Resampling stability summary for the primary branch.</p>
+                    <a href="Case_vs_Control_results/CRF_RSS_Summary.csv" target="_blank" class="btn">Open File</a>
+                </div>
+            </div>
+            <div class="card" style="--i:7;">
+                <div class="card-header">
+                    CRF Sample Tier (CSV)
+                    <span class="card-badge badge-csv">CSV</span>
+                </div>
+                <div class="card-body">
+                    <p class="card-desc">Sample size tiering and warnings.</p>
+                    <a href="Case_vs_Control_results/CRF_Sample_Tier.csv" target="_blank" class="btn">Open File</a>
+                </div>
+            </div>
+            <div class="card" style="--i:8;">
+                <div class="card-header">
+                    QC Summary (CSV)
+                    <span class="card-badge badge-csv">CSV</span>
+                </div>
+                <div class="card-body">
+                    <p class="card-desc">Sample/probe QC counts.</p>
+                    <a href="Case_vs_Control_results/QC_Summary.csv" target="_blank" class="btn">Open File</a>
+                </div>
+            </div>
+</div>
+</div>
+
+<script>
+    const RESULTS_PATH = "Case_vs_Control_results";
+
+    function showToast(msg) {
+        let el = document.getElementById('illumetaToast');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'illumetaToast';
+            el.className = 'toast';
+            document.body.appendChild(el);
+        }
+        el.textContent = msg;
+        el.classList.add('show');
+        window.clearTimeout(window.__illumetaToastTimer);
+        window.__illumetaToastTimer = window.setTimeout(() => el.classList.remove('show'), 1400);
+    }
+
+    function copyResultsPath() {
+        const text = RESULTS_PATH || "";
+        const fail = () => window.prompt("Copy results path:", text);
+        const ok = () => showToast("Copied results path");
+
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(ok).catch(fail);
+                return;
+            }
+        } catch (e) {}
+
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.setAttribute('readonly', '');
+            ta.style.position = 'fixed';
+            ta.style.top = '-1000px';
+            ta.style.left = '-1000px';
+            document.body.appendChild(ta);
+            ta.select();
+            const successful = document.execCommand('copy');
+            document.body.removeChild(ta);
+            if (successful) ok(); else fail();
+        } catch (e) {
+            fail();
+        }
+    }
+
+    function switchTab(tabName) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.nav-tab').forEach(el => {
+            el.classList.remove('active');
+            el.setAttribute('aria-selected', 'false');
+            el.setAttribute('tabindex', '-1');
+        });
+        const panel = document.getElementById(tabName);
+        if (panel) panel.classList.add('active');
+        const match = Array.from(document.querySelectorAll('.nav-tab')).find(el => el.dataset.tab === tabName);
+        if (match) {
+            match.classList.add('active');
+            match.setAttribute('aria-selected', 'true');
+            match.setAttribute('tabindex', '0');
+        }
+    }
+
+    // Arrow/Home/End keyboard navigation for the pipeline tablist (WAI-ARIA tabs pattern).
+    // Enter/Space activation is native to the <button> tabs via their onclick handler.
+    (function initTablistKeys() {
+        const list = document.getElementById('navTabs');
+        if (!list) return;
+        list.addEventListener('keydown', function (e) {
+            const tabs = Array.from(list.querySelectorAll('.nav-tab'));
+            const i = tabs.indexOf(document.activeElement);
+            if (i < 0) return;
+            let n = null;
+            if (e.key === 'ArrowRight' || e.key === 'ArrowDown') n = (i + 1) % tabs.length;
+            else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') n = (i - 1 + tabs.length) % tabs.length;
+            else if (e.key === 'Home') n = 0;
+            else if (e.key === 'End') n = tabs.length - 1;
+            if (n === null) return;
+            e.preventDefault();
+            tabs[n].focus();
+            switchTab(tabs[n].dataset.tab);
+        });
+    })();
+
+    function applyDarkIcons(dark) {
+        const sun = document.getElementById('iconSun');
+        const moon = document.getElementById('iconMoon');
+        if (sun && moon) {
+            sun.style.display = dark ? 'none' : '';
+            moon.style.display = dark ? '' : 'none';
+        }
+    }
+
+    function toggleDark() {
+        const isDark = document.documentElement.classList.toggle('dark');
+        try { localStorage.setItem('illumeta-dark', isDark ? '1' : '0'); } catch(e) {}
+        applyDarkIcons(isDark);
+    }
+
+    (function initDark() {
+        let dark = false;
+        try {
+            const stored = localStorage.getItem('illumeta-dark');
+            if (stored !== null) { dark = stored === '1'; }
+            else { dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches; }
+        } catch(e) {
+            dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        }
+        if (dark) document.documentElement.classList.add('dark');
+        applyDarkIcons(dark);
+    })();
+
+    // Remove jump-bar links whose target section was not rendered (e.g. Run Controls
+    // & QC or Run Documentation on a partial/failed run) so no anchor is a dead no-op.
+    (function pruneJumpBar() {
+        document.querySelectorAll('.jump-bar a[href^="#"]').forEach(function (a) {
+            const id = a.getAttribute('href').slice(1);
+            if (id && !document.getElementById(id)) a.remove();
+        });
+    })();
+</script>
+
+</body>
+</html>

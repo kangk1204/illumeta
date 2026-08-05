@@ -174,7 +174,12 @@ auto_covariates:
   max_cor: 0.9
 
 tier3_meta:
-  method: auto  # auto | fixed | random
+  # random (DerSimonian-Laird) is the default: a tier3 primary table is routinely
+  # consumed as a single "study" by the cross-cohort meta-analysis, and a fixed-effect
+  # stratum SE carries no between-stratum tau2, so that cohort arrives over-weighted
+  # and pushes the pooled p-values anti-conservative. auto/fixed restore the
+  # pre-2026-07 behaviour and are recorded in the Tier3 notes when used.
+  method: random  # random | auto | fixed
   i2_threshold: 0.5
   min_total_n: 20
   min_per_group_per_stratum: 5

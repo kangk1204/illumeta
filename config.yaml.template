@@ -144,6 +144,15 @@ lambda_guard:
   min_samples: 8
   action: warn  # none | warn | warn_simplify | simplify  (matches the built-in default)
 
+# Probe-class filtering, applied identically to the minfi, SeSAMe strict and SeSAMe
+# native branches. ch* probes measure non-CpG (CpH) cytosines and rs* probes are
+# genotyping controls; neither is a CpG methylation measurement, so leaving them in
+# lets them be reported as "CpG candidates". Set either to false only for a deliberate
+# CpH or genotype analysis.
+probe_classes:
+  drop_non_cpg: true      # remove ch* (non-CpG) probes
+  drop_rs_control: true   # remove rs* (genotyping control) probes
+
 bacon:
   enabled: true       # Bayesian bias-and-inflation recalibration of EWAS statistics (van Iterson 2017)
   min_probes: 100     # minimum finite effect/SE pairs required to run bacon

@@ -4137,6 +4137,46 @@ filter_sv_by_group <- function(targets, sv_cols, group_col,
   list(keep = setdiff(sv_cols, drops$Variable), dropped = drops)
 }
 
+#' Classify Illumina probe IDs into cg / ch (non-CpG) / rs (genotyping control).
+#'
+#' EPICv2 IDs carry a "_<suffix>" replicate tag, so classification is done on the
+#' base ID. Anything that matches none of the three known prefixes is treated as a
+#' cg-class probe (kept) rather than silently discarded.
+classify_probe_ids <- function(ids) {
+  base <- sub("_.+$", "", as.character(ids))
+  out <- rep("cg", length(base))
+  out[grepl("^ch[.]?[0-9]", base)] <- "ch"
+  out[grepl("^rs[0-9]", base)] <- "rs"
+  out
+}
+
+#' Drop non-CpG (ch*) and genotyping-control (rs*) probes from a set of IDs.
+#'
+#' Returns the keep mask plus per-class counts so every branch can log an identical
+#' filtering record. Config-driven so a deliberate CpH analysis can opt out.
+probe_class_keep_mask <- function(ids, drop_non_cpg = TRUE, drop_rs_control = TRUE) {
+  cls <- classify_probe_ids(ids)
+  keep <- rep(TRUE, length(cls))
+  if (isTRUE(drop_non_cpg)) keep <- keep & cls != "ch"
+  if (isTRUE(drop_rs_control)) keep <- keep & cls != "rs"
+  list(keep = keep,
+       n_ch = sum(cls == "ch"),
+       n_rs = sum(cls == "rs"),
+       n_dropped = sum(!keep))
+}
+
+#' Apply probe-class filtering to a beta/M matrix, logging what was removed.
+apply_probe_class_filter <- function(mat, label, drop_non_cpg = TRUE, drop_rs_control = TRUE) {
+  if (is.null(mat) || nrow(mat) == 0) return(list(mat = mat, removed = 0L, n_ch = 0L, n_rs = 0L))
+  res <- probe_class_keep_mask(rownames(mat), drop_non_cpg, drop_rs_control)
+  if (res$n_dropped > 0) {
+    message(sprintf("  - [%s] Removed %d non-CpG/control probes (ch=%d, rs=%d).",
+                    label, res$n_dropped, res$n_ch, res$n_rs))
+  }
+  list(mat = mat[res$keep, , drop = FALSE], removed = res$n_dropped,
+       n_ch = res$n_ch, n_rs = res$n_rs)
+}
+
 filter_low_range <- function(betas, min_range = BETA_RANGE_MIN) {
   rng <- apply(betas, 1, function(x) {
     r <- range(x, na.rm = TRUE)
@@ -7979,6 +8019,33 @@ message("Preprocessing (Noob)...")
 mSet <- preprocessNoob(rgSet)
 gmSet <- mapToGenome(mSet)
 
+# Array-level masking sets, computed ONCE on the unfiltered manifest so that every
+# preprocessing branch applies an identical definition of "SNP-overlapping probe" and
+# "sex-chromosome probe". Previously only the Minfi object was filtered here and the
+# SeSAMe native branch inherited nothing, so the two routes were compared on probe sets
+# with different genotype/sex-chromosome content. Deriving the sets from the full
+# manifest (rather than from whatever survived Minfi's detection-p filter) also means a
+# SeSAMe-only probe is masked correctly even when Minfi dropped it earlier.
+# Both sets are stored WITHOUT the EPICv2 "_<suffix>" replicate tag, and every lookup
+# strips the tag before matching. On EPICv2 the manifest IDs carry suffixes while the
+# SeSAMe matrices may not (and normalize_epicv2_ids() rewrites them later anyway), so
+# comparing raw IDs would silently mask nothing on one branch and everything it should
+# on the other.
+.strip_probe_suffix <- function(ids) sub("_.+$", "", as.character(ids))
+array_sex_probe_ids <- {
+  full_anno <- getAnnotation(gmSet)
+  unique(.strip_probe_suffix(rownames(full_anno)[full_anno$chr %in% c("chrX", "chrY")]))
+}
+array_snp_probe_ids <- unique(.strip_probe_suffix(setdiff(
+  rownames(gmSet),
+  rownames(dropLociWithSnps(gmSet, snps = c("SBE", "CpG"), maf = SNP_MAF_THRESHOLD))
+)))
+message(sprintf("  - Array-level masks: %d sex-chromosome probes, %d SNP-overlapping probes (MAF >= %.2f).",
+                length(array_sex_probe_ids), length(array_snp_probe_ids), SNP_MAF_THRESHOLD))
+probe_class_cfg <- config_settings$probe_classes
+probe_drop_non_cpg <- !identical(probe_class_cfg$drop_non_cpg, FALSE)
+probe_drop_rs <- !identical(probe_class_cfg$drop_rs_control, FALSE)
+
 # C. Probe-Level QC
 message("Performing Probe QC...")
 nrow_raw <- nrow(gmSet)
@@ -8035,30 +8102,43 @@ probe_filter_log <- rbind(probe_filter_log,
                           data.frame(step = "cross_reactive", removed = n_cross_probes, remaining = nrow(gmSet)))
 
 before_snps <- nrow(gmSet)
-gmSet <- dropLociWithSnps(gmSet, snps=c("SBE","CpG"), maf=SNP_MAF_THRESHOLD)
+# Reuse the array-level SNP mask rather than calling dropLociWithSnps() a second time,
+# so the Minfi and SeSAMe branches provably share one definition.
+gmSet <- gmSet[!(.strip_probe_suffix(rownames(gmSet)) %in% array_snp_probe_ids), ]
 n_snp_probes <- before_snps - nrow(gmSet)
 message(paste("  - SNP filtering applied (MAF threshold:", SNP_MAF_THRESHOLD, "). Current probes:", nrow(gmSet)))
 probe_filter_log <- rbind(probe_filter_log,
                           data.frame(step = "snp", removed = n_snp_probes, remaining = nrow(gmSet)))
 
-ann <- getAnnotation(gmSet)
-keep_sex <- !(ann$chr %in% c("chrX", "chrY"))
 before_sex <- nrow(gmSet)
-gmSet <- gmSet[keep_sex, ]
+gmSet <- gmSet[!(.strip_probe_suffix(rownames(gmSet)) %in% array_sex_probe_ids), ]
 n_sex_probes <- before_sex - nrow(gmSet)
-message(paste("  - Removed Sex Chromosome probes. Final probes:", nrow(gmSet)))
+message(paste("  - Removed Sex Chromosome probes. Current probes:", nrow(gmSet)))
 probe_filter_log <- rbind(probe_filter_log,
                           data.frame(step = "sex_chr", removed = n_sex_probes, remaining = nrow(gmSet)))
+
+before_class <- nrow(gmSet)
+probe_class_res <- probe_class_keep_mask(rownames(gmSet), probe_drop_non_cpg, probe_drop_rs)
+gmSet <- gmSet[probe_class_res$keep, ]
+n_class_probes <- before_class - nrow(gmSet)
+message(sprintf("  - Removed %d non-CpG/control probes (ch=%d, rs=%d). Final probes: %d",
+                n_class_probes, probe_class_res$n_ch, probe_class_res$n_rs, nrow(gmSet)))
+probe_filter_log <- rbind(probe_filter_log,
+                          data.frame(step = "probe_class", removed = n_class_probes, remaining = nrow(gmSet)))
+log_decision("qc", "probe_class_removed", as.character(n_class_probes),
+             reason = sprintf("drop_non_cpg=%s;drop_rs=%s", probe_drop_non_cpg, probe_drop_rs),
+             metrics = list(n_ch = probe_class_res$n_ch, n_rs = probe_class_res$n_rs))
 
 qc_report <- data.frame(
   metric = c("Total_samples_input", "Samples_failed_QC", "Samples_passed_QC",
              "Samples_failed_sex_mismatch", "Sex_mismatch_samples",
              "Total_probes_raw", "Probes_failed_detection", "Probes_cross_reactive",
-             "Probes_with_SNPs", "Probes_sex_chromosomes", "Probes_final"),
+             "Probes_with_SNPs", "Probes_sex_chromosomes", "Probes_non_cpg_or_control",
+             "Probes_final"),
   value = c(n_samples_input, samples_failed_qc, nrow(targets),
             samples_failed_sex, sex_mismatch_count,
             nrow_raw, probes_failed_detection, n_cross_probes,
-            n_snp_probes, n_sex_probes, nrow(gmSet))
+            n_snp_probes, n_sex_probes, n_class_probes, nrow(gmSet))
 )
 write.csv(qc_report, file.path(out_dir, "QC_Summary.csv"), row.names = FALSE)
 write.csv(probe_filter_log, file.path(out_dir, "Probe_Filter_Summary.csv"), row.names = FALSE)
@@ -8109,6 +8189,8 @@ beta_sesame_strict <- NULL
 beta_sesame_native <- NULL
 sesame_strict_before <- 0
 sesame_native_before <- 0
+sesame_masked_snp_sex <- 0L
+sesame_masked_class <- 0L
 sesame_typeinorm_enabled <- isTRUE(opt$sesame_typeinorm)
 sesame_typeinorm_disabled <- !sesame_typeinorm_enabled && !isTRUE(opt$skip_sesame)
 sesame_dyebias_mode <- if (opt$skip_sesame) "skipped" else if (sesame_typeinorm_enabled) "dyeBiasCorrTypeINorm" else "dyeBiasL"
@@ -8225,6 +8307,35 @@ if (opt$skip_sesame) {
       n_cross <- length(cr_res$removed)
       source_disp <- ifelse(nzchar(cross_reactive_source), cross_reactive_source, "list")
       message(sprintf("  - Sesame: removed %d cross-reactive probes (source: %s).", n_cross, source_disp))
+    }
+
+    # Branch-symmetric QC. The Minfi route removes SNP-overlapping probes, sex-chromosome
+    # probes and non-CpG/control probes; the strict SeSAMe route used to acquire those
+    # removals only as a side effect of being intersected with the Minfi footprint, and
+    # the native route acquired them not at all. That left the native branch carrying
+    # chrX/chrY and genotype-driven probes into DMP calling, the cross-cohort
+    # meta-analysis and the candidate tables, so branch agreement was being measured
+    # across probe sets that were not comparable. Apply the same array-level masks here,
+    # before the native/strict split, so all three branches see one probe-QC definition.
+    sesame_before_mask <- nrow(beta_sesame_raw)
+    .sesame_base_ids <- .strip_probe_suffix(rownames(beta_sesame_raw))
+    beta_sesame_raw <- beta_sesame_raw[
+      !(.sesame_base_ids %in% array_snp_probe_ids) &
+        !(.sesame_base_ids %in% array_sex_probe_ids), , drop = FALSE]
+    sesame_masked_snp_sex <- sesame_before_mask - nrow(beta_sesame_raw)
+    class_res <- apply_probe_class_filter(beta_sesame_raw, "Sesame", probe_drop_non_cpg, probe_drop_rs)
+    beta_sesame_raw <- class_res$mat
+    sesame_masked_class <- class_res$removed
+    message(sprintf("  - Sesame: removed %d SNP/sex-chromosome probes and %d non-CpG/control probes (%d -> %d).",
+                    sesame_masked_snp_sex, sesame_masked_class,
+                    sesame_before_mask, nrow(beta_sesame_raw)))
+    log_decision("qc", "sesame_branch_symmetric_mask",
+                 as.character(sesame_masked_snp_sex + sesame_masked_class),
+                 reason = "match_minfi_probe_qc",
+                 metrics = list(snp_sex = sesame_masked_snp_sex, probe_class = sesame_masked_class,
+                                before = sesame_before_mask, after = nrow(beta_sesame_raw)))
+    if (nrow(beta_sesame_raw) == 0) {
+      stop("Sesame: no probes remain after branch-symmetric QC masking.")
     }
 
     if (sesame_reference_cell_counts_supported(tissue_use)) {
@@ -10761,6 +10872,10 @@ tryCatch({
     sesame_native_dropped_na = sesame_native_dropped_na,
     sesame_native_imputed = sesame_native_imputed,
     sesame_native_impute_method = sesame_native_impute_method,
+    sesame_masked_snp_sex = sesame_masked_snp_sex,
+    sesame_masked_probe_class = sesame_masked_class,
+    probe_drop_non_cpg = probe_drop_non_cpg,
+    probe_drop_rs_control = probe_drop_rs,
     crf_enabled = crf_enabled,
     crf_sample_tier = crf_tier
   )
@@ -11121,11 +11236,15 @@ tryCatch({
     "- Mixed-array safeguard: samples whose IDAT array size deviates from the modal array size are excluded (unless `--force_idat`).",
     sex_check_line,
     "",
-    "## Probe-level QC (minfi-derived probe set)",
-    sprintf("- Detection P-value filter: probes are retained only if P < %.3g in all retained samples.", QC_DETECTION_P_THRESHOLD),
+    "## Probe-level QC (applied to every preprocessing branch)",
+    sprintf("- Detection P-value filter: probes are retained only if P < %.3g in all retained samples (minfi branch).", QC_DETECTION_P_THRESHOLD),
     cross_reactive_line,
-    sprintf("- SNP filtering: probes overlapping common SNPs (SBE/CpG; MAF >= %.2f) are removed using `minfi::dropLociWithSnps()`.", SNP_MAF_THRESHOLD),
-    "- Sex chromosome probes (chrX/chrY) are removed.",
+    sprintf("- SNP filtering: probes overlapping common SNPs (SBE/CpG; MAF >= %.2f) are identified once with `minfi::dropLociWithSnps()` on the unfiltered manifest and removed from the minfi, SeSAMe strict and SeSAMe native branches alike.", SNP_MAF_THRESHOLD),
+    "- Sex chromosome probes (chrX/chrY) are identified from the same unfiltered manifest and removed from all branches.",
+    sprintf("- Probe-class filter: non-CpG (`ch*`) probes %s and genotyping-control (`rs*`) probes %s, so branch outputs and cross-cohort candidates contain CpG-context probes only.",
+            if (probe_drop_non_cpg) "are removed" else "are RETAINED (drop_non_cpg=false)",
+            if (probe_drop_rs) "are removed" else "are RETAINED (drop_rs_control=false)"),
+    "- The SNP, sex-chromosome and probe-class masks are computed once at the array level, so the branches are compared on comparable probe classes rather than on whatever each preprocessing tool happened to retain.",
     "",
     "## Normalization (two pipelines)",
     "- **minfi**: `preprocessNoob()` followed by `mapToGenome()`; beta values are extracted with `getBeta()`.",

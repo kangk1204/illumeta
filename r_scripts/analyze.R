@@ -443,7 +443,16 @@ CONFIG_DEFAULTS <- list(
     autoscale_on_fail = TRUE
   ),
   tier3_meta = list(
-    method = "auto",
+    # "random" (DerSimonian-Laird) is the default because a Tier3 cohort's primary table
+    # is routinely consumed as a *single study* by the cross-cohort meta-analysis
+    # (illumeta_meta.py). A fixed-effect stratum SE = sqrt(1/sum(w)) discards all
+    # between-stratum heterogeneity, so that cohort arrives at the second level with an
+    # SE that is too small, is over-weighted by inverse-variance pooling, and drags the
+    # pooled p-value anti-conservative. Random-effects propagates tau2 into the SE, which
+    # is the variance component the second level needs. Set method: "auto" (I2-gated) or
+    # "fixed" to restore the pre-2026-07 behaviour; "auto"/"fixed" now emit a warning in
+    # the Tier3 notes so the choice is visible in the result package.
+    method = "random",
     i2_threshold = 0.5,
     min_total_n = 20,
     min_per_group_per_stratum = 5,
@@ -6218,6 +6227,23 @@ run_stratified_meta_analysis <- function(betas, targets, batch_col, group_col, c
                  metrics = list(valid_strata = length(effects), total_strata = length(strata)))
     return(NULL)
   }
+  # cbind() binds by position, not by name, and the meta result is later labelled with
+  # rownames(betas). limma preserves input row order so this holds in practice, but the
+  # invariant was never checked: any stratum that returned a different probe set or a
+  # different order would silently mis-align every effect with the wrong CpG. Verify it.
+  expected_probes <- rownames(betas)
+  for (nm in names(effects)) {
+    eff_names <- names(effects[[nm]])
+    se_names <- names(ses[[nm]])
+    if (is.null(eff_names) || is.null(se_names) ||
+        !identical(eff_names, expected_probes) || !identical(se_names, expected_probes)) {
+      stop(sprintf(
+        paste0("Stratified meta-analysis aborted: stratum '%s' returned probes that do not match ",
+               "the input matrix (expected %d in input order, got %d). Combining them by position ",
+               "would assign effects to the wrong CpGs."),
+        nm, length(expected_probes), length(eff_names)))
+    }
+  }
   eff_mat <- do.call(cbind, effects)
   se_mat <- do.call(cbind, ses)
   if (is.null(eff_mat) || is.null(se_mat) || ncol(eff_mat) < 2 || ncol(se_mat) < 2 || nrow(eff_mat) == 0) {
@@ -6237,9 +6263,9 @@ run_stratified_meta_analysis <- function(betas, targets, batch_col, group_col, c
   meta_fixed <- meta_analysis_fixed(eff_mat, se_mat)
   meta_random <- meta_analysis_random(eff_mat, se_mat)
   tier3_cfg <- if (exists("config_settings")) config_settings$tier3_meta else NULL
-  meta_method_cfg <- if (!is.null(tier3_cfg$method)) as.character(tier3_cfg$method) else "auto"
+  meta_method_cfg <- if (!is.null(tier3_cfg$method)) as.character(tier3_cfg$method) else "random"
   meta_method_cfg <- tolower(meta_method_cfg)
-  if (!meta_method_cfg %in% c("auto", "fixed", "random")) meta_method_cfg <- "auto"
+  if (!meta_method_cfg %in% c("auto", "fixed", "random")) meta_method_cfg <- "random"
   i2_threshold <- suppressWarnings(as.numeric(if (!is.null(tier3_cfg$i2_threshold)) tier3_cfg$i2_threshold else 0.5))
   if (!is.finite(i2_threshold)) i2_threshold <- 0.5
   i2_median <- suppressWarnings(median(meta_random$i2, na.rm = TRUE))
@@ -6253,9 +6279,20 @@ run_stratified_meta_analysis <- function(betas, targets, batch_col, group_col, c
     if (is.finite(i2_median) && i2_median >= i2_threshold) meta_method <- "random"
   }
   meta_use <- if (meta_method == "random") meta_random else meta_fixed
+  # A fixed-effect Tier3 SE carries no between-stratum variance component. When this
+  # cohort table is later pooled as one "study" by the cross-cohort meta-analysis the
+  # missing tau2 makes the cohort look more precise than it is. Surface that explicitly
+  # instead of leaving it implicit in the meta_method string.
+  tau2_propagated <- identical(meta_method, "random")
+  if (!tau2_propagated) {
+    message(sprintf(
+      "  WARNING: Tier3 meta uses fixed-effect SE (method=%s); between-stratum tau2 is NOT propagated. Downstream cross-cohort pooling will over-weight this cohort.",
+      meta_method_cfg))
+  }
   log_decision("tier3", "meta_method", meta_method,
                reason = ifelse(meta_method_cfg == "auto", "auto_i2", meta_method_cfg),
-               metrics = list(i2_median = i2_median, i2_mean = i2_mean, i2_threshold = i2_threshold))
+               metrics = list(i2_median = i2_median, i2_mean = i2_mean, i2_threshold = i2_threshold,
+                              tau2_propagated = tau2_propagated))
   meta_df <- data.frame(
     CpG = rownames(betas),
     logFC = meta_use$beta,
@@ -6314,7 +6351,8 @@ run_stratified_meta_analysis <- function(betas, targets, batch_col, group_col, c
     min_stratum_n = ifelse(length(stratum_sizes) > 0, min(stratum_sizes), NA_integer_),
     median_stratum_n = ifelse(length(stratum_sizes) > 0, median(stratum_sizes), NA_integer_),
     total_n = ifelse(length(stratum_sizes) > 0, sum(stratum_sizes), NA_integer_),
-    strata_used = strata_used
+    strata_used = strata_used,
+    tau2_propagated = tau2_propagated
   )
 }
 
@@ -6401,20 +6439,51 @@ emit_tier3_primary_outputs <- function(meta_res, betas, targets, curr_anno, pref
                                        group_con_in, group_test_in, clean_con, clean_test,
                                        max_points, pval_thresh, lfc_thresh,
                                        meta_method = "", i2_median = NA_real_,
-                                       tier3_stats = NULL) {
+                                       tier3_stats = NULL,
+                                       batch_col = NULL, strata_used = NULL) {
   if (is.null(meta_res) || nrow(meta_res) == 0) return(NULL)
   if (!("CpG" %in% colnames(meta_res))) {
     meta_res$CpG <- rownames(meta_res)
   }
   res <- meta_res
-  con_mask <- targets$primary_group == clean_con
-  test_mask <- targets$primary_group == clean_test
+  # Delta_Beta must be measured on the SAME samples that produced logFC/SE/P.Value.
+  # run_stratified_meta_analysis fits only inside the overlap strata it actually used,
+  # so computing the beta-scale effect over every sample in the cohort (including
+  # non-overlap strata that never entered any stratum model) makes the M-value effect
+  # and the beta-scale effect describe different populations. Because |Delta_Beta| is a
+  # hard gate downstream (delta_beta_thresh here, min_abs_delta_beta in the cross-cohort
+  # meta-analysis), that mismatch propagates into candidate selection. Restrict to the
+  # strata actually used; fall back to all samples only when the stratum set is unknown.
+  strata_mask <- rep(TRUE, nrow(targets))
+  delta_beta_scope <- "all_samples"
+  if (!is.null(batch_col) && nzchar(batch_col) && batch_col %in% colnames(targets) &&
+      !is.null(strata_used) && length(strata_used) > 0) {
+    candidate_mask <- as.character(targets[[batch_col]]) %in% as.character(strata_used)
+    n_con_in <- sum(candidate_mask & targets$primary_group == clean_con, na.rm = TRUE)
+    n_test_in <- sum(candidate_mask & targets$primary_group == clean_test, na.rm = TRUE)
+    if (n_con_in > 0 && n_test_in > 0) {
+      strata_mask <- candidate_mask
+      delta_beta_scope <- "meta_strata"
+    } else {
+      message("  - Tier3 Delta_Beta: stratum restriction would empty a group; using all samples.")
+    }
+  }
+  con_mask <- strata_mask & targets$primary_group == clean_con
+  test_mask <- strata_mask & targets$primary_group == clean_test
   mean_beta_con <- rowMeans(betas[, con_mask, drop = FALSE], na.rm = TRUE)
   mean_beta_test <- rowMeans(betas[, test_mask, drop = FALSE], na.rm = TRUE)
   delta_beta <- mean_beta_test - mean_beta_con
   res$Mean_Beta_Con <- mean_beta_con[res$CpG]
   res$Mean_Beta_Test <- mean_beta_test[res$CpG]
   res$Delta_Beta <- delta_beta[res$CpG]
+  res$Delta_Beta_Scope <- delta_beta_scope
+  res$Delta_Beta_N_Con <- sum(con_mask, na.rm = TRUE)
+  res$Delta_Beta_N_Test <- sum(test_mask, na.rm = TRUE)
+  log_decision("tier3", "delta_beta_scope", delta_beta_scope,
+               reason = if (delta_beta_scope == "meta_strata") "restricted_to_meta_strata" else "strata_unavailable",
+               metrics = list(n_con = sum(con_mask, na.rm = TRUE),
+                              n_test = sum(test_mask, na.rm = TRUE),
+                              n_strata = length(strata_used)))
   if (!is.null(curr_anno)) {
     res <- merge(res, curr_anno, by.x = "CpG", by.y = "CpG", all.x = TRUE)
   }
@@ -6437,6 +6506,13 @@ emit_tier3_primary_outputs <- function(meta_res, betas, targets, curr_anno, pref
   note_lines <- c(
     "Tier3 confounding detected: primary inference uses stratified EWAS + meta-analysis.",
     sprintf("Tier3 meta-analysis method: %s (I2 median=%s).", meta_method_disp, i2_disp),
+    sprintf("Delta_Beta scope: %s (control n=%d, test n=%d).",
+            delta_beta_scope, sum(con_mask, na.rm = TRUE), sum(test_mask, na.rm = TRUE)),
+    if (delta_beta_scope == "meta_strata") {
+      "Delta_Beta is measured on the same overlap strata that produced logFC/SE/P.Value."
+    } else {
+      "WARNING: Delta_Beta covers all samples while logFC came from overlap strata only; the two effect scales describe different sample sets."
+    },
     "These Tier3_Primary outputs are the recommended results for interpretation.",
     "Standard (non-stratified) outputs are provided as sensitivity checks only."
   )
@@ -6446,6 +6522,11 @@ emit_tier3_primary_outputs <- function(meta_res, betas, targets, curr_anno, pref
   min_stratum_warn <- suppressWarnings(as.numeric(if (!is.null(config_settings$tier3_meta$min_stratum_warn))
     config_settings$tier3_meta$min_stratum_warn else 6))
   if (!is.finite(min_stratum_warn)) min_stratum_warn <- 6
+  if (!is.null(tier3_stats) && !isTRUE(tier3_stats$tau2_propagated)) {
+    note_lines <- c(note_lines,
+                    "WARNING: fixed-effect Tier3 SE; between-stratum tau2 is not propagated.",
+                    "Treat this cohort's SE as a lower bound when pooling it across cohorts.")
+  }
   if (!is.null(tier3_stats)) {
     if (is.finite(tier3_stats$total_n) && tier3_stats$total_n < min_total_warn) {
       note_lines <- c(note_lines,
@@ -9991,7 +10072,9 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
                                             prefix, out_dir, group_con_in, group_test_in,
                                             clean_con, clean_test, max_points, pval_thresh, lfc_thresh,
                                             meta_method = tier3_meta_method, i2_median = tier3_meta_i2_median,
-                                            tier3_stats = meta_out)
+                                            tier3_stats = meta_out,
+                                            batch_col = tier3_batch,
+                                            strata_used = if (!is.null(meta_out)) meta_out$strata_used else NULL)
     if (!is.null(tier3_out) && !is.null(tier3_out$res)) {
       tier3_primary_res <- tier3_out$res
       tier3_primary_lambda <- tier3_out$lambda

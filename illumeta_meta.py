@@ -73,6 +73,7 @@ class MetaCohort:
     n_test: int = 0
     primary_result_mode: str = ""
     primary_lambda_guard_status: str = ""
+    tier3_meta_method: str = ""
     warnings: tuple[str, ...] = ()
 
     @property
@@ -165,6 +166,29 @@ def _read_summary(result_dir: Path) -> tuple[dict[str, object], list[str]]:
     return payload, []
 
 
+def _tier3_variance_warnings(cohort_id: str, summary: dict[str, object]) -> list[str]:
+    """Flag a tier3 cohort whose primary SE carries no between-stratum variance.
+
+    A tier3 primary table is itself a within-cohort meta-analysis. When that inner
+    meta ran fixed-effect, its SE is sqrt(1/sum(w)) and contains no tau2 term, so
+    pooling the cohort here as a single study over-weights it and pushes the pooled
+    p-value anti-conservative. The cohort is still usable -- this is a disclosure,
+    not a rejection -- but it must be visible in the manifest and report."""
+    mode = str(summary.get("primary_result_mode") or "").strip().lower()
+    if not mode.startswith("tier3_") or mode == "tier3_ineligible":
+        return []
+    method = str(summary.get("primary_tier3_meta_method") or "").strip().lower()
+    if method == "random":
+        return []
+    label = method or "unknown"
+    return [
+        f"{cohort_id}: tier3 primary table was built with a '{label}'-effect within-cohort "
+        "meta-analysis, so its SE excludes between-stratum tau2. This cohort is "
+        "over-weighted by inverse-variance pooling and the pooled p-values are "
+        "anti-conservative; re-run the cohort with tier3_meta.method='random' to fix."
+    ]
+
+
 def _resolve_path(path_text: str, root: Path) -> Path:
     path = Path(path_text).expanduser()
     if not path.is_absolute():
@@ -217,7 +241,8 @@ def load_meta_manifest(manifest: Path, project_root: Path, allow_missing_summary
                 n_test=_safe_int(summary.get("n_test")),
                 primary_result_mode=str(summary.get("primary_result_mode") or ""),
                 primary_lambda_guard_status=str(summary.get("primary_lambda_guard_status") or ""),
-                warnings=tuple(summary_warnings),
+                tier3_meta_method=str(summary.get("primary_tier3_meta_method") or ""),
+                warnings=tuple(summary_warnings + _tier3_variance_warnings(cohort_id, summary)),
             )
         )
     return cohorts
@@ -234,15 +259,17 @@ def load_positional_cohorts(result_dirs: list[str], project_root: Path, allow_mi
                 + " — refusing to include an incomplete run in the meta-analysis; "
                 "pass --allow-missing-summary to override (cohort is then weighted by 1)"
             )
+        cohort_id = result_dir.parent.name or f"cohort_{i}"
         cohorts.append(
             MetaCohort(
-                cohort_id=result_dir.parent.name or f"cohort_{i}",
+                cohort_id=cohort_id,
                 result_dir=result_dir,
                 n_con=_safe_int(summary.get("n_con")),
                 n_test=_safe_int(summary.get("n_test")),
                 primary_result_mode=str(summary.get("primary_result_mode") or ""),
                 primary_lambda_guard_status=str(summary.get("primary_lambda_guard_status") or ""),
-                warnings=tuple(summary_warnings),
+                tier3_meta_method=str(summary.get("primary_tier3_meta_method") or ""),
+                warnings=tuple(summary_warnings + _tier3_variance_warnings(cohort_id, summary)),
             )
         )
     return cohorts
@@ -1192,6 +1219,11 @@ def _write_report(
         "IlluMeta cross-cohort meta-analysis used branch-level DMP tables from completed IlluMeta runs.",
         "For each preprocessing branch, cohort-level logFC estimates and standard errors were combined per CpG.",
         "When an SE column was absent, SE was reconstructed as abs(logFC / t) from the limma moderated t-statistic.",
+        "This reconstruction is exact for limma output because the moderated t is defined as logFC / SE, but it means",
+        "the pooled SEs are not all of one kind: standard branch tables contribute empirical-Bayes-shrunken residual",
+        "variances, whereas tier3 primary tables contribute an explicit SE from a within-cohort stratified meta-analysis.",
+        "A tier3 cohort whose inner meta ran fixed-effect supplies an SE with no between-stratum tau2 component; such a",
+        "cohort is over-weighted here and is listed in the warnings section of this run's manifest and report.",
         "Fixed-effect estimates used inverse-variance weights. Random-effects estimates used a DerSimonian-Laird tau2 estimator.",
         "Random-effects significance used a two-sided Wald test referenced to a standard normal distribution; no Knapp-Hartung small-sample adjustment was applied.",
         "Because at most five cohorts contributed to a CpG, the normal-reference random-effects p-values can be anti-conservative and are used only as prioritization statistics, not confirmatory inference.",
@@ -1305,6 +1337,7 @@ def _run_meta_analysis_to_dir(
                 "n_test": cohort.n_test,
                 "primary_result_mode": cohort.primary_result_mode,
                 "primary_lambda_guard_status": cohort.primary_lambda_guard_status,
+                "tier3_meta_method": cohort.tier3_meta_method,
             }
             for cohort in cohorts
         ],

@@ -1807,6 +1807,18 @@ run_permutation_uniformity <- function(betas, targets, group_col, covariates, ba
 #'   - bio: Biological signal preservation (R2 with bio variables)
 #'   - cal: Calibration (permutation uniformity)
 #'   - stab: Stability (cross-batch effect correlation)
+#'
+#' SEARCH STRATEGY -- this is a two-stage greedy search, not an exhaustive optimum.
+#' Stage 1 scores every (covariate set x method) candidate using the batch and bio terms
+#' only; the cal and stab terms are held at a constant 0.5 placeholder because both are
+#' expensive (cal runs `perm_n` permutations, stab refits across batches). Candidates are
+#' ranked on that partial score and only the top `scoring_preset$top_k` are evaluated for
+#' real. Consequence: the screen is effectively driven by batch+bio, so a candidate that
+#' would have won on calibration or stability can be eliminated before it is ever
+#' measured. Candidates that were never evaluated keep status "PENDING" and are excluded
+#' from the final selection, so the returned choice is always one that was fully scored --
+#' but it is the best of the shortlist, not provably the global best. Raise
+#' `scoring_presets.<preset>.top_k` to widen the shortlist at proportional cost.
 select_batch_strategy <- function(betas, targets, batch_col, batch_tier, covariate_sets, group_col,
                                   config_settings, scoring_preset, perm_n, vp_top, prefix, out_dir,
                                   method_pool = NULL) {
@@ -1950,6 +1962,15 @@ select_batch_strategy <- function(betas, targets, batch_col, batch_tier, covaria
     }
   }
   cand_rows <- cand_rows[order(-cand_rows$total_score), ]
+  n_pending <- sum(cand_rows$status == "PENDING")
+  if (n_pending > 0) {
+    message(sprintf(
+      "  - Batch strategy: %d/%d candidates were screened out on batch+bio alone and never scored for calibration/stability (top_k=%d). Selection is the best of the shortlist, not a full grid search.",
+      n_pending, nrow(cand_rows), top_k))
+    log_decision("batch_strategy", "search_truncated", as.character(n_pending),
+                 reason = "two_stage_greedy_top_k",
+                 metrics = list(top_k = top_k, n_candidates = nrow(cand_rows), n_unscored = n_pending))
+  }
   best_rows <- cand_rows[!(cand_rows$status %in% c("RED", "FAILED", "PENDING")), , drop = FALSE]
   if (nrow(best_rows) == 0) {
     best_rows <- cand_rows[!(cand_rows$status %in% c("FAILED", "PENDING")), , drop = FALSE]
@@ -10623,12 +10644,25 @@ run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
     sig_minfi <- concord$adj.P.Val.Minfi < pval_thresh & abs(concord$logFC.Minfi) > lfc_thresh & delta_pass_minfi
     sig_sesame <- concord$adj.P.Val.Sesame < pval_thresh & abs(concord$logFC.Sesame) > lfc_thresh & delta_pass_sesame
     n_both <- sum(is_up | is_down, na.rm = TRUE)
+    # sig_* is direction-agnostic (abs(logFC)) whereas n_both requires the SAME direction.
+    # Subtracting n_both from each therefore left probes that are significant in both
+    # branches but with opposite signs counted in "Minfi only" AND in "<sesame> only" --
+    # the same probe appearing twice as a branch-private call. Give them their own
+    # category so each significant probe is counted exactly once and the discordance is
+    # visible rather than hidden inside the private counts.
+    sig_both_any_direction <- sum(sig_minfi & sig_sesame, na.rm = TRUE)
+    n_opposite <- max(0, sig_both_any_direction - n_both)
+    overlap_categories <- c("Minfi only", paste0(sesame_label, " only"),
+                            "Both (opposite direction)", "Both (consensus)")
     overlap_df <- data.frame(
-      Category = c("Minfi only", paste0(sesame_label, " only"), "Both (consensus)"),
-      Count = c(sum(sig_minfi, na.rm = TRUE) - n_both, sum(sig_sesame, na.rm = TRUE) - n_both, n_both)
+      Category = factor(overlap_categories, levels = overlap_categories),
+      Count = c(sum(sig_minfi, na.rm = TRUE) - sig_both_any_direction,
+                sum(sig_sesame, na.rm = TRUE) - sig_both_any_direction,
+                n_opposite,
+                n_both)
     )
-    fill_vals <- c("#3498db", "#2ecc71", "#e74c3c")
-    names(fill_vals) <- c("Minfi only", paste0(sesame_label, " only"), "Both (consensus)")
+    fill_vals <- c("#3498db", "#2ecc71", "#f39c12", "#e74c3c")
+    names(fill_vals) <- overlap_categories
     p_ov <- ggplot(overlap_df, aes(x = Category, y = Count, fill = Category, text = Count)) +
       geom_col() +
       scale_fill_manual(values = fill_vals) +
@@ -10658,10 +10692,19 @@ run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
       }
     }
     logfc_corr <- suppressWarnings(cor(concord$logFC.Minfi, concord$logFC.Sesame, use = "complete.obs"))
-    jaccard <- if (sum(sig_minfi | sig_sesame) > 0) n_both / sum(sig_minfi | sig_sesame) else NA_real_
+    n_union <- sum(sig_minfi | sig_sesame, na.rm = TRUE)
+    # Report both Jaccard variants explicitly. The original single "jaccard_overlap"
+    # divided a direction-constrained numerator (n_both) by a direction-agnostic union,
+    # so it was neither the plain set-overlap Jaccard nor a consistently directional one
+    # and systematically understated agreement. Keep the directional index as the headline
+    # (it matches the consensus rule) and publish the direction-agnostic index alongside.
+    jaccard_directional <- if (n_union > 0) n_both / n_union else NA_real_
+    jaccard_any_direction <- if (n_union > 0) sig_both_any_direction / n_union else NA_real_
     comp_metrics <- data.frame(
-      metric = c("logFC_correlation", "jaccard_overlap", "n_both"),
-      value = c(logfc_corr, jaccard, n_both)
+      metric = c("logFC_correlation", "jaccard_overlap", "jaccard_overlap_any_direction",
+                 "n_both", "n_both_any_direction", "n_opposite_direction", "n_union_significant"),
+      value = c(logfc_corr, jaccard_directional, jaccard_any_direction,
+                n_both, sig_both_any_direction, n_opposite, n_union)
     )
     write.csv(comp_metrics, file.path(out_dir, paste0(prefix, "_Comparison_Metrics.csv")), row.names = FALSE)
 

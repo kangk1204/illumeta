@@ -248,6 +248,16 @@ def normalize_group_value(value: str) -> str:
     value = re.sub(r"[^a-z0-9]+", "", value)
     return value
 
+#: Sentinel for a --group-map target that removes the matching samples from the
+#: contrast entirely. Public GEO series routinely carry arms the analysis does not
+#: use (an MCI arm alongside AD and control, an assay subset, a second tissue), and
+#: without this the only way to reproduce a two-arm contrast from a three-arm series
+#: was to hand-edit configure.tsv -- an unrecorded manual step that makes the run
+#: unreproducible from the deposited metadata alone.
+GROUP_MAP_EXCLUDE = "\x00__illumeta_exclude__"
+_EXCLUDE_TOKENS = {"exclude", "excluded", "drop", "omit", "skip", "none", "na", "-"}
+
+
 def parse_group_map(map_str: str, group_con: str, group_test: str) -> dict:
     mapping = {}
     if not map_str:
@@ -265,6 +275,11 @@ def parse_group_map(map_str: str, group_con: str, group_test: str) -> dict:
             mapped = group_con
         elif mapped_norm in {"test", "case"}:
             mapped = group_test
+        elif mapped_norm in _EXCLUDE_TOKENS or not mapped_norm:
+            # Test the NORMALISED value: a punctuation-only target such as "-" is
+            # non-empty as written but normalises to "", so checking the raw string
+            # would let it fall through and become a literal group label.
+            mapped = GROUP_MAP_EXCLUDE
         # Raw aliases are split only on "|" to avoid breaking labels like "ER+/HER2-".
         for raw_item in raw.split("|"):
             raw_item = raw_item.strip()
@@ -689,6 +704,8 @@ def apply_group_mapping(value, mapping, group_con, group_test):
     con_norm = normalize_group_value(group_con)
     test_norm = normalize_group_value(group_test)
     if mapping and norm in mapping:
+        if mapping[norm] == GROUP_MAP_EXCLUDE:
+            return GROUP_MAP_EXCLUDE
         mapped = str(mapping[norm]).strip()
         mapped_norm = normalize_group_value(mapped)
         if mapped_norm == con_norm:
@@ -834,6 +851,27 @@ def auto_group_config(
         mapped = apply_group_mapping(source_values[idx], mapping, group_con, group_test)
         rows[idx]["primary_group"] = mapped
 
+    # Samples the user mapped to an exclusion token are dropped here, before the
+    # empty-row and label validations, so that a two-arm contrast can be extracted
+    # from a multi-arm series without hand-editing configure.tsv. Which samples went
+    # and why is recorded in the returned info and echoed to the log, because a
+    # silent drop is exactly the kind of unrecorded step that makes a published
+    # count impossible to reproduce.
+    excluded_rows = [
+        (idx, str(source_values[idx]).strip())
+        for idx, row in enumerate(rows)
+        if row.get("primary_group") == GROUP_MAP_EXCLUDE
+    ]
+    excluded_labels = Counter(label for _, label in excluded_rows)
+    if excluded_rows:
+        drop = {idx for idx, _ in excluded_rows}
+        rows = [row for idx, row in enumerate(rows) if idx not in drop]
+        pending_idx = [i for i in range(len(rows)) if not (rows[i].get("primary_group") or "").strip()]
+        if not rows:
+            raise ValueError(
+                "Auto-group excluded every sample. Check the --group-map exclusion targets."
+            )
+
     still_missing = [i for i in pending_idx if not (rows[i].get("primary_group") or "").strip()]
     if still_missing:
         preview = ", ".join(str(i + 1) for i in still_missing[:5])
@@ -882,6 +920,8 @@ def auto_group_config(
         "filled_rows": len(pending_idx),
         "total_rows": len(rows),
         "group_map": mapping,
+        "excluded_rows": len(excluded_rows),
+        "excluded_labels": dict(excluded_labels),
     }
 
 def list_idat_basenames(idat_dir: str):
@@ -5265,7 +5305,12 @@ def main():
     parser_analysis.add_argument("--group-key", type=str,
                                  help="Characteristics key to use for auto-group (e.g., disease, condition)")
     parser_analysis.add_argument("--group-map", type=str,
-                                 help="Value mapping for auto-group (e.g., 'normal=Control,tumor=Case')")
+                                 help="Value mapping for auto-group (e.g., 'normal=Control,tumor=Case'). "
+                                      "Map a label to 'exclude' (or drop/omit/skip/none/-) to remove those "
+                                      "samples from the contrast, which is how a two-arm comparison is taken "
+                                      "from a multi-arm series (e.g. dropping an MCI arm from an AD-vs-control "
+                                      "series) without hand-editing configure.tsv. Entries are split on ',' "
+                                      "and ';', so use '/' inside a label that itself contains ';'.")
     parser_analysis.add_argument("--auto-group-output", type=str,
                                  help="Output path for auto-grouped configure.tsv (default: configure_autogroup.tsv)")
     parser_analysis.add_argument("--auto-group-overwrite", action="store_true",

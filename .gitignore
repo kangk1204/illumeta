@@ -69,6 +69,12 @@ docs/submission_package/
 robustness_results.json
 results_robustness.json
 
+# Agent/assistant tooling state. Never part of a public release, and
+# test_public_release_boundary.py fails if it is visible to git.
+.omc/
+.omx/
+.claude/
+
 # Synthetic dashboard fixture is intentionally tracked.
 !docs/dashboard_demo/Case_vs_Control_results/
 !docs/dashboard_demo/Case_vs_Control_results/**

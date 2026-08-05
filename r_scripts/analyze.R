@@ -416,6 +416,18 @@ CONFIG_DEFAULTS <- list(
     min_samples = 8,
     action = "warn"
   ),
+  # Probe-class filtering. Illumina manifests carry three ID classes:
+  #   cg*  - CpG-context probes, the intended EWAS measurement
+  #   ch*  - non-CpG (CpH) cytosine probes; different biology, different noise profile,
+  #          and conventionally excluded from CpG-level EWAS reporting
+  #   rs*  - genotyping control probes; they measure a SNP, not methylation
+  # Leaving ch*/rs* in place lets them compete for top-hit slots and be reported as
+  # "CpG candidates", which they are not. Both are dropped by default; set to FALSE to
+  # retain them (e.g. for a deliberate CpH analysis).
+  probe_classes = list(
+    drop_non_cpg = TRUE,
+    drop_rs_control = TRUE
+  ),
   bacon = list(
     enabled = TRUE,
     min_probes = 100,
@@ -1282,7 +1294,12 @@ compute_genomic_lambda <- function(pvals) {
   pvals <- suppressWarnings(as.numeric(pvals))
   pvals <- pvals[is.finite(pvals) & pvals > 0 & pvals < 1]
   if (length(pvals) < 2) return(NA_real_)
-  chisq_vals <- suppressWarnings(qchisq(1 - pvals, 1))
+  # Use the upper tail directly. qchisq(1 - p, 1) loses every p below ~1e-16 because
+  # 1 - p rounds to exactly 1 in double precision and qchisq(1, 1) is Inf, which the
+  # is.finite() filter then silently discards -- i.e. the most significant probes,
+  # exactly the ones an inflation diagnostic exists to characterise, were being dropped.
+  # qchisq(p, 1, lower.tail = FALSE) is exact across the whole representable range.
+  chisq_vals <- suppressWarnings(qchisq(pvals, 1, lower.tail = FALSE))
   chisq_vals <- chisq_vals[is.finite(chisq_vals)]
   if (length(chisq_vals) < 2) return(NA_real_)
   median(chisq_vals, na.rm = TRUE) / qchisq(0.5, 1)
@@ -1322,11 +1339,18 @@ apply_bacon_correction <- function(res, prefix = "", min_probes = 100L,
                                     niter = 5000L, nburnin = 2000L,
                                     label = "") {
   status <- "ok"
-  res$logFC.bacon <- res$logFC
-  res$t.bacon <- res$t
-  res$P.Value.bacon <- res$P.Value
-  res$adj.P.Val.bacon <- res$adj.P.Val
+  # Seed the .bacon columns with NA, not with the raw limma values. A ".bacon" column
+  # holding an uncorrected statistic is indistinguishable from a corrected one to every
+  # downstream reader (illumeta_meta.py --use-bacon selects purely on column presence),
+  # so a skipped or partially-applied correction would silently masquerade as applied.
+  # NA makes "bacon did not calibrate this probe" explicit and recoverable.
+  res$logFC.bacon <- NA_real_
+  res$t.bacon <- NA_real_
+  res$P.Value.bacon <- NA_real_
+  res$adj.P.Val.bacon <- NA_real_
   attr(res, "bacon_status") <- "skipped"
+  attr(res, "bacon_n_calibrated") <- 0L
+  attr(res, "bacon_n_uncalibrated") <- nrow(res)
   attr(res, "lambda_before") <- compute_genomic_lambda(res$P.Value)
   attr(res, "inflation_bacon") <- NA_real_
   attr(res, "bias_bacon") <- NA_real_
@@ -1361,11 +1385,28 @@ apply_bacon_correction <- function(res, prefix = "", min_probes = 100L,
   esc <- tryCatch(bacon::es(bc)[, 1], error = function(e) NULL)
   tsc <- tryCatch(bacon::tstat(bc)[, 1], error = function(e) NULL)
   if (is.null(pv)) return(res)
+  # Probes outside `ok` were never passed to bacon, so they have no recalibrated
+  # statistic. Leaving the raw limma values in the .bacon columns would mislabel
+  # uncorrected p-values as corrected, let BH mix two different null calibrations in
+  # one adjustment, and contaminate lambda_after. Mark them NA instead: BH then
+  # adjusts only over the probes bacon actually calibrated, and any downstream
+  # consumer (including illumeta_meta.py --use-bacon) sees a missing value rather
+  # than a silently wrong one.
+  res$logFC.bacon <- NA_real_
+  res$t.bacon <- NA_real_
+  res$P.Value.bacon <- NA_real_
   res$P.Value.bacon[ok] <- pv
-  if (!is.null(esc)) res$logFC.bacon[ok] <- esc
-  if (!is.null(tsc)) res$t.bacon[ok] <- tsc
+  res$logFC.bacon[ok] <- if (!is.null(esc)) esc else res$logFC[ok]
+  res$t.bacon[ok] <- if (!is.null(tsc)) tsc else res$t[ok]
   res$adj.P.Val.bacon <- p.adjust(res$P.Value.bacon, method = "BH")
+  n_uncalibrated <- sum(!ok)
+  if (n_uncalibrated > 0) {
+    message(sprintf("  [bacon] %d/%d probes had no usable effect/SE pair; their .bacon columns are NA.",
+                    n_uncalibrated, nrow(res)))
+  }
   attr(res, "bacon_status") <- "ok"
+  attr(res, "bacon_n_calibrated") <- sum(ok)
+  attr(res, "bacon_n_uncalibrated") <- n_uncalibrated
   attr(res, "inflation_bacon") <- infl
   attr(res, "bias_bacon") <- bias_v
   attr(res, "lambda_after") <- compute_genomic_lambda(res$P.Value.bacon)
@@ -1655,10 +1696,30 @@ compute_batch_stability <- function(betas, targets, batch_col, covariates, group
 #' @details
 #' KS p-value < 0.05 suggests deviation from uniform null distribution.
 #' Lambda near 1.0 indicates well-calibrated test statistics.
+#' Permutation-null calibration on batch-corrected data.
+#'
+#' IMPORTANT INTERPRETATION LIMIT. This is called on `betas_corr`, i.e. on a matrix that
+#' ComBat/limma have already corrected using a design that *protects* the true group
+#' variable. The true labels therefore informed the data before the labels are permuted,
+#' so the permuted data are not exchangeable under the null and the resulting lambda is a
+#' biased estimate of the true null inflation -- generally deflated, because the genuine
+#' group signal was preserved by the correction and is then scattered across random
+#' labels. The permutation is stratified within batch, which controls batch structure but
+#' does not repair the label leakage.
+#'
+#' This statistic is consequently used only as a *relative* score for ranking correction
+#' strategies against one another under an identical procedure (select_batch_strategy),
+#' never as an absolute claim that a given analysis is calibrated. The absolute inflation
+#' claim comes from the separate lambda guard on the observed statistics and from bacon's
+#' empirical null. Removing the bias entirely would require re-running the batch
+#' correction inside every permutation, which is prohibitively expensive at EWAS scale.
 run_permutation_uniformity <- function(betas, targets, group_col, covariates, batch_col, perm_n, vp_top) {
   if (perm_n <= 0) return(NULL)
   if (!is.finite(vp_top) || vp_top <= 0) return(NULL)
-  top_perm <- head(order(apply(betas, 1, var), decreasing = TRUE), min(vp_top, nrow(betas)))
+  # na.rm = TRUE matches subset_top_variable(); without it any probe carrying an NA gets
+  # var = NA and is silently pushed to the end of the ranking, so the SeSAMe native branch
+  # (which retains NAs by design) selected a different probe set here than everywhere else.
+  top_perm <- head(order(apply(betas, 1, var, na.rm = TRUE), decreasing = TRUE), min(vp_top, nrow(betas)))
   if (length(top_perm) == 0) return(NULL)
   m_perm <- logit_offset(betas[top_perm, , drop = FALSE])
   if (nrow(m_perm) == 0) return(NULL)

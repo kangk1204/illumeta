@@ -536,6 +536,49 @@ def _resolve_branch_table(cohort: MetaCohort, branch: str, filename: str, prefer
     )
 
 
+def _ingest_standard_columns(
+    records: dict[str, dict[str, object]],
+    table_path: Path,
+    delimiter: str,
+    cohort_idx: int,
+    n: int,
+) -> None:
+    """Re-read one cohort table using the uncorrected limma columns.
+
+    Used only as the recovery path when a table advertises bacon columns that turn
+    out to be entirely NA. Only fills the slot for ``cohort_idx``; every other cohort
+    already present in ``records`` is left untouched."""
+    with _open_text(table_path) as handle:
+        reader = csv.DictReader(handle, delimiter=delimiter)
+        for row in reader:
+            cpg = str(row.get("CpG") or "").strip()
+            if not cpg:
+                continue
+            rec = records.get(cpg)
+            if rec is None:
+                rec = {
+                    "CpG": cpg,
+                    "annotations": {col: "" for col in ANNOTATION_COLUMNS},
+                    "effects": [math.nan] * n,
+                    "ses": [math.nan] * n,
+                    "p_values": [math.nan] * n,
+                    "deltas": [math.nan] * n,
+                }
+                records[cpg] = rec
+            effect = _safe_float(row.get("logFC"))
+            se = _safe_float(row.get("SE"))
+            if not math.isfinite(se) or se <= 0:
+                t_stat = _safe_float(row.get("t"))
+                if math.isfinite(effect) and math.isfinite(t_stat) and t_stat != 0:
+                    se = abs(effect / t_stat)
+            if not math.isfinite(se) or se <= 0:
+                se = math.nan
+            rec["effects"][cohort_idx] = effect
+            rec["ses"][cohort_idx] = se
+            rec["p_values"][cohort_idx] = _safe_p_value(row.get("P.Value"))
+            rec["deltas"][cohort_idx] = _safe_float(row.get("Delta_Beta"))
+
+
 def _read_branch_records(
     cohorts: list[MetaCohort],
     branch: str,
@@ -547,6 +590,12 @@ def _read_branch_records(
     records: dict[str, dict[str, object]] = {}
     warnings: list[str] = []
     tables_used: dict[str, str] = {}
+    # Effective sample size behind each cohort's Delta_Beta. Tier3 tables carry
+    # Delta_Beta_N_Con/Delta_Beta_N_Test because their beta-scale effect is measured on
+    # the overlap strata only; weighting the pooled delta beta by the cohort's full size
+    # would credit samples that never entered the estimate. Standard tables omit the
+    # columns and fall back to n_con + n_test.
+    delta_weights: dict[int, float] = {}
     n = len(cohorts)
     for cohort_idx, cohort in enumerate(cohorts):
         actual_filename = _resolve_branch_table(cohort, branch, filename, prefer_tier3, allow_missing_tier3)
@@ -568,10 +617,12 @@ def _read_branch_records(
             # pools empirically-null-calibrated effects. Fall back to the standard
             # columns (with a warning) when a cohort table predates bacon.
             eff_col, p_col, t_col = "logFC", "P.Value", "t"
+            bacon_mode = False
             if _USE_BACON:
                 if "P.Value.bacon" in reader.fieldnames and "logFC.bacon" in reader.fieldnames:
                     eff_col, p_col = "logFC.bacon", "P.Value.bacon"
                     t_col = "t.bacon" if "t.bacon" in reader.fieldnames else "t"
+                    bacon_mode = True
                 else:
                     warnings.append(
                         f"{branch}/{cohort.cohort_id}: --use-bacon requested but "
@@ -582,6 +633,13 @@ def _read_branch_records(
                 raise ValueError(f"{table_path} missing required columns: {', '.join(missing_required)}")
             if "SE" not in reader.fieldnames and t_col not in reader.fieldnames:
                 raise ValueError(f"{table_path} must include either SE or {t_col} for meta-analysis")
+            # A bacon-mode effect must be paired with a bacon-derived SE. The plain SE
+            # column (written by tier3/DMR paths) belongs to the *uncorrected* fit, so
+            # combining it with logFC.bacon would produce a z-statistic that is neither
+            # the raw nor the recalibrated one. In bacon mode always derive SE from the
+            # bacon t, which reproduces se * inflation exactly.
+            se_col = None if bacon_mode else "SE"
+            n_usable = 0
             seen_cpgs: set[str] = set()
             for row in reader:
                 cpg = str(row.get("CpG") or "").strip()
@@ -607,7 +665,7 @@ def _read_branch_records(
                     if not annotations.get(col) and not _is_missing(row.get(col)):
                         annotations[col] = str(row.get(col)).strip()
                 effect = _safe_float(row.get(eff_col))
-                se = _safe_float(row.get("SE"))
+                se = _safe_float(row.get(se_col)) if se_col else math.nan
                 # Reconstruct SE from effect/t whenever SE is unusable (missing OR
                 # non-positive). Previously a present-but-zero/negative SE skipped the
                 # t-fallback and silently dropped the cohort, even with a valid t.
@@ -619,13 +677,36 @@ def _read_branch_records(
                         se = abs(effect / t_stat)
                 if not math.isfinite(se) or se <= 0:
                     se = math.nan
+                if math.isfinite(effect) and math.isfinite(se):
+                    n_usable += 1
+                if cohort_idx not in delta_weights:
+                    d_con = _safe_float(row.get("Delta_Beta_N_Con"))
+                    d_test = _safe_float(row.get("Delta_Beta_N_Test"))
+                    if math.isfinite(d_con) and math.isfinite(d_test) and (d_con + d_test) > 0:
+                        delta_weights[cohort_idx] = float(d_con + d_test)
                 rec["effects"][cohort_idx] = effect
                 rec["ses"][cohort_idx] = se
                 rec["p_values"][cohort_idx] = _safe_p_value(row.get(p_col))
                 rec["deltas"][cohort_idx] = _safe_float(row.get("Delta_Beta"))
+        if bacon_mode and n_usable == 0:
+            # The table advertises bacon columns but every value is NA -- this is what a
+            # skipped or failed bacon run now writes. Silently keeping the cohort would
+            # drop it from every CpG with no explanation, so retry it on the standard
+            # columns and say so loudly.
+            warnings.append(
+                f"{branch}/{cohort.cohort_id}: bacon columns present in {actual_filename} "
+                "but contain no usable values (bacon was skipped or failed for this run); "
+                "falling back to standard logFC/P.Value for this cohort"
+            )
+            for rec in records.values():
+                rec["effects"][cohort_idx] = math.nan
+                rec["ses"][cohort_idx] = math.nan
+                rec["p_values"][cohort_idx] = math.nan
+                rec["deltas"][cohort_idx] = math.nan
+            _ingest_standard_columns(records, table_path, delimiter, cohort_idx, n)
     if not records:
         warnings.append(f"{branch}: no CpG records loaded from {filename}; branch output is empty")
-    return records, warnings, tables_used
+    return records, warnings, tables_used, delta_weights
 
 
 def _pooled_delta(deltas: list[float], valid: list[bool], weights: list[float]) -> float:
@@ -677,10 +758,21 @@ def _analyze_branch(
     prefer_tier3: bool = True,
     allow_missing_tier3: bool = False,
 ) -> tuple[list[dict[str, object]], dict[str, object], list[str]]:
-    records, warnings, tables_used = _read_branch_records(
+    records, warnings, tables_used, delta_weights = _read_branch_records(
         cohorts, branch, filename, allow_missing_branches, prefer_tier3, allow_missing_tier3
     )
-    sample_weights = [cohort.sample_weight for cohort in cohorts]
+    sample_weights = [
+        delta_weights.get(idx, cohort.sample_weight)
+        for idx, cohort in enumerate(cohorts)
+    ]
+    for idx, cohort in enumerate(cohorts):
+        effective = delta_weights.get(idx)
+        if effective is not None and effective < cohort.sample_weight:
+            warnings.append(
+                f"{branch}/{cohort.cohort_id}: pooled delta beta weighted by the "
+                f"{effective:g} samples that produced Delta_Beta (stratified subset), "
+                f"not the full cohort size {cohort.sample_weight:g}"
+            )
     rows: list[dict[str, object]] = []
     random_p_values: list[float] = []
     fixed_p_values: list[float] = []

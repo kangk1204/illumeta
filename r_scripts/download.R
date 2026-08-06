@@ -490,14 +490,39 @@ if (!is.na(supp_col)) {
 # Add primary_group
 simple_meta <- data.frame(primary_group = "", simple_meta, check.names = FALSE)
 
-# Drop duplicate columns with identical values (keep the first)
+# Drop duplicate columns with identical values.
+#
+# Keeping "the first" column is wrong here. Sentrix_ID and Sentrix_Position are derived
+# from the IDAT filenames and appended LAST, so whenever GEO also exposes them as
+# characteristics fields (sentrix_id:ch1 and friends) they were always the copies that
+# got dropped -- leaving the values behind only under opaque names like
+# characteristics_ch1.7. Downstream code looks the batch factor up BY NAME
+# (select_batch_factor: c("Sentrix_ID", "Sentrix_Position")), so the effect was that
+# batch correction and the tier3 stratified path silently switched themselves off for
+# such a series, reported only as an informational log line. Observed on GSE66351,
+# whose published run used Sentrix_Position as the batch candidate.
+#
+# So: deduplicate by value, but when a set of identical columns contains a name the
+# pipeline resolves by name, keep that one and drop the others.
+CANONICAL_META_COLS <- c("primary_group", "Basename", "Sentrix_ID", "Sentrix_Position")
 encode_col <- function(x) paste0(ifelse(is.na(x), "<NA>", as.character(x)), collapse = "|")
 col_enc <- vapply(simple_meta, encode_col, character(1))
-dup_cols <- names(simple_meta)[duplicated(col_enc)]
+col_names <- names(simple_meta)
+# Rank canonical names ahead of everything else, then fall back to original order, so
+# duplicated() resolves each identical-value group in favour of the canonical member.
+pref_rank <- match(col_names, CANONICAL_META_COLS)
+pref_rank[is.na(pref_rank)] <- length(CANONICAL_META_COLS) + seq_len(sum(is.na(pref_rank)))
+pref_order <- order(pref_rank)
+dup_cols <- col_names[pref_order][duplicated(col_enc[pref_order])]
 if (length(dup_cols) > 0) {
-    keep_cols <- setdiff(names(simple_meta), dup_cols)
+    keep_cols <- col_names[!(col_names %in% dup_cols)]  # preserve original column order
     simple_meta <- simple_meta[, keep_cols, drop = FALSE]
     message("Dropped duplicate columns (identical values): ", paste(dup_cols, collapse = ", "))
+    kept_canonical <- intersect(CANONICAL_META_COLS, keep_cols)
+    if (length(kept_canonical) > 0) {
+        message("  Retained canonical column(s) over duplicate(s): ",
+                paste(kept_canonical, collapse = ", "))
+    }
 }
 
 # Save original (full) metadata snapshot

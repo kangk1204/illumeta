@@ -258,6 +258,27 @@ GROUP_MAP_EXCLUDE = "\x00__illumeta_exclude__"
 _EXCLUDE_TOKENS = {"exclude", "excluded", "drop", "omit", "skip", "none", "na", "-"}
 
 
+def parse_sample_filter(spec: str, headers: list) -> tuple:
+    """Parse one ``COLUMN=VALUE[|VALUE...]`` sample-subset filter.
+
+    Values are split on ``|`` only, so a value may safely contain a comma or a
+    semicolon -- GEO characteristics fields frequently do. The column must exist;
+    a typo silently keeping every sample would be worse than an error, because the
+    resulting run would look successful while analysing the wrong sample set."""
+    if "=" not in (spec or ""):
+        raise ValueError(f"--sample-filter must be COLUMN=VALUE: {spec!r}")
+    column, raw_values = spec.split("=", 1)
+    column = column.strip()
+    if column not in headers:
+        near = [h for h in headers if column.lower() in h.lower()]
+        hint = f" Did you mean: {', '.join(near[:4])}?" if near else ""
+        raise ValueError(f"--sample-filter column '{column}' is not in configure.tsv.{hint}")
+    values = [v.strip() for v in raw_values.split("|") if v.strip()]
+    if not values:
+        raise ValueError(f"--sample-filter needs at least one value: {spec!r}")
+    return column, values
+
+
 def parse_group_map(map_str: str, group_con: str, group_test: str) -> dict:
     mapping = {}
     if not map_str:
@@ -750,6 +771,7 @@ def auto_group_config(
     id_column: str = None,
     overwrite: bool = False,
     allow_technical: bool = False,
+    sample_filters: list = None,
 ):
     rows, headers, delim = load_config_rows(config_path)
     if delim != "\t":
@@ -762,6 +784,37 @@ def auto_group_config(
             row["primary_group"] = ""
     else:
         headers = ["primary_group"] + [h for h in headers if h != "primary_group"]
+
+    # Restrict to an assay/tissue subset BEFORE grouping. --group-map can only exclude
+    # values of the grouping column itself, but GEO series routinely put the subset in a
+    # different field than the diagnosis: GSE66351 carries bulk tissue alongside sorted
+    # neuron and glia in characteristics_ch1 while the diagnosis lives in
+    # characteristics_ch1.1. Without this, reproducing such a contrast means hand-editing
+    # configure.tsv, which is the unrecorded manual step this whole path exists to remove.
+    filter_report = []
+    n_before_filter = len(rows)
+    for spec in sample_filters or []:
+        column, values = parse_sample_filter(spec, headers)
+        keep, dropped = [], 0
+        wanted = {normalize_group_value(v) for v in values}
+        for row in rows:
+            if normalize_group_value(row.get(column) or "") in wanted:
+                keep.append(row)
+            else:
+                dropped += 1
+        if not keep:
+            raise ValueError(
+                f"--sample-filter '{spec}' matched no samples. Column '{column}' holds: "
+                + ", ".join(sorted({str(r.get(column) or "") for r in rows})[:8])
+            )
+        rows = keep
+        filter_report.append({"filter": spec, "column": column,
+                              "values": list(values), "kept": len(keep), "dropped": dropped})
+    if filter_report:
+        for entry in filter_report:
+            log(f"Sample filter {entry['column']}={'|'.join(entry['values'])}: "
+                f"kept {entry['kept']}, dropped {entry['dropped']}")
+
     pending_idx = []
     for idx, row in enumerate(rows):
         cur = (row.get("primary_group") or "").strip()
@@ -922,6 +975,8 @@ def auto_group_config(
         "group_map": mapping,
         "excluded_rows": len(excluded_rows),
         "excluded_labels": dict(excluded_labels),
+        "sample_filters": filter_report,
+        "rows_before_filter": n_before_filter,
     }
 
 def list_idat_basenames(idat_dir: str):
@@ -2252,8 +2307,16 @@ def run_analysis(args):
                 id_column=args.id_column,
                 overwrite=args.auto_group_overwrite,
                 allow_technical=args.auto_group_allow_technical,
+                sample_filters=args.sample_filter,
             )
             if auto_group_info and auto_group_info.get("updated"):
+                for entry in auto_group_info.get("sample_filters") or []:
+                    log(f"[*] Sample filter {entry['column']}={'|'.join(entry['values'])}: "
+                        f"kept {entry['kept']} of {entry['kept'] + entry['dropped']}")
+                if auto_group_info.get("excluded_rows"):
+                    log(f"[*] Auto-group excluded {auto_group_info['excluded_rows']} sample(s): "
+                        + "; ".join(f"{label} (n={n})"
+                                    for label, n in auto_group_info["excluded_labels"].items()))
                 log(f"[*] Auto-group: filled primary_group using {auto_group_info.get('source')} -> {config_path}")
             else:
                 log("[*] Auto-group: primary_group already filled; using existing configure.tsv")
@@ -5311,6 +5374,14 @@ def main():
                                       "from a multi-arm series (e.g. dropping an MCI arm from an AD-vs-control "
                                       "series) without hand-editing configure.tsv. Entries are split on ',' "
                                       "and ';', so use '/' inside a label that itself contains ';'.")
+    parser_analysis.add_argument("--sample-filter", action="append", metavar="COLUMN=VALUE",
+                                 help="Restrict the analysis to samples whose COLUMN matches "
+                                      "VALUE, applied before grouping. Repeat to combine filters; "
+                                      "separate alternative values with '|'. Use this when the "
+                                      "assay or tissue subset lives in a different field from the "
+                                      "diagnosis, e.g. --sample-filter 'characteristics_ch1=bulk' "
+                                      "to drop sorted-cell samples from a series that also "
+                                      "deposits bulk tissue.")
     parser_analysis.add_argument("--auto-group-output", type=str,
                                  help="Output path for auto-grouped configure.tsv (default: configure_autogroup.tsv)")
     parser_analysis.add_argument("--auto-group-overwrite", action="store_true",

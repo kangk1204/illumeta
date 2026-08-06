@@ -160,5 +160,94 @@ class AutoGroupExclusionTests(unittest.TestCase):
             self.assertEqual(info["excluded_labels"], {})
 
 
+
+class SampleFilterTests(unittest.TestCase):
+    """--sample-filter restricts to an assay/tissue subset before grouping.
+
+    --group-map can only exclude values of the grouping column, but GEO series
+    routinely put the subset in a different field from the diagnosis. GSE66351
+    deposits 190 samples: 128 bulk tissue plus 31 sorted neuron and 31 sorted glia in
+    characteristics_ch1, with the diagnosis in characteristics_ch1.1. Reproducing the
+    bulk-only contrast without this option means hand-editing configure.tsv.
+    """
+
+    HEADERS = ["SampleID", "Basename", "primary_group", "tissue_type", "diagnosis"]
+
+    def _config(self, tmp: Path) -> Path:
+        rows, n = [], 0
+        for tissue, diagnosis, count in (
+            ("bulk", "CTRL", 4), ("bulk", "AD", 6),
+            ("Neuron", "CTRL", 2), ("Neuron", "AD", 2),
+            ("Glia", "CTRL", 2), ("Glia", "AD", 2),
+        ):
+            for _ in range(count):
+                n += 1
+                rows.append([f"GSM{n:07d}", f"basename_{n}", "", tissue, diagnosis])
+        path = tmp / "configure.tsv"
+        with path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle, delimiter="\t")
+            writer.writerow(self.HEADERS)
+            writer.writerows(rows)
+        return path
+
+    def test_subset_column_differs_from_group_column(self):
+        with TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            path, info = illumeta.auto_group_config(
+                str(self._config(tmp)), group_con="Control", group_test="AD",
+                group_column="diagnosis", group_map="CTRL=Control,AD=AD",
+                sample_filters=["tissue_type=bulk"],
+                output_path=str(tmp / "out.tsv"), overwrite=True,
+            )
+            self.assertEqual(_counts(path), {"Control": 4, "AD": 6})
+            entry = info["sample_filters"][0]
+            self.assertEqual((entry["kept"], entry["dropped"]), (10, 8))
+            self.assertEqual(info["rows_before_filter"], 18)
+
+    def test_multiple_values_and_repeated_filters_combine(self):
+        with TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            path, _info = illumeta.auto_group_config(
+                str(self._config(tmp)), group_con="Control", group_test="AD",
+                group_column="diagnosis", group_map="CTRL=Control,AD=AD",
+                sample_filters=["tissue_type=Neuron|Glia", "diagnosis=AD"],
+                output_path=str(tmp / "out.tsv"), overwrite=True,
+            )
+            self.assertEqual(_counts(path), {"AD": 4})
+
+    def test_unknown_column_is_an_error(self):
+        with TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            with self.assertRaises(ValueError) as ctx:
+                illumeta.auto_group_config(
+                    str(self._config(tmp)), group_con="Control", group_test="AD",
+                    group_column="diagnosis", sample_filters=["tissue=bulk"],
+                    output_path=str(tmp / "out.tsv"), overwrite=True,
+                )
+            # A typo must fail, not silently analyse every sample.
+            self.assertIn("not in configure.tsv", str(ctx.exception))
+            self.assertIn("tissue_type", str(ctx.exception))
+
+    def test_filter_matching_nothing_is_an_error(self):
+        with TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            with self.assertRaises(ValueError) as ctx:
+                illumeta.auto_group_config(
+                    str(self._config(tmp)), group_con="Control", group_test="AD",
+                    group_column="diagnosis", sample_filters=["tissue_type=cortex"],
+                    output_path=str(tmp / "out.tsv"), overwrite=True,
+                )
+            self.assertIn("matched no samples", str(ctx.exception))
+
+    def test_malformed_filter_is_an_error(self):
+        with TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            with self.assertRaises(ValueError):
+                illumeta.auto_group_config(
+                    str(self._config(tmp)), group_con="Control", group_test="AD",
+                    group_column="diagnosis", sample_filters=["tissue_type"],
+                    output_path=str(tmp / "out.tsv"), overwrite=True,
+                )
+
 if __name__ == "__main__":
     unittest.main()

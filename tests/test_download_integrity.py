@@ -2,8 +2,10 @@
 
 import http.client
 import os
+import re
 import tempfile
 import unittest
+from pathlib import Path
 from urllib.error import URLError
 
 
@@ -73,3 +75,42 @@ class DownloadIntegrityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DownloadRetryBackoffTests(unittest.TestCase):
+    """GEO fetches fail in bursts, so the retry window has to outlast a short outage.
+
+    A real GSE66351 download failed after three attempts inside ~26 seconds: the
+    connection stalled for eleven minutes, then the constant 3-second backoff burned
+    every remaining attempt in under half a minute. Exponential backoff is what makes
+    the difference between a transient hiccup and a failed download, so pin it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.source = (Path(__file__).resolve().parents[1] / "r_scripts" / "download.R").read_text(
+            encoding="utf-8"
+        )
+
+    def _default(self, env_var: str) -> str:
+        match = re.search(rf'Sys\.getenv\("{env_var}",\s*"([^"]+)"\)', self.source)
+        self.assertIsNotNone(match, f"{env_var} default not found")
+        return match.group(1)
+
+    def test_backoff_is_exponential(self):
+        self.assertGreaterEqual(
+            float(self._default("ILLUMETA_DOWNLOAD_BACKOFF")), 2.0,
+            "a constant backoff cannot outlast a transient NCBI outage",
+        )
+
+    def test_retry_window_spans_at_least_thirty_seconds(self):
+        attempts = int(self._default("ILLUMETA_DOWNLOAD_RETRIES"))
+        wait = float(self._default("ILLUMETA_DOWNLOAD_WAIT"))
+        backoff = float(self._default("ILLUMETA_DOWNLOAD_BACKOFF"))
+        total = sum(wait * backoff ** i for i in range(attempts - 1))
+        self.assertGreaterEqual(total, 30.0, f"retry window is only {total:.0f}s")
+
+    def test_defaults_stay_overridable(self):
+        for env_var in ("ILLUMETA_DOWNLOAD_RETRIES", "ILLUMETA_DOWNLOAD_WAIT",
+                        "ILLUMETA_DOWNLOAD_BACKOFF"):
+            self.assertIn(f'Sys.getenv("{env_var}"', self.source)

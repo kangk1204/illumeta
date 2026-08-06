@@ -68,12 +68,19 @@ if (!dir.exists(idat_dir)) {
 
 message(paste("Fetching metadata for:", gse_id))
 
-retry_attempts <- suppressWarnings(as.integer(Sys.getenv("ILLUMETA_DOWNLOAD_RETRIES", "3")))
-if (!is.finite(retry_attempts) || retry_attempts < 1) retry_attempts <- 3
-retry_wait <- suppressWarnings(as.numeric(Sys.getenv("ILLUMETA_DOWNLOAD_WAIT", "3")))
-if (!is.finite(retry_wait) || retry_wait < 0) retry_wait <- 3
-retry_backoff <- suppressWarnings(as.numeric(Sys.getenv("ILLUMETA_DOWNLOAD_BACKOFF", "1")))
-if (!is.finite(retry_backoff) || retry_backoff < 1) retry_backoff <- 1
+# GEO fetches fail in bursts: a stalled connection or a short NCBI rate-limit takes
+# out several attempts in a row. The previous defaults (3 attempts, 3s wait,
+# backoff 1) retried three times inside ~26 seconds, which is shorter than the
+# outages actually observed and simply converted a transient hiccup into a failed
+# download. Exponential backoff over four attempts spans ~35s of waiting instead of
+# ~6s, which covers the common case without making a genuinely dead endpoint slow to
+# report. All three remain overridable for hostile or offline environments.
+retry_attempts <- suppressWarnings(as.integer(Sys.getenv("ILLUMETA_DOWNLOAD_RETRIES", "4")))
+if (!is.finite(retry_attempts) || retry_attempts < 1) retry_attempts <- 4
+retry_wait <- suppressWarnings(as.numeric(Sys.getenv("ILLUMETA_DOWNLOAD_WAIT", "5")))
+if (!is.finite(retry_wait) || retry_wait < 0) retry_wait <- 5
+retry_backoff <- suppressWarnings(as.numeric(Sys.getenv("ILLUMETA_DOWNLOAD_BACKOFF", "2")))
+if (!is.finite(retry_backoff) || retry_backoff < 1) retry_backoff <- 2
 
 retry_run <- function(fn, label = "request", attempts = retry_attempts, wait = retry_wait, backoff = retry_backoff) {
   last_err <- NULL

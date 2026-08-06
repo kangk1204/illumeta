@@ -249,5 +249,96 @@ class SampleFilterTests(unittest.TestCase):
                     output_path=str(tmp / "out.tsv"), overwrite=True,
                 )
 
+class SampleFilterRegexTests(unittest.TestCase):
+    """--sample-filter COLUMN~REGEX, and reaching columns configure.tsv dropped.
+
+    GSE105109 deposits 384 samples: every donor appears twice, once bisulfite-treated
+    and once oxidative-bisulfite-treated, and the two are distinguishable ONLY through
+    the sample title ("entorhinal cortex_bs_1" against "entorhinal cortex_oxbs_1").
+    Two things therefore have to work: matching a pattern inside a free-text field, and
+    reading a field that building configure.tsv discards as degenerate but that the
+    configure_original.tsv snapshot still holds.
+    """
+
+    HEADERS = ["geo_accession", "Basename", "primary_group", "diagnosis"]
+    FULL_HEADERS = HEADERS + ["title"]
+
+    def _configs(self, tmp: Path) -> Path:
+        rows, full, n = [], [], 0
+        for assay in ("bs", "oxbs"):
+            for diagnosis, count in (("Control", 2), ("AD", 3)):
+                for _ in range(count):
+                    n += 1
+                    acc = f"GSM{n:07d}"
+                    rows.append([acc, f"basename_{n}", "", diagnosis])
+                    full.append([acc, f"basename_{n}", "", diagnosis,
+                                 f"entorhinal cortex_{assay}_{n}"])
+        cfg = tmp / "configure.tsv"
+        for path, headers, data in ((cfg, self.HEADERS, rows),
+                                    (tmp / "configure_original.tsv", self.FULL_HEADERS, full)):
+            with path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.writer(handle, delimiter="\t")
+                writer.writerow(headers)
+                writer.writerows(data)
+        return cfg
+
+    def test_regex_reaches_a_column_only_in_the_snapshot(self):
+        with TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            path, info = illumeta.auto_group_config(
+                str(self._configs(tmp)), group_con="Control", group_test="AD",
+                group_column="diagnosis", sample_filters=[r"title~_bs_"],
+                output_path=str(tmp / "out.tsv"), overwrite=True,
+            )
+            # _bs_ must not also match _oxbs_: the character before "bs" differs.
+            self.assertEqual(_counts(path), {"Control": 2, "AD": 3})
+            entry = info["sample_filters"][0]
+            self.assertEqual(entry["mode"], "regex")
+            self.assertEqual((entry["kept"], entry["dropped"]), (5, 5))
+
+    def test_regex_alternation_is_not_split_on_pipe(self):
+        with TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            path, _info = illumeta.auto_group_config(
+                str(self._configs(tmp)), group_con="Control", group_test="AD",
+                group_column="diagnosis", sample_filters=[r"title~_bs_|_oxbs_"],
+                output_path=str(tmp / "out.tsv"), overwrite=True,
+            )
+            self.assertEqual(_counts(path), {"Control": 4, "AD": 6})
+
+    def test_exact_mode_still_splits_on_pipe(self):
+        with TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            path, info = illumeta.auto_group_config(
+                str(self._configs(tmp)), group_con="Control", group_test="AD",
+                group_column="diagnosis", sample_filters=["diagnosis=Control|AD"],
+                output_path=str(tmp / "out.tsv"), overwrite=True,
+            )
+            self.assertEqual(info["sample_filters"][0]["mode"], "exact")
+            self.assertEqual(_counts(path), {"Control": 4, "AD": 6})
+
+    def test_invalid_regex_is_an_error(self):
+        with TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            with self.assertRaises(ValueError) as ctx:
+                illumeta.auto_group_config(
+                    str(self._configs(tmp)), group_con="Control", group_test="AD",
+                    group_column="diagnosis", sample_filters=[r"title~(unclosed"],
+                    output_path=str(tmp / "out.tsv"), overwrite=True,
+                )
+            self.assertIn("invalid regex", str(ctx.exception))
+
+    def test_column_in_neither_file_is_still_an_error(self):
+        with TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            with self.assertRaises(ValueError) as ctx:
+                illumeta.auto_group_config(
+                    str(self._configs(tmp)), group_con="Control", group_test="AD",
+                    group_column="diagnosis", sample_filters=[r"nosuchfield~x"],
+                    output_path=str(tmp / "out.tsv"), overwrite=True,
+                )
+            self.assertIn("not in configure.tsv", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

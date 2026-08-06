@@ -258,22 +258,82 @@ GROUP_MAP_EXCLUDE = "\x00__illumeta_exclude__"
 _EXCLUDE_TOKENS = {"exclude", "excluded", "drop", "omit", "skip", "none", "na", "-"}
 
 
-def parse_sample_filter(spec: str, headers: list) -> tuple:
-    """Parse one ``COLUMN=VALUE[|VALUE...]`` sample-subset filter.
+#: Columns tried, in order, as the join key between configure.tsv and the full
+#: metadata snapshot. geo_accession is present in both for every GEO series we have
+#: seen; the others are fallbacks for hand-built configs.
+_SNAPSHOT_KEYS = ("geo_accession", "SampleID", "Sample_Name", "Basename")
 
-    Values are split on ``|`` only, so a value may safely contain a comma or a
-    semicolon -- GEO characteristics fields frequently do. The column must exist;
-    a typo silently keeping every sample would be worse than an error, because the
-    resulting run would look successful while analysing the wrong sample set."""
-    if "=" not in (spec or ""):
-        raise ValueError(f"--sample-filter must be COLUMN=VALUE: {spec!r}")
-    column, raw_values = spec.split("=", 1)
-    column = column.strip()
+
+def _row_key(row: dict) -> str:
+    for key in _SNAPSHOT_KEYS:
+        value = str(row.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _load_original_snapshot(config_path: str) -> tuple:
+    """Load configure_original.tsv next to ``config_path``, keyed for row lookup.
+
+    Building configure.tsv drops columns judged degenerate, which can include the only
+    field that identifies an assay subset. The snapshot beside it is written precisely
+    so nothing is lost, so a sample filter can reach into it. Returns ({} , []) when the
+    snapshot is absent or unusable -- filtering then simply stays limited to
+    configure.tsv, which is the previous behaviour."""
+    snapshot = os.path.join(os.path.dirname(os.path.abspath(config_path)),
+                            "configure_original.tsv")
+    if not os.path.isfile(snapshot):
+        return {}, []
+    try:
+        rows, headers, delim = load_config_rows(snapshot)
+    except (OSError, ValueError):
+        return {}, []
+    if delim != "\t" or not headers:
+        return {}, []
+    lookup = {}
+    for row in rows:
+        key = _row_key(row)
+        if key:
+            lookup.setdefault(key, row)
+    return (lookup, headers) if lookup else ({}, [])
+
+
+def parse_sample_filter(spec: str, headers: list) -> tuple:
+    """Parse one sample-subset filter, either ``COLUMN=VALUE[|VALUE...]`` or ``COLUMN~REGEX``.
+
+    ``=`` compares whole normalised values and splits alternatives on ``|`` only, so a
+    value may safely contain a comma or a semicolon -- GEO characteristics fields
+    frequently do.
+
+    ``~`` matches a case-insensitive regular expression anywhere in the value, for the
+    common case where the subset is encoded inside a free-text field rather than as its
+    own column. GSE105109 is the example: the bisulfite and oxidative-bisulfite arms are
+    distinguishable only through the sample title (``entorhinal cortex_bs_1`` against
+    ``entorhinal cortex_oxbs_1``), so no exact-value filter can separate them. In regex
+    mode the pattern is passed through untouched, so ``|`` means alternation as usual.
+
+    The column must exist. A typo that silently kept every sample would be worse than an
+    error: the run would look successful while analysing the wrong sample set."""
+    match = re.search(r"[=~]", spec or "")
+    if not match:
+        raise ValueError(f"--sample-filter must be COLUMN=VALUE or COLUMN~REGEX: {spec!r}")
+    operator = spec[match.start()]
+    column = spec[: match.start()].strip()
+    raw = spec[match.start() + 1 :]
     if column not in headers:
         near = [h for h in headers if column.lower() in h.lower()]
         hint = f" Did you mean: {', '.join(near[:4])}?" if near else ""
         raise ValueError(f"--sample-filter column '{column}' is not in configure.tsv.{hint}")
-    values = [v.strip() for v in raw_values.split("|") if v.strip()]
+    if operator == "~":
+        pattern = raw.strip()
+        if not pattern:
+            raise ValueError(f"--sample-filter needs a pattern: {spec!r}")
+        try:
+            compiled = re.compile(pattern, re.IGNORECASE)
+        except re.error as exc:
+            raise ValueError(f"--sample-filter has an invalid regex {pattern!r}: {exc}") from exc
+        return column, compiled
+    values = [v.strip() for v in raw.split("|") if v.strip()]
     if not values:
         raise ValueError(f"--sample-filter needs at least one value: {spec!r}")
     return column, values
@@ -793,23 +853,49 @@ def auto_group_config(
     # configure.tsv, which is the unrecorded manual step this whole path exists to remove.
     filter_report = []
     n_before_filter = len(rows)
+    # The subset criterion is not always in configure.tsv. Building it drops columns
+    # judged degenerate (all-unique free text), and for GSE105109 that removes `title`
+    # -- the only field distinguishing the bisulfite and oxidative-bisulfite arms. The
+    # full snapshot written alongside it keeps everything, so fall back to that and join
+    # on the accession, rather than forcing the subset to be unfilterable or making
+    # configure.tsv carry every column just in case.
+    original_lookup, original_headers = _load_original_snapshot(config_path)
+    filter_headers = list(headers) + [h for h in original_headers if h not in headers]
     for spec in sample_filters or []:
-        column, values = parse_sample_filter(spec, headers)
-        keep, dropped = [], 0
-        wanted = {normalize_group_value(v) for v in values}
-        for row in rows:
-            if normalize_group_value(row.get(column) or "") in wanted:
-                keep.append(row)
-            else:
-                dropped += 1
+        column, criterion = parse_sample_filter(spec, filter_headers)
+        if column not in headers:
+            if not original_lookup:
+                raise ValueError(
+                    f"--sample-filter column '{column}' is only in configure_original.tsv, "
+                    "which could not be read alongside this config."
+                )
+            log(f"Sample filter column '{column}' resolved from configure_original.tsv")
+        def value_of(row, _column=column):
+            if _column in row:
+                return str(row.get(_column) or "")
+            source = original_lookup.get(_row_key(row), {})
+            return str(source.get(_column) or "")
+
+        if isinstance(criterion, re.Pattern):
+            matches = lambda row: bool(criterion.search(value_of(row)))  # noqa: E731
+            described = [criterion.pattern]
+            mode = "regex"
+        else:
+            wanted = {normalize_group_value(v) for v in criterion}
+            matches = lambda row: normalize_group_value(value_of(row)) in wanted  # noqa: E731
+            described = list(criterion)
+            mode = "exact"
+        keep = [row for row in rows if matches(row)]
+        dropped = len(rows) - len(keep)
         if not keep:
+            sample_values = sorted({value_of(r) for r in rows})[:8]
             raise ValueError(
                 f"--sample-filter '{spec}' matched no samples. Column '{column}' holds: "
-                + ", ".join(sorted({str(r.get(column) or "") for r in rows})[:8])
+                + ", ".join(sample_values)
             )
         rows = keep
-        filter_report.append({"filter": spec, "column": column,
-                              "values": list(values), "kept": len(keep), "dropped": dropped})
+        filter_report.append({"filter": spec, "column": column, "mode": mode,
+                              "values": described, "kept": len(keep), "dropped": dropped})
     if filter_report:
         for entry in filter_report:
             log(f"Sample filter {entry['column']}={'|'.join(entry['values'])}: "

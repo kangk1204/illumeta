@@ -1,6 +1,7 @@
 """CLI failure paths must return non-zero status codes."""
 
 from types import SimpleNamespace
+import csv
 import io
 import json
 import os
@@ -120,6 +121,20 @@ class CliExitCodeTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 2)
         self.assertIn("--keywords is required", result.stderr)
+
+    def test_search_retmax_must_be_at_least_one(self):
+        result = self.run_illumeta("search", "--keywords", "cancer", "--retmax", "0", "--no-check-suppl")
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("must be an integer >= 1", result.stderr)
+
+    def test_search_sleep_must_be_nonnegative_finite(self):
+        for value in ("-0.1", "inf", "nan"):
+            with self.subTest(value=value):
+                result = self.run_illumeta("search", "--keywords", "cancer", "--sleep", value, "--no-check-suppl")
+
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("must be a finite number >= 0", result.stderr)
 
     def test_download_missing_gse_is_nonzero(self):
         result = self.run_illumeta("download")
@@ -406,20 +421,20 @@ class CliExitCodeTests(unittest.TestCase):
             self.assertEqual(payload["code"], "DASHBOARD_FAILED")
             self.assertEqual(payload["stage"], "dashboard")
 
-    def test_require_publication_artifacts_fails_when_incomplete(self):
+    def test_require_output_artifacts_fails_when_incomplete(self):
         illumeta = self.import_illumeta()
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "out"
             out.mkdir()
             with self.assertRaises(SystemExit) as ctx:
-                illumeta._require_publication_artifacts(str(out))
+                illumeta._require_output_artifacts(str(out))
             self.assertNotEqual(ctx.exception.code, 0)
             payload = json.loads((out / "failure_summary.json").read_text(encoding="utf-8"))
-            self.assertEqual(payload["code"], "PUBLICATION_ARTIFACTS_INCOMPLETE")
+            self.assertEqual(payload["code"], "OUTPUT_ARTIFACTS_INCOMPLETE")
 
     @staticmethod
-    def _write_valid_publication_artifacts(out, root):
-        """Write a complete, valid artifact set the publication gate should accept."""
+    def _write_valid_output_artifacts(out, root):
+        """Write a complete, valid artifact set the output gate should accept."""
         summary = {
             "n_con": 20, "n_test": 20,
             "intersect_up": 100, "intersect_down": 50,
@@ -432,18 +447,32 @@ class CliExitCodeTests(unittest.TestCase):
         (out / "sessionInfo.txt").write_text("R version 4.4\n", encoding="utf-8")
         # Dashboard HTML is a sibling: <parent>/<dirname>_index.html
         (root / f"{out.name}_index.html").write_text("<html></html>", encoding="utf-8")
+        with open(out / "Intersection_Consensus_DMPs.csv", "w", encoding="utf-8", newline="") as fh:
+            writer = csv.writer(fh)
+            writer.writerow(["CpG", "Delta_Beta"])
+            for i in range(100):
+                writer.writerow([f"cgS{i:08d}", 0.1])
+            for i in range(50):
+                writer.writerow([f"cgS{i + 100:08d}", -0.1])
+        with open(out / "Intersection_Native_Consensus_DMPs.csv", "w", encoding="utf-8", newline="") as fh:
+            writer = csv.writer(fh)
+            writer.writerow(["CpG", "Delta_Beta"])
+            for i in range(110):
+                writer.writerow([f"cgN{i:08d}", 0.1])
+            for i in range(60):
+                writer.writerow([f"cgN{i + 110:08d}", -0.1])
 
-    def test_require_publication_artifacts_passes_when_complete(self):
+    def test_require_output_artifacts_passes_when_complete(self):
         illumeta = self.import_illumeta()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             out = root / "myrun_results"
             out.mkdir()
-            self._write_valid_publication_artifacts(out, root)
-            illumeta._require_publication_artifacts(str(out))  # must not raise
+            self._write_valid_output_artifacts(out, root)
+            illumeta._require_output_artifacts(str(out))  # must not raise
             self.assertFalse((out / "failure_summary.json").exists())
 
-    def test_require_publication_artifacts_fails_on_empty_summary(self):
+    def test_require_output_artifacts_fails_on_empty_summary(self):
         """A 0-byte or valid-but-keyless summary.json must NOT pass the gate."""
         illumeta = self.import_illumeta()
         with tempfile.TemporaryDirectory() as tmp:
@@ -451,23 +480,23 @@ class CliExitCodeTests(unittest.TestCase):
             for label, content in (("zero_byte", ""), ("empty_object", "{}"), ("missing_keys", '{"n_con": 20}')):
                 out = root / f"run_{label}_results"
                 out.mkdir()
-                self._write_valid_publication_artifacts(out, root)
+                self._write_valid_output_artifacts(out, root)
                 (out / "summary.json").write_text(content, encoding="utf-8")  # corrupt it
                 with self.assertRaises(SystemExit):
-                    illumeta._require_publication_artifacts(str(out))
+                    illumeta._require_output_artifacts(str(out))
                 payload = json.loads((out / "failure_summary.json").read_text(encoding="utf-8"))
-                self.assertEqual(payload["code"], "PUBLICATION_ARTIFACTS_INCOMPLETE")
+                self.assertEqual(payload["code"], "OUTPUT_ARTIFACTS_INCOMPLETE")
 
-    def test_require_publication_artifacts_fails_on_failure_marker(self):
+    def test_require_output_artifacts_fails_on_failure_marker(self):
         illumeta = self.import_illumeta()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             out = root / "myrun_results"
             out.mkdir()
-            self._write_valid_publication_artifacts(out, root)
+            self._write_valid_output_artifacts(out, root)
             (out / "failure_summary.json").write_text("{}", encoding="utf-8")  # stale failure marker
             with self.assertRaises(SystemExit):
-                illumeta._require_publication_artifacts(str(out))
+                illumeta._require_output_artifacts(str(out))
 
 
 if __name__ == "__main__":

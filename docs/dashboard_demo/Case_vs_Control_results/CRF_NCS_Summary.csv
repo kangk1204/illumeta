@@ -1,0 +1,2 @@
+stage,type,n,lambda,sig_rate,lambda_ci_low,lambda_ci_high,ncs_score,ncs_score_tol
+corrected,snp,100,1.03,0.048,0.98,1.08,0.92,0.1

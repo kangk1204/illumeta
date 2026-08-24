@@ -1,11 +1,11 @@
 # Failure-Mode Matrix — `illumeta meta` pipeline (`illumeta_meta.py`)
 
-Tested: 2026-05-30 | Stages: 5 | Tests: 29 | Pass: 29 | Fail: 0 (1 fixed by patch)
+Revalidated: 2026-07-25 | Stages: 5 | Tests: 41 | Pass: 41 | Fail: 0 (1 fixed by patch)
 
-Scope: the cross-cohort meta-analysis Python pipeline (feeds manuscript Table 2).
+Scope: the cross-cohort meta-analysis Python pipeline and its machine-readable outputs.
 The per-cohort analysis (`r_scripts/analyze.R`) is R and is covered by
-`tests/test_r_design_invariants.py`; `illumeta.py` CLI orchestration is a
-separate follow-up scope. Tests live in `tests/test_pipeline_robustness.py`
+`tests/test_r_design_invariants.py`; `illumeta.py` CLI orchestration is covered
+separately below. Tests live in `tests/test_pipeline_robustness.py`
 and use only tiny synthetic inputs (no R, no `illumeta.py analysis`).
 
 | Stage \ Failure mode | A2 empty | A4 type | A5 schema | A6 range | A7 encoding | A8 dup | A9 extreme | A10 inf/NaN | B4 header | C2 perm | D1 div0 | F1 contract |
@@ -69,7 +69,7 @@ and use only tiny synthetic inputs (no R, no `illumeta.py analysis`).
 
 # Failure-Mode Matrix — `illumeta.py` orchestration pipeline
 
-Tested: 2026-05-30 | Stages: 5 | Tests: 49 | Pass: 49 | Fail: 0
+Revalidated: 2026-07-25 | Stages: 5 | Tests: 49 | Pass: 49 | Fail: 0
 
 Scope: the pure-Python CLI-orchestration helpers (no network, no R subprocess).
 Tests in `tests/test_orchestration_robustness.py`. **Tested clean — no gaps
@@ -98,4 +98,6 @@ previously-fixed HIGH-1 (whitespace group merge) and MED-1 (GEO URL bucket).
 - NOT tested (network/R-bound, out of pure-Python scope): GEO download/retry,
   RAW-tar extraction (covered in R: `test_r_design_invariants.py`), config-row
   loading from real sample sheets, the full `analysis`/`download` subcommands.
-- Combined robustness suites: 29 (meta) + 49 (orchestration) tests; full repo suite **231 passed**.
+- Combined robustness suites: 41 (meta) + 49 (orchestration) tests. The full
+  public suite passed **310 tests**, skipped 1 environment-dependent test, and
+  passed 12 subtests on 2026-07-25.

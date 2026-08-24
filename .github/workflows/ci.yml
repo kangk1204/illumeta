@@ -24,7 +24,39 @@ jobs:
         # (module-level def test_* using tmp_path/parametrize). `unittest discover`
         # errors on `import pytest` and silently skips the pytest-native tests, so
         # the robustness/smoke suites never ran under the old command.
-        run: python -m pytest tests
+        #
+        # This job has no R, so the R-dependent tests skip here by design. The
+        # r-statistical-tests job below is what actually exercises them; do not treat
+        # a green run of this job alone as coverage of the statistical core.
+        run: python -m pytest tests -rs
+
+  r-statistical-tests:
+    # Guards against the failure mode where every R-dependent test skips because
+    # Rscript is missing and the suite still reports green. ILLUMETA_REQUIRE_R=1
+    # (see tests/conftest.py) converts those skips into failures, so this job fails
+    # loudly if the R statistical core stops being exercised.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: "4.5"
+      - name: Install Python dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Verify Rscript is discoverable
+        run: Rscript --version
+      - name: Run test suite with R required
+        env:
+          ILLUMETA_REQUIRE_R: "1"
+        run: python -m pytest tests -rs
 
   r-syntax:
     runs-on: ubuntu-latest
@@ -35,7 +67,7 @@ jobs:
       - name: Set up R
         uses: r-lib/actions/setup-r@v2
         with:
-          r-version: "4.3"
+          r-version: "4.5"
       - name: Check R script syntax
         run: |
           errors=0

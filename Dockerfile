@@ -3,14 +3,15 @@ FROM mambaorg/micromamba:1.5.8
 ENV MAMBA_ROOT_PREFIX=/opt/conda
 ARG MAMBA_DOCKERFILE_ACTIVATE=1
 
-COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yml /tmp/environment.yml
-RUN micromamba create -y -n illumeta -f /tmp/environment.yml && \
+COPY --chown=$MAMBA_USER:$MAMBA_USER environment/conda_illumeta_lock.yml /tmp/conda_illumeta_lock.yml
+RUN micromamba create -y -n illumeta -f /tmp/conda_illumeta_lock.yml && \
     micromamba clean -a -y
 
 ENV PATH=/opt/conda/envs/illumeta/bin:/opt/conda/bin:$PATH \
     CONDA_PREFIX=/opt/conda/envs/illumeta \
     R_LIBS_USER=/opt/conda/envs/illumeta/illumeta-r-lib \
-    ILLUMETA_RESPECT_R_LIBS_USER=1
+    ILLUMETA_RESPECT_R_LIBS_USER=1 \
+    ILLUMETA_INSTALL_MINIMAL=1
 WORKDIR /app
 COPY . /app
 

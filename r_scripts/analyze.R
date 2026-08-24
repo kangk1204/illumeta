@@ -123,7 +123,7 @@ if (!exists("findbars")) {
 # DESCRIPTION:
 #   Core statistical analysis engine for IlluMeta. Implements dual-pipeline
 #   methylation analysis using minfi (Noob normalization) and sesame, with
-#   consensus intersection for high-confidence CpG calls.
+#   same-direction consensus intersection for cross-pipeline robustness checks.
 #
 # MAIN FEATURES:
 #   - Dual-pipeline normalization (minfi Noob + sesame)
@@ -264,6 +264,24 @@ ts_message <- function(..., domain = NULL, appendLF = TRUE) {
   base::message(sprintf("[%s] %s", format(Sys.time(), "%H:%M:%S"), paste(..., collapse = " ")),
                 domain = domain, appendLF = appendLF)
 }
+
+# Fail-closed domain validation for analysis thresholds (mirrors the Python CLI guard).
+# An invalid threshold reaching limma/plotting would silently select all probes or none.
+{
+  .thr_errs <- character(0)
+  if (!(is.finite(opt$pval) && opt$pval > 0 && opt$pval <= 1))
+    .thr_errs <- c(.thr_errs, sprintf("--pval must satisfy 0 < pval <= 1 (got %s)", opt$pval))
+  if (!(is.finite(opt$lfc) && opt$lfc >= 0))
+    .thr_errs <- c(.thr_errs, sprintf("--lfc must be finite and >= 0 (got %s)", opt$lfc))
+  if (!(is.finite(opt$delta_beta) && opt$delta_beta >= 0))
+    .thr_errs <- c(.thr_errs, sprintf("--delta_beta must be finite and >= 0 (got %s)", opt$delta_beta))
+  if (!(is.finite(opt$max_plots) && opt$max_plots >= 1))
+    .thr_errs <- c(.thr_errs, sprintf("--max_plots must be an integer >= 1 (got %s)", opt$max_plots))
+  if (length(.thr_errs) > 0) {
+    for (.e in .thr_errs) message(sprintf("[FATAL] Invalid threshold: %s", .e))
+    quit(status = 2, save = "no")
+  }
+}
 message <- ts_message
 
 # QC and filtering thresholds (kept as constants for transparency/reuse)
@@ -398,6 +416,18 @@ CONFIG_DEFAULTS <- list(
     min_samples = 8,
     action = "warn"
   ),
+  # Probe-class filtering. Illumina manifests carry three ID classes:
+  #   cg*  - CpG-context probes, the intended EWAS measurement
+  #   ch*  - non-CpG (CpH) cytosine probes; different biology, different noise profile,
+  #          and conventionally excluded from CpG-level EWAS reporting
+  #   rs*  - genotyping control probes; they measure a SNP, not methylation
+  # Leaving ch*/rs* in place lets them compete for top-hit slots and be reported as
+  # "CpG candidates", which they are not. Both are dropped by default; set to FALSE to
+  # retain them (e.g. for a deliberate CpH analysis).
+  probe_classes = list(
+    drop_non_cpg = TRUE,
+    drop_rs_control = TRUE
+  ),
   bacon = list(
     enabled = TRUE,
     min_probes = 100,
@@ -413,7 +443,16 @@ CONFIG_DEFAULTS <- list(
     autoscale_on_fail = TRUE
   ),
   tier3_meta = list(
-    method = "auto",
+    # "random" (DerSimonian-Laird) is the default because a Tier3 cohort's primary table
+    # is routinely consumed as a *single study* by the cross-cohort meta-analysis
+    # (illumeta_meta.py). A fixed-effect stratum SE = sqrt(1/sum(w)) discards all
+    # between-stratum heterogeneity, so that cohort arrives at the second level with an
+    # SE that is too small, is over-weighted by inverse-variance pooling, and drags the
+    # pooled p-value anti-conservative. Random-effects propagates tau2 into the SE, which
+    # is the variance component the second level needs. Set method: "auto" (I2-gated) or
+    # "fixed" to restore the pre-2026-07 behaviour; "auto"/"fixed" now emit a warning in
+    # the Tier3 notes so the choice is visible in the result package.
+    method = "random",
     i2_threshold = 0.5,
     min_total_n = 20,
     min_per_group_per_stratum = 5,
@@ -1046,7 +1085,7 @@ save_static_plot <- function(p, filename, dir, width = 7, height = 4, dpi = STAT
   }, error = function(e) {
     message(sprintf("  Static plot save skipped (%s): %s", filename, e$message))
   })
-  # Also save PDF version for publication-ready figures
+  # Also save a PDF version for portable vector output.
   pdf_name <- if (grepl("\\.png$", filename, ignore.case = TRUE)) {
     sub("\\.png$", ".pdf", filename, ignore.case = TRUE)
   } else {
@@ -1178,7 +1217,15 @@ drop_zero_variance_cols <- function(mat, label = "PCA") {
   list(mat = mat[, keep, drop = FALSE], dropped = dropped)
 }
 
-safe_prcomp <- function(mat, label = "PCA", center = TRUE, scale. = TRUE) {
+#' @param keep_rotation Retain the p x k loadings matrix. Defaults to FALSE because no
+#'   caller in this script reads `$rotation`, and on a full methylation matrix it is the
+#'   single largest object the PCA produces: for 304,973 probes across 808 samples it is
+#'   304973 x 808 doubles, about 2 GB, allocated and then never looked at. In
+#'   select_batch_strategy two such objects are live at once (baseline and candidate) for
+#'   every covariate set, which on the 808-sample cohort contributed to an out-of-memory
+#'   kill at 123 GB anonymous RSS. Dropping it cannot change any result: `$x`, `$sdev`,
+#'   `$center` and `$scale` are unaffected, and grep confirms `$rotation` has no reader.
+safe_prcomp <- function(mat, label = "PCA", center = TRUE, scale. = TRUE, keep_rotation = FALSE) {
   if (is.null(mat) || nrow(mat) < 2 || ncol(mat) < 2) {
     message(sprintf("  %s: not enough data for PCA; skipping.", label))
     return(NULL)
@@ -1191,7 +1238,11 @@ safe_prcomp <- function(mat, label = "PCA", center = TRUE, scale. = TRUE) {
       return(NULL)
     }
   }
-  prcomp(mat, center = center, scale. = scale.)
+  out <- prcomp(mat, center = center, scale. = scale.)
+  if (!keep_rotation) {
+    out$rotation <- NULL
+  }
+  out
 }
 
 clamp01 <- function(x) {
@@ -1264,10 +1315,29 @@ compute_genomic_lambda <- function(pvals) {
   pvals <- suppressWarnings(as.numeric(pvals))
   pvals <- pvals[is.finite(pvals) & pvals > 0 & pvals < 1]
   if (length(pvals) < 2) return(NA_real_)
-  chisq_vals <- suppressWarnings(qchisq(1 - pvals, 1))
+  # Use the upper tail directly. qchisq(1 - p, 1) loses every p below ~1e-16 because
+  # 1 - p rounds to exactly 1 in double precision and qchisq(1, 1) is Inf, which the
+  # is.finite() filter then silently discards -- i.e. the most significant probes,
+  # exactly the ones an inflation diagnostic exists to characterise, were being dropped.
+  # qchisq(p, 1, lower.tail = FALSE) is exact across the whole representable range.
+  chisq_vals <- suppressWarnings(qchisq(pvals, 1, lower.tail = FALSE))
   chisq_vals <- chisq_vals[is.finite(chisq_vals)]
   if (length(chisq_vals) < 2) return(NA_real_)
   median(chisq_vals, na.rm = TRUE) / qchisq(0.5, 1)
+}
+
+subsample_qq_df <- function(qq_df, max_points) {
+  max_points <- suppressWarnings(as.integer(max_points))
+  if (!is.finite(max_points) || max_points <= 0 || nrow(qq_df) <= max_points) {
+    return(qq_df)
+  }
+  idx <- unique(round(seq(1, nrow(qq_df), length.out = max_points)))
+  idx <- idx[is.finite(idx) & idx >= 1 & idx <= nrow(qq_df)]
+  if (length(idx) < max_points) {
+    missing <- setdiff(seq_len(nrow(qq_df)), idx)
+    idx <- c(idx, head(missing, max_points - length(idx)))
+  }
+  qq_df[sort(idx[seq_len(max_points)]), , drop = FALSE]
 }
 
 #' Bayesian bias-and-inflation correction of EWAS test statistics via bacon.
@@ -1290,11 +1360,18 @@ apply_bacon_correction <- function(res, prefix = "", min_probes = 100L,
                                     niter = 5000L, nburnin = 2000L,
                                     label = "") {
   status <- "ok"
-  res$logFC.bacon <- res$logFC
-  res$t.bacon <- res$t
-  res$P.Value.bacon <- res$P.Value
-  res$adj.P.Val.bacon <- res$adj.P.Val
+  # Seed the .bacon columns with NA, not with the raw limma values. A ".bacon" column
+  # holding an uncorrected statistic is indistinguishable from a corrected one to every
+  # downstream reader (illumeta_meta.py --use-bacon selects purely on column presence),
+  # so a skipped or partially-applied correction would silently masquerade as applied.
+  # NA makes "bacon did not calibrate this probe" explicit and recoverable.
+  res$logFC.bacon <- NA_real_
+  res$t.bacon <- NA_real_
+  res$P.Value.bacon <- NA_real_
+  res$adj.P.Val.bacon <- NA_real_
   attr(res, "bacon_status") <- "skipped"
+  attr(res, "bacon_n_calibrated") <- 0L
+  attr(res, "bacon_n_uncalibrated") <- nrow(res)
   attr(res, "lambda_before") <- compute_genomic_lambda(res$P.Value)
   attr(res, "inflation_bacon") <- NA_real_
   attr(res, "bias_bacon") <- NA_real_
@@ -1329,11 +1406,28 @@ apply_bacon_correction <- function(res, prefix = "", min_probes = 100L,
   esc <- tryCatch(bacon::es(bc)[, 1], error = function(e) NULL)
   tsc <- tryCatch(bacon::tstat(bc)[, 1], error = function(e) NULL)
   if (is.null(pv)) return(res)
+  # Probes outside `ok` were never passed to bacon, so they have no recalibrated
+  # statistic. Leaving the raw limma values in the .bacon columns would mislabel
+  # uncorrected p-values as corrected, let BH mix two different null calibrations in
+  # one adjustment, and contaminate lambda_after. Mark them NA instead: BH then
+  # adjusts only over the probes bacon actually calibrated, and any downstream
+  # consumer (including illumeta_meta.py --use-bacon) sees a missing value rather
+  # than a silently wrong one.
+  res$logFC.bacon <- NA_real_
+  res$t.bacon <- NA_real_
+  res$P.Value.bacon <- NA_real_
   res$P.Value.bacon[ok] <- pv
-  if (!is.null(esc)) res$logFC.bacon[ok] <- esc
-  if (!is.null(tsc)) res$t.bacon[ok] <- tsc
+  res$logFC.bacon[ok] <- if (!is.null(esc)) esc else res$logFC[ok]
+  res$t.bacon[ok] <- if (!is.null(tsc)) tsc else res$t[ok]
   res$adj.P.Val.bacon <- p.adjust(res$P.Value.bacon, method = "BH")
+  n_uncalibrated <- sum(!ok)
+  if (n_uncalibrated > 0) {
+    message(sprintf("  [bacon] %d/%d probes had no usable effect/SE pair; their .bacon columns are NA.",
+                    n_uncalibrated, nrow(res)))
+  }
   attr(res, "bacon_status") <- "ok"
+  attr(res, "bacon_n_calibrated") <- sum(ok)
+  attr(res, "bacon_n_uncalibrated") <- n_uncalibrated
   attr(res, "inflation_bacon") <- infl
   attr(res, "bias_bacon") <- bias_v
   attr(res, "lambda_after") <- compute_genomic_lambda(res$P.Value.bacon)
@@ -1623,10 +1717,30 @@ compute_batch_stability <- function(betas, targets, batch_col, covariates, group
 #' @details
 #' KS p-value < 0.05 suggests deviation from uniform null distribution.
 #' Lambda near 1.0 indicates well-calibrated test statistics.
+#' Permutation-null calibration on batch-corrected data.
+#'
+#' IMPORTANT INTERPRETATION LIMIT. This is called on `betas_corr`, i.e. on a matrix that
+#' ComBat/limma have already corrected using a design that *protects* the true group
+#' variable. The true labels therefore informed the data before the labels are permuted,
+#' so the permuted data are not exchangeable under the null and the resulting lambda is a
+#' biased estimate of the true null inflation -- generally deflated, because the genuine
+#' group signal was preserved by the correction and is then scattered across random
+#' labels. The permutation is stratified within batch, which controls batch structure but
+#' does not repair the label leakage.
+#'
+#' This statistic is consequently used only as a *relative* score for ranking correction
+#' strategies against one another under an identical procedure (select_batch_strategy),
+#' never as an absolute claim that a given analysis is calibrated. The absolute inflation
+#' claim comes from the separate lambda guard on the observed statistics and from bacon's
+#' empirical null. Removing the bias entirely would require re-running the batch
+#' correction inside every permutation, which is prohibitively expensive at EWAS scale.
 run_permutation_uniformity <- function(betas, targets, group_col, covariates, batch_col, perm_n, vp_top) {
   if (perm_n <= 0) return(NULL)
   if (!is.finite(vp_top) || vp_top <= 0) return(NULL)
-  top_perm <- head(order(apply(betas, 1, var), decreasing = TRUE), min(vp_top, nrow(betas)))
+  # na.rm = TRUE matches subset_top_variable(); without it any probe carrying an NA gets
+  # var = NA and is silently pushed to the end of the ranking, so the SeSAMe native branch
+  # (which retains NAs by design) selected a different probe set here than everywhere else.
+  top_perm <- head(order(apply(betas, 1, var, na.rm = TRUE), decreasing = TRUE), min(vp_top, nrow(betas)))
   if (length(top_perm) == 0) return(NULL)
   m_perm <- logit_offset(betas[top_perm, , drop = FALSE])
   if (nrow(m_perm) == 0) return(NULL)
@@ -1705,6 +1819,18 @@ run_permutation_uniformity <- function(betas, targets, group_col, covariates, ba
 #'   - bio: Biological signal preservation (R2 with bio variables)
 #'   - cal: Calibration (permutation uniformity)
 #'   - stab: Stability (cross-batch effect correlation)
+#'
+#' SEARCH STRATEGY -- this is a two-stage greedy search, not an exhaustive optimum.
+#' Stage 1 scores every (covariate set x method) candidate using the batch and bio terms
+#' only; the cal and stab terms are held at a constant 0.5 placeholder because both are
+#' expensive (cal runs `perm_n` permutations, stab refits across batches). Candidates are
+#' ranked on that partial score and only the top `scoring_preset$top_k` are evaluated for
+#' real. Consequence: the screen is effectively driven by batch+bio, so a candidate that
+#' would have won on calibration or stability can be eliminated before it is ever
+#' measured. Candidates that were never evaluated keep status "PENDING" and are excluded
+#' from the final selection, so the returned choice is always one that was fully scored --
+#' but it is the best of the shortlist, not provably the global best. Raise
+#' `scoring_presets.<preset>.top_k` to widen the shortlist at proportional cost.
 select_batch_strategy <- function(betas, targets, batch_col, batch_tier, covariate_sets, group_col,
                                   config_settings, scoring_preset, perm_n, vp_top, prefix, out_dir,
                                   method_pool = NULL) {
@@ -1722,7 +1848,16 @@ select_batch_strategy <- function(betas, targets, batch_col, batch_tier, covaria
   for (set_name in names(covariate_sets)) {
     cov_set <- covariate_sets[[set_name]]
     base_res <- eval_batch_method(M_mat, targets, group_col = group_col, batch_col = batch_col, covariates = cov_set, method = "none")
-    base_pca <- safe_prcomp(t(base_res$M_corr), label = paste("Batch eval", set_name, "baseline"), scale. = TRUE)
+    # Transpose first, then drop the corrected matrix before the PCA allocates. M_corr is
+    # a full probes-by-samples matrix (about 2 GB at 305k x 808) and nothing below this
+    # line reads it -- only the scalar diagnostics batch_var, prop_batch_sig and
+    # n_pc_batch_sig are used later -- so holding it across the method loop is dead
+    # weight at exactly the point where this stage peaks.
+    base_t <- t(base_res$M_corr)
+    base_res$M_corr <- NULL
+    base_pca <- safe_prcomp(base_t, label = paste("Batch eval", set_name, "baseline"), scale. = TRUE)
+    rm(base_t)
+    gc(verbose = FALSE)
     base_pc_r2 <- if (!is.null(base_pca)) compute_pc_batch_r2(base_pca$x, batch_vals) else NA_real_
     base_mix <- if (!is.null(base_pca)) compute_knn_mixing(base_pca$x, batch_vals) else NA_real_
     for (m in methods) {
@@ -1752,7 +1887,16 @@ select_batch_strategy <- function(betas, targets, batch_col, batch_tier, covaria
         ))
         next
       }
-      pca_after <- safe_prcomp(t(res$M_corr), label = paste("Batch eval", set_name, m), scale. = TRUE)
+      # Same treatment as the baseline: transpose, release the 2 GB corrected matrix
+      # before the PCA allocates, and release the transpose once the PCA has consumed it.
+      # Without this, `res` still holds the previous candidate's M_corr while
+      # eval_batch_method above builds the next one, so two full matrices are live across
+      # every iteration of a loop that runs once per covariate set per method.
+      res_t <- t(res$M_corr)
+      res$M_corr <- NULL
+      pca_after <- safe_prcomp(res_t, label = paste("Batch eval", set_name, m), scale. = TRUE)
+      rm(res_t)
+      gc(verbose = FALSE)
       pc_r2_after <- if (!is.null(pca_after)) compute_pc_batch_r2(pca_after$x, batch_vals) else NA_real_
       mix_after <- if (!is.null(pca_after)) compute_knn_mixing(pca_after$x, batch_vals) else NA_real_
       bio_pres <- compute_bio_preservation(base_pca, pca_after, targets, bio_vars)
@@ -1848,6 +1992,15 @@ select_batch_strategy <- function(betas, targets, batch_col, batch_tier, covaria
     }
   }
   cand_rows <- cand_rows[order(-cand_rows$total_score), ]
+  n_pending <- sum(cand_rows$status == "PENDING")
+  if (n_pending > 0) {
+    message(sprintf(
+      "  - Batch strategy: %d/%d candidates were screened out on batch+bio alone and never scored for calibration/stability (top_k=%d). Selection is the best of the shortlist, not a full grid search.",
+      n_pending, nrow(cand_rows), top_k))
+    log_decision("batch_strategy", "search_truncated", as.character(n_pending),
+                 reason = "two_stage_greedy_top_k",
+                 metrics = list(top_k = top_k, n_candidates = nrow(cand_rows), n_unscored = n_pending))
+  }
   best_rows <- cand_rows[!(cand_rows$status %in% c("RED", "FAILED", "PENDING")), , drop = FALSE]
   if (nrow(best_rows) == 0) {
     best_rows <- cand_rows[!(cand_rows$status %in% c("FAILED", "PENDING")), , drop = FALSE]
@@ -4035,6 +4188,46 @@ filter_sv_by_group <- function(targets, sv_cols, group_col,
   list(keep = setdiff(sv_cols, drops$Variable), dropped = drops)
 }
 
+#' Classify Illumina probe IDs into cg / ch (non-CpG) / rs (genotyping control).
+#'
+#' EPICv2 IDs carry a "_<suffix>" replicate tag, so classification is done on the
+#' base ID. Anything that matches none of the three known prefixes is treated as a
+#' cg-class probe (kept) rather than silently discarded.
+classify_probe_ids <- function(ids) {
+  base <- sub("_.+$", "", as.character(ids))
+  out <- rep("cg", length(base))
+  out[grepl("^ch[.]?[0-9]", base)] <- "ch"
+  out[grepl("^rs[0-9]", base)] <- "rs"
+  out
+}
+
+#' Drop non-CpG (ch*) and genotyping-control (rs*) probes from a set of IDs.
+#'
+#' Returns the keep mask plus per-class counts so every branch can log an identical
+#' filtering record. Config-driven so a deliberate CpH analysis can opt out.
+probe_class_keep_mask <- function(ids, drop_non_cpg = TRUE, drop_rs_control = TRUE) {
+  cls <- classify_probe_ids(ids)
+  keep <- rep(TRUE, length(cls))
+  if (isTRUE(drop_non_cpg)) keep <- keep & cls != "ch"
+  if (isTRUE(drop_rs_control)) keep <- keep & cls != "rs"
+  list(keep = keep,
+       n_ch = sum(cls == "ch"),
+       n_rs = sum(cls == "rs"),
+       n_dropped = sum(!keep))
+}
+
+#' Apply probe-class filtering to a beta/M matrix, logging what was removed.
+apply_probe_class_filter <- function(mat, label, drop_non_cpg = TRUE, drop_rs_control = TRUE) {
+  if (is.null(mat) || nrow(mat) == 0) return(list(mat = mat, removed = 0L, n_ch = 0L, n_rs = 0L))
+  res <- probe_class_keep_mask(rownames(mat), drop_non_cpg, drop_rs_control)
+  if (res$n_dropped > 0) {
+    message(sprintf("  - [%s] Removed %d non-CpG/control probes (ch=%d, rs=%d).",
+                    label, res$n_dropped, res$n_ch, res$n_rs))
+  }
+  list(mat = mat[res$keep, , drop = FALSE], removed = res$n_dropped,
+       n_ch = res$n_ch, n_rs = res$n_rs)
+}
+
 filter_low_range <- function(betas, min_range = BETA_RANGE_MIN) {
   rng <- apply(betas, 1, function(x) {
     r <- range(x, na.rm = TRUE)
@@ -6125,6 +6318,23 @@ run_stratified_meta_analysis <- function(betas, targets, batch_col, group_col, c
                  metrics = list(valid_strata = length(effects), total_strata = length(strata)))
     return(NULL)
   }
+  # cbind() binds by position, not by name, and the meta result is later labelled with
+  # rownames(betas). limma preserves input row order so this holds in practice, but the
+  # invariant was never checked: any stratum that returned a different probe set or a
+  # different order would silently mis-align every effect with the wrong CpG. Verify it.
+  expected_probes <- rownames(betas)
+  for (nm in names(effects)) {
+    eff_names <- names(effects[[nm]])
+    se_names <- names(ses[[nm]])
+    if (is.null(eff_names) || is.null(se_names) ||
+        !identical(eff_names, expected_probes) || !identical(se_names, expected_probes)) {
+      stop(sprintf(
+        paste0("Stratified meta-analysis aborted: stratum '%s' returned probes that do not match ",
+               "the input matrix (expected %d in input order, got %d). Combining them by position ",
+               "would assign effects to the wrong CpGs."),
+        nm, length(expected_probes), length(eff_names)))
+    }
+  }
   eff_mat <- do.call(cbind, effects)
   se_mat <- do.call(cbind, ses)
   if (is.null(eff_mat) || is.null(se_mat) || ncol(eff_mat) < 2 || ncol(se_mat) < 2 || nrow(eff_mat) == 0) {
@@ -6144,9 +6354,9 @@ run_stratified_meta_analysis <- function(betas, targets, batch_col, group_col, c
   meta_fixed <- meta_analysis_fixed(eff_mat, se_mat)
   meta_random <- meta_analysis_random(eff_mat, se_mat)
   tier3_cfg <- if (exists("config_settings")) config_settings$tier3_meta else NULL
-  meta_method_cfg <- if (!is.null(tier3_cfg$method)) as.character(tier3_cfg$method) else "auto"
+  meta_method_cfg <- if (!is.null(tier3_cfg$method)) as.character(tier3_cfg$method) else "random"
   meta_method_cfg <- tolower(meta_method_cfg)
-  if (!meta_method_cfg %in% c("auto", "fixed", "random")) meta_method_cfg <- "auto"
+  if (!meta_method_cfg %in% c("auto", "fixed", "random")) meta_method_cfg <- "random"
   i2_threshold <- suppressWarnings(as.numeric(if (!is.null(tier3_cfg$i2_threshold)) tier3_cfg$i2_threshold else 0.5))
   if (!is.finite(i2_threshold)) i2_threshold <- 0.5
   i2_median <- suppressWarnings(median(meta_random$i2, na.rm = TRUE))
@@ -6160,9 +6370,20 @@ run_stratified_meta_analysis <- function(betas, targets, batch_col, group_col, c
     if (is.finite(i2_median) && i2_median >= i2_threshold) meta_method <- "random"
   }
   meta_use <- if (meta_method == "random") meta_random else meta_fixed
+  # A fixed-effect Tier3 SE carries no between-stratum variance component. When this
+  # cohort table is later pooled as one "study" by the cross-cohort meta-analysis the
+  # missing tau2 makes the cohort look more precise than it is. Surface that explicitly
+  # instead of leaving it implicit in the meta_method string.
+  tau2_propagated <- identical(meta_method, "random")
+  if (!tau2_propagated) {
+    message(sprintf(
+      "  WARNING: Tier3 meta uses fixed-effect SE (method=%s); between-stratum tau2 is NOT propagated. Downstream cross-cohort pooling will over-weight this cohort.",
+      meta_method_cfg))
+  }
   log_decision("tier3", "meta_method", meta_method,
                reason = ifelse(meta_method_cfg == "auto", "auto_i2", meta_method_cfg),
-               metrics = list(i2_median = i2_median, i2_mean = i2_mean, i2_threshold = i2_threshold))
+               metrics = list(i2_median = i2_median, i2_mean = i2_mean, i2_threshold = i2_threshold,
+                              tau2_propagated = tau2_propagated))
   meta_df <- data.frame(
     CpG = rownames(betas),
     logFC = meta_use$beta,
@@ -6221,7 +6442,8 @@ run_stratified_meta_analysis <- function(betas, targets, batch_col, group_col, c
     min_stratum_n = ifelse(length(stratum_sizes) > 0, min(stratum_sizes), NA_integer_),
     median_stratum_n = ifelse(length(stratum_sizes) > 0, median(stratum_sizes), NA_integer_),
     total_n = ifelse(length(stratum_sizes) > 0, sum(stratum_sizes), NA_integer_),
-    strata_used = strata_used
+    strata_used = strata_used,
+    tau2_propagated = tau2_propagated
   )
 }
 
@@ -6308,20 +6530,51 @@ emit_tier3_primary_outputs <- function(meta_res, betas, targets, curr_anno, pref
                                        group_con_in, group_test_in, clean_con, clean_test,
                                        max_points, pval_thresh, lfc_thresh,
                                        meta_method = "", i2_median = NA_real_,
-                                       tier3_stats = NULL) {
+                                       tier3_stats = NULL,
+                                       batch_col = NULL, strata_used = NULL) {
   if (is.null(meta_res) || nrow(meta_res) == 0) return(NULL)
   if (!("CpG" %in% colnames(meta_res))) {
     meta_res$CpG <- rownames(meta_res)
   }
   res <- meta_res
-  con_mask <- targets$primary_group == clean_con
-  test_mask <- targets$primary_group == clean_test
+  # Delta_Beta must be measured on the SAME samples that produced logFC/SE/P.Value.
+  # run_stratified_meta_analysis fits only inside the overlap strata it actually used,
+  # so computing the beta-scale effect over every sample in the cohort (including
+  # non-overlap strata that never entered any stratum model) makes the M-value effect
+  # and the beta-scale effect describe different populations. Because |Delta_Beta| is a
+  # hard gate downstream (delta_beta_thresh here, min_abs_delta_beta in the cross-cohort
+  # meta-analysis), that mismatch propagates into candidate selection. Restrict to the
+  # strata actually used; fall back to all samples only when the stratum set is unknown.
+  strata_mask <- rep(TRUE, nrow(targets))
+  delta_beta_scope <- "all_samples"
+  if (!is.null(batch_col) && nzchar(batch_col) && batch_col %in% colnames(targets) &&
+      !is.null(strata_used) && length(strata_used) > 0) {
+    candidate_mask <- as.character(targets[[batch_col]]) %in% as.character(strata_used)
+    n_con_in <- sum(candidate_mask & targets$primary_group == clean_con, na.rm = TRUE)
+    n_test_in <- sum(candidate_mask & targets$primary_group == clean_test, na.rm = TRUE)
+    if (n_con_in > 0 && n_test_in > 0) {
+      strata_mask <- candidate_mask
+      delta_beta_scope <- "meta_strata"
+    } else {
+      message("  - Tier3 Delta_Beta: stratum restriction would empty a group; using all samples.")
+    }
+  }
+  con_mask <- strata_mask & targets$primary_group == clean_con
+  test_mask <- strata_mask & targets$primary_group == clean_test
   mean_beta_con <- rowMeans(betas[, con_mask, drop = FALSE], na.rm = TRUE)
   mean_beta_test <- rowMeans(betas[, test_mask, drop = FALSE], na.rm = TRUE)
   delta_beta <- mean_beta_test - mean_beta_con
   res$Mean_Beta_Con <- mean_beta_con[res$CpG]
   res$Mean_Beta_Test <- mean_beta_test[res$CpG]
   res$Delta_Beta <- delta_beta[res$CpG]
+  res$Delta_Beta_Scope <- delta_beta_scope
+  res$Delta_Beta_N_Con <- sum(con_mask, na.rm = TRUE)
+  res$Delta_Beta_N_Test <- sum(test_mask, na.rm = TRUE)
+  log_decision("tier3", "delta_beta_scope", delta_beta_scope,
+               reason = if (delta_beta_scope == "meta_strata") "restricted_to_meta_strata" else "strata_unavailable",
+               metrics = list(n_con = sum(con_mask, na.rm = TRUE),
+                              n_test = sum(test_mask, na.rm = TRUE),
+                              n_strata = length(strata_used)))
   if (!is.null(curr_anno)) {
     res <- merge(res, curr_anno, by.x = "CpG", by.y = "CpG", all.x = TRUE)
   }
@@ -6344,6 +6597,13 @@ emit_tier3_primary_outputs <- function(meta_res, betas, targets, curr_anno, pref
   note_lines <- c(
     "Tier3 confounding detected: primary inference uses stratified EWAS + meta-analysis.",
     sprintf("Tier3 meta-analysis method: %s (I2 median=%s).", meta_method_disp, i2_disp),
+    sprintf("Delta_Beta scope: %s (control n=%d, test n=%d).",
+            delta_beta_scope, sum(con_mask, na.rm = TRUE), sum(test_mask, na.rm = TRUE)),
+    if (delta_beta_scope == "meta_strata") {
+      "Delta_Beta is measured on the same overlap strata that produced logFC/SE/P.Value."
+    } else {
+      "WARNING: Delta_Beta covers all samples while logFC came from overlap strata only; the two effect scales describe different sample sets."
+    },
     "These Tier3_Primary outputs are the recommended results for interpretation.",
     "Standard (non-stratified) outputs are provided as sensitivity checks only."
   )
@@ -6353,6 +6613,11 @@ emit_tier3_primary_outputs <- function(meta_res, betas, targets, curr_anno, pref
   min_stratum_warn <- suppressWarnings(as.numeric(if (!is.null(config_settings$tier3_meta$min_stratum_warn))
     config_settings$tier3_meta$min_stratum_warn else 6))
   if (!is.finite(min_stratum_warn)) min_stratum_warn <- 6
+  if (!is.null(tier3_stats) && !isTRUE(tier3_stats$tau2_propagated)) {
+    note_lines <- c(note_lines,
+                    "WARNING: fixed-effect Tier3 SE; between-stratum tau2 is not propagated.",
+                    "Treat this cohort's SE as a lower bound when pooling it across cohorts.")
+  }
   if (!is.null(tier3_stats)) {
     if (is.finite(tier3_stats$total_n) && tier3_stats$total_n < min_total_warn) {
       note_lines <- c(note_lines,
@@ -6376,10 +6641,7 @@ emit_tier3_primary_outputs <- function(meta_res, betas, targets, curr_anno, pref
     expected <- -log10(ppoints(n_p))
     observed <- -log10(pmax(sort(p_vals), .Machine$double.xmin))
     qq_df <- data.frame(Expected = expected, Observed = observed)
-    if (nrow(qq_df) > max_points) {
-      idx <- unique(c(1:1000, seq(1001, n_p, length.out = max_points)))
-      qq_df <- qq_df[idx, ]
-    }
+    qq_df <- subsample_qq_df(qq_df, max_points)
     p_qq <- ggplot(qq_df, aes(x = Expected, y = Observed)) +
       geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
       geom_point(alpha = 0.5, size = 1) +
@@ -6610,10 +6872,7 @@ run_lambda_guard <- function(betas, targets, group_col, prefix, out_dir, max_poi
   expected <- -log10(ppoints(length(p_vals)))
   observed <- -log10(pmax(sort(p_vals), .Machine$double.xmin))
   qq_df <- data.frame(Expected = expected, Observed = observed)
-  if (nrow(qq_df) > max_points) {
-    idx <- unique(c(1:1000, seq(1001, nrow(qq_df), length.out = max_points)))
-    qq_df <- qq_df[idx, ]
-  }
+  qq_df <- subsample_qq_df(qq_df, max_points)
   p_qq <- ggplot(qq_df, aes(x = Expected, y = Observed)) +
     geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
     geom_point(alpha = 0.5, size = 1) +
@@ -7640,7 +7899,7 @@ if (min(n_con, n_test) < 2) {
 
 message(sprintf("Samples retained after QC - Control: %d, Test: %d (total: %d)", n_con, n_test, n_con + n_test))
 
-# Save sample-level QC metrics and figures (publication-friendly)
+# Save sample-level QC metrics and portable figures.
 tryCatch({
     # Bind QC plot/CSV group labels by identity (basename usually wins for GEO cohorts), not by
     # positional order; the positional overwrite below is kept only as a last resort.
@@ -7811,6 +8070,33 @@ message("Preprocessing (Noob)...")
 mSet <- preprocessNoob(rgSet)
 gmSet <- mapToGenome(mSet)
 
+# Array-level masking sets, computed ONCE on the unfiltered manifest so that every
+# preprocessing branch applies an identical definition of "SNP-overlapping probe" and
+# "sex-chromosome probe". Previously only the Minfi object was filtered here and the
+# SeSAMe native branch inherited nothing, so the two routes were compared on probe sets
+# with different genotype/sex-chromosome content. Deriving the sets from the full
+# manifest (rather than from whatever survived Minfi's detection-p filter) also means a
+# SeSAMe-only probe is masked correctly even when Minfi dropped it earlier.
+# Both sets are stored WITHOUT the EPICv2 "_<suffix>" replicate tag, and every lookup
+# strips the tag before matching. On EPICv2 the manifest IDs carry suffixes while the
+# SeSAMe matrices may not (and normalize_epicv2_ids() rewrites them later anyway), so
+# comparing raw IDs would silently mask nothing on one branch and everything it should
+# on the other.
+.strip_probe_suffix <- function(ids) sub("_.+$", "", as.character(ids))
+array_sex_probe_ids <- {
+  full_anno <- getAnnotation(gmSet)
+  unique(.strip_probe_suffix(rownames(full_anno)[full_anno$chr %in% c("chrX", "chrY")]))
+}
+array_snp_probe_ids <- unique(.strip_probe_suffix(setdiff(
+  rownames(gmSet),
+  rownames(dropLociWithSnps(gmSet, snps = c("SBE", "CpG"), maf = SNP_MAF_THRESHOLD))
+)))
+message(sprintf("  - Array-level masks: %d sex-chromosome probes, %d SNP-overlapping probes (MAF >= %.2f).",
+                length(array_sex_probe_ids), length(array_snp_probe_ids), SNP_MAF_THRESHOLD))
+probe_class_cfg <- config_settings$probe_classes
+probe_drop_non_cpg <- !identical(probe_class_cfg$drop_non_cpg, FALSE)
+probe_drop_rs <- !identical(probe_class_cfg$drop_rs_control, FALSE)
+
 # C. Probe-Level QC
 message("Performing Probe QC...")
 nrow_raw <- nrow(gmSet)
@@ -7867,30 +8153,43 @@ probe_filter_log <- rbind(probe_filter_log,
                           data.frame(step = "cross_reactive", removed = n_cross_probes, remaining = nrow(gmSet)))
 
 before_snps <- nrow(gmSet)
-gmSet <- dropLociWithSnps(gmSet, snps=c("SBE","CpG"), maf=SNP_MAF_THRESHOLD)
+# Reuse the array-level SNP mask rather than calling dropLociWithSnps() a second time,
+# so the Minfi and SeSAMe branches provably share one definition.
+gmSet <- gmSet[!(.strip_probe_suffix(rownames(gmSet)) %in% array_snp_probe_ids), ]
 n_snp_probes <- before_snps - nrow(gmSet)
 message(paste("  - SNP filtering applied (MAF threshold:", SNP_MAF_THRESHOLD, "). Current probes:", nrow(gmSet)))
 probe_filter_log <- rbind(probe_filter_log,
                           data.frame(step = "snp", removed = n_snp_probes, remaining = nrow(gmSet)))
 
-ann <- getAnnotation(gmSet)
-keep_sex <- !(ann$chr %in% c("chrX", "chrY"))
 before_sex <- nrow(gmSet)
-gmSet <- gmSet[keep_sex, ]
+gmSet <- gmSet[!(.strip_probe_suffix(rownames(gmSet)) %in% array_sex_probe_ids), ]
 n_sex_probes <- before_sex - nrow(gmSet)
-message(paste("  - Removed Sex Chromosome probes. Final probes:", nrow(gmSet)))
+message(paste("  - Removed Sex Chromosome probes. Current probes:", nrow(gmSet)))
 probe_filter_log <- rbind(probe_filter_log,
                           data.frame(step = "sex_chr", removed = n_sex_probes, remaining = nrow(gmSet)))
+
+before_class <- nrow(gmSet)
+probe_class_res <- probe_class_keep_mask(rownames(gmSet), probe_drop_non_cpg, probe_drop_rs)
+gmSet <- gmSet[probe_class_res$keep, ]
+n_class_probes <- before_class - nrow(gmSet)
+message(sprintf("  - Removed %d non-CpG/control probes (ch=%d, rs=%d). Final probes: %d",
+                n_class_probes, probe_class_res$n_ch, probe_class_res$n_rs, nrow(gmSet)))
+probe_filter_log <- rbind(probe_filter_log,
+                          data.frame(step = "probe_class", removed = n_class_probes, remaining = nrow(gmSet)))
+log_decision("qc", "probe_class_removed", as.character(n_class_probes),
+             reason = sprintf("drop_non_cpg=%s;drop_rs=%s", probe_drop_non_cpg, probe_drop_rs),
+             metrics = list(n_ch = probe_class_res$n_ch, n_rs = probe_class_res$n_rs))
 
 qc_report <- data.frame(
   metric = c("Total_samples_input", "Samples_failed_QC", "Samples_passed_QC",
              "Samples_failed_sex_mismatch", "Sex_mismatch_samples",
              "Total_probes_raw", "Probes_failed_detection", "Probes_cross_reactive",
-             "Probes_with_SNPs", "Probes_sex_chromosomes", "Probes_final"),
+             "Probes_with_SNPs", "Probes_sex_chromosomes", "Probes_non_cpg_or_control",
+             "Probes_final"),
   value = c(n_samples_input, samples_failed_qc, nrow(targets),
             samples_failed_sex, sex_mismatch_count,
             nrow_raw, probes_failed_detection, n_cross_probes,
-            n_snp_probes, n_sex_probes, nrow(gmSet))
+            n_snp_probes, n_sex_probes, n_class_probes, nrow(gmSet))
 )
 write.csv(qc_report, file.path(out_dir, "QC_Summary.csv"), row.names = FALSE)
 write.csv(probe_filter_log, file.path(out_dir, "Probe_Filter_Summary.csv"), row.names = FALSE)
@@ -7941,6 +8240,8 @@ beta_sesame_strict <- NULL
 beta_sesame_native <- NULL
 sesame_strict_before <- 0
 sesame_native_before <- 0
+sesame_masked_snp_sex <- 0L
+sesame_masked_class <- 0L
 sesame_typeinorm_enabled <- isTRUE(opt$sesame_typeinorm)
 sesame_typeinorm_disabled <- !sesame_typeinorm_enabled && !isTRUE(opt$skip_sesame)
 sesame_dyebias_mode <- if (opt$skip_sesame) "skipped" else if (sesame_typeinorm_enabled) "dyeBiasCorrTypeINorm" else "dyeBiasL"
@@ -8057,6 +8358,35 @@ if (opt$skip_sesame) {
       n_cross <- length(cr_res$removed)
       source_disp <- ifelse(nzchar(cross_reactive_source), cross_reactive_source, "list")
       message(sprintf("  - Sesame: removed %d cross-reactive probes (source: %s).", n_cross, source_disp))
+    }
+
+    # Branch-symmetric QC. The Minfi route removes SNP-overlapping probes, sex-chromosome
+    # probes and non-CpG/control probes; the strict SeSAMe route used to acquire those
+    # removals only as a side effect of being intersected with the Minfi footprint, and
+    # the native route acquired them not at all. That left the native branch carrying
+    # chrX/chrY and genotype-driven probes into DMP calling, the cross-cohort
+    # meta-analysis and the candidate tables, so branch agreement was being measured
+    # across probe sets that were not comparable. Apply the same array-level masks here,
+    # before the native/strict split, so all three branches see one probe-QC definition.
+    sesame_before_mask <- nrow(beta_sesame_raw)
+    .sesame_base_ids <- .strip_probe_suffix(rownames(beta_sesame_raw))
+    beta_sesame_raw <- beta_sesame_raw[
+      !(.sesame_base_ids %in% array_snp_probe_ids) &
+        !(.sesame_base_ids %in% array_sex_probe_ids), , drop = FALSE]
+    sesame_masked_snp_sex <- sesame_before_mask - nrow(beta_sesame_raw)
+    class_res <- apply_probe_class_filter(beta_sesame_raw, "Sesame", probe_drop_non_cpg, probe_drop_rs)
+    beta_sesame_raw <- class_res$mat
+    sesame_masked_class <- class_res$removed
+    message(sprintf("  - Sesame: removed %d SNP/sex-chromosome probes and %d non-CpG/control probes (%d -> %d).",
+                    sesame_masked_snp_sex, sesame_masked_class,
+                    sesame_before_mask, nrow(beta_sesame_raw)))
+    log_decision("qc", "sesame_branch_symmetric_mask",
+                 as.character(sesame_masked_snp_sex + sesame_masked_class),
+                 reason = "match_minfi_probe_qc",
+                 metrics = list(snp_sex = sesame_masked_snp_sex, probe_class = sesame_masked_class,
+                                before = sesame_before_mask, after = nrow(beta_sesame_raw)))
+    if (nrow(beta_sesame_raw) == 0) {
+      stop("Sesame: no probes remain after branch-symmetric QC masking.")
     }
 
     if (sesame_reference_cell_counts_supported(tissue_use)) {
@@ -9082,7 +9412,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   beta_out_path <- file.path(out_dir, paste0(prefix, "_BetaMatrix.tsv.gz"))
   write_matrix_tsv_gz(betas, beta_out_path)
 
-  # Effect sizes on the beta scale (paper-friendly interpretability)
+  # Effect sizes on the beta scale for direct biological interpretation.
   con_mask <- targets$primary_group == clean_con
   test_mask <- targets$primary_group == clean_test
   mean_beta_con <- rowMeans(betas[, con_mask, drop = FALSE], na.rm = TRUE)
@@ -9331,10 +9661,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
   observed <- -log10(pmax(sort(p_vals), .Machine$double.xmin))
   qq_df <- data.frame(Expected = expected, Observed = observed)
 
-  if (nrow(qq_df) > max_points) {
-      idx <- unique(c(1:1000, seq(1001, n_p, length.out=max_points)))
-      qq_df <- qq_df[idx, ]
-  }
+  qq_df <- subsample_qq_df(qq_df, max_points)
   
   p_qq <- ggplot(qq_df, aes(x=Expected, y=Observed)) +
       geom_abline(intercept=0, slope=1, color="red", linetype="dashed") +
@@ -9907,7 +10234,9 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
                                             prefix, out_dir, group_con_in, group_test_in,
                                             clean_con, clean_test, max_points, pval_thresh, lfc_thresh,
                                             meta_method = tier3_meta_method, i2_median = tier3_meta_i2_median,
-                                            tier3_stats = meta_out)
+                                            tier3_stats = meta_out,
+                                            batch_col = tier3_batch,
+                                            strata_used = if (!is.null(meta_out)) meta_out$strata_used else NULL)
     if (!is.null(tier3_out) && !is.null(tier3_out$res)) {
       tier3_primary_res <- tier3_out$res
       tier3_primary_lambda <- tier3_out$lambda
@@ -10222,7 +10551,7 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
 
 #' Dual-Pipeline Consensus Intersection Analysis
 #'
-#' Identifies high-confidence differentially methylated positions by requiring
+#' Identifies same-direction consensus differentially methylated positions by requiring
 #' significance in both Minfi and Sesame pipelines. Primary reported consensus
 #' p-values use the conservative selection-rule maximum across pipelines because
 #' Minfi and Sesame are run on the same samples and are not independent. Fisher's
@@ -10345,12 +10674,25 @@ run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
     sig_minfi <- concord$adj.P.Val.Minfi < pval_thresh & abs(concord$logFC.Minfi) > lfc_thresh & delta_pass_minfi
     sig_sesame <- concord$adj.P.Val.Sesame < pval_thresh & abs(concord$logFC.Sesame) > lfc_thresh & delta_pass_sesame
     n_both <- sum(is_up | is_down, na.rm = TRUE)
+    # sig_* is direction-agnostic (abs(logFC)) whereas n_both requires the SAME direction.
+    # Subtracting n_both from each therefore left probes that are significant in both
+    # branches but with opposite signs counted in "Minfi only" AND in "<sesame> only" --
+    # the same probe appearing twice as a branch-private call. Give them their own
+    # category so each significant probe is counted exactly once and the discordance is
+    # visible rather than hidden inside the private counts.
+    sig_both_any_direction <- sum(sig_minfi & sig_sesame, na.rm = TRUE)
+    n_opposite <- max(0, sig_both_any_direction - n_both)
+    overlap_categories <- c("Minfi only", paste0(sesame_label, " only"),
+                            "Both (opposite direction)", "Both (consensus)")
     overlap_df <- data.frame(
-      Category = c("Minfi only", paste0(sesame_label, " only"), "Both (consensus)"),
-      Count = c(sum(sig_minfi, na.rm = TRUE) - n_both, sum(sig_sesame, na.rm = TRUE) - n_both, n_both)
+      Category = factor(overlap_categories, levels = overlap_categories),
+      Count = c(sum(sig_minfi, na.rm = TRUE) - sig_both_any_direction,
+                sum(sig_sesame, na.rm = TRUE) - sig_both_any_direction,
+                n_opposite,
+                n_both)
     )
-    fill_vals <- c("#3498db", "#2ecc71", "#e74c3c")
-    names(fill_vals) <- c("Minfi only", paste0(sesame_label, " only"), "Both (consensus)")
+    fill_vals <- c("#3498db", "#2ecc71", "#f39c12", "#e74c3c")
+    names(fill_vals) <- overlap_categories
     p_ov <- ggplot(overlap_df, aes(x = Category, y = Count, fill = Category, text = Count)) +
       geom_col() +
       scale_fill_manual(values = fill_vals) +
@@ -10380,10 +10722,19 @@ run_intersection <- function(res_minfi, res_sesame, prefix, sesame_label) {
       }
     }
     logfc_corr <- suppressWarnings(cor(concord$logFC.Minfi, concord$logFC.Sesame, use = "complete.obs"))
-    jaccard <- if (sum(sig_minfi | sig_sesame) > 0) n_both / sum(sig_minfi | sig_sesame) else NA_real_
+    n_union <- sum(sig_minfi | sig_sesame, na.rm = TRUE)
+    # Report both Jaccard variants explicitly. The original single "jaccard_overlap"
+    # divided a direction-constrained numerator (n_both) by a direction-agnostic union,
+    # so it was neither the plain set-overlap Jaccard nor a consistently directional one
+    # and systematically understated agreement. Keep the directional index as the headline
+    # (it matches the consensus rule) and publish the direction-agnostic index alongside.
+    jaccard_directional <- if (n_union > 0) n_both / n_union else NA_real_
+    jaccard_any_direction <- if (n_union > 0) sig_both_any_direction / n_union else NA_real_
     comp_metrics <- data.frame(
-      metric = c("logFC_correlation", "jaccard_overlap", "n_both"),
-      value = c(logfc_corr, jaccard, n_both)
+      metric = c("logFC_correlation", "jaccard_overlap", "jaccard_overlap_any_direction",
+                 "n_both", "n_both_any_direction", "n_opposite_direction", "n_union_significant"),
+      value = c(logfc_corr, jaccard_directional, jaccard_any_direction,
+                n_both, sig_both_any_direction, n_opposite, n_union)
     )
     write.csv(comp_metrics, file.path(out_dir, paste0(prefix, "_Comparison_Metrics.csv")), row.names = FALSE)
 
@@ -10594,6 +10945,10 @@ tryCatch({
     sesame_native_dropped_na = sesame_native_dropped_na,
     sesame_native_imputed = sesame_native_imputed,
     sesame_native_impute_method = sesame_native_impute_method,
+    sesame_masked_snp_sex = sesame_masked_snp_sex,
+    sesame_masked_probe_class = sesame_masked_class,
+    probe_drop_non_cpg = probe_drop_non_cpg,
+    probe_drop_rs_control = probe_drop_rs,
     crf_enabled = crf_enabled,
     crf_sample_tier = crf_tier
   )
@@ -10954,11 +11309,15 @@ tryCatch({
     "- Mixed-array safeguard: samples whose IDAT array size deviates from the modal array size are excluded (unless `--force_idat`).",
     sex_check_line,
     "",
-    "## Probe-level QC (minfi-derived probe set)",
-    sprintf("- Detection P-value filter: probes are retained only if P < %.3g in all retained samples.", QC_DETECTION_P_THRESHOLD),
+    "## Probe-level QC (applied to every preprocessing branch)",
+    sprintf("- Detection P-value filter: probes are retained only if P < %.3g in all retained samples (minfi branch).", QC_DETECTION_P_THRESHOLD),
     cross_reactive_line,
-    sprintf("- SNP filtering: probes overlapping common SNPs (SBE/CpG; MAF >= %.2f) are removed using `minfi::dropLociWithSnps()`.", SNP_MAF_THRESHOLD),
-    "- Sex chromosome probes (chrX/chrY) are removed.",
+    sprintf("- SNP filtering: probes overlapping common SNPs (SBE/CpG; MAF >= %.2f) are identified once with `minfi::dropLociWithSnps()` on the unfiltered manifest and removed from the minfi, SeSAMe strict and SeSAMe native branches alike.", SNP_MAF_THRESHOLD),
+    "- Sex chromosome probes (chrX/chrY) are identified from the same unfiltered manifest and removed from all branches.",
+    sprintf("- Probe-class filter: non-CpG (`ch*`) probes %s and genotyping-control (`rs*`) probes %s, so branch outputs and cross-cohort candidates contain CpG-context probes only.",
+            if (probe_drop_non_cpg) "are removed" else "are RETAINED (drop_non_cpg=false)",
+            if (probe_drop_rs) "are removed" else "are RETAINED (drop_rs_control=false)"),
+    "- The SNP, sex-chromosome and probe-class masks are computed once at the array level, so the branches are compared on comparable probe classes rather than on whatever each preprocessing tool happened to retain.",
     "",
     "## Normalization (two pipelines)",
     "- **minfi**: `preprocessNoob()` followed by `mapToGenome()`; beta values are extracted with `getBeta()`.",
@@ -10999,7 +11358,7 @@ tryCatch({
     "",
     "## Consensus (intersection) call set",
     "- Consensus DMPs are defined as CpGs significant in **both** minfi and sesame with the **same direction** under the same thresholds.",
-    "- Intersection is intended as a high-confidence subset; pipeline-specific results may capture additional true positives and are reported as sensitivity/discovery sets.",
+    "- Intersection is a same-direction cross-pipeline robustness subset, not independent replication; pipeline-specific results are reported as sensitivity/discovery sets.",
     "- Consensus table `P.Value`/`adj.P.Val` use the conservative selection rule (`max` of the two pipeline p-values/FDR values) because minfi and sesame share samples and are statistically dependent. Fisher's combined probability test is retained only as auxiliary `P.Value.fisher_ranking` / `adj.P.Val.fisher_ranking` columns.",
     "- Consensus is computed for both the strict (Minfi-aligned) and native Sesame views.",
     "- Consensus outputs: `Intersection_Consensus_DMPs.*` and `Intersection_Native_Consensus_DMPs.*`, plus concordance/overlap plots.",

@@ -144,6 +144,15 @@ lambda_guard:
   min_samples: 8
   action: warn  # none | warn | warn_simplify | simplify  (matches the built-in default)
 
+# Probe-class filtering, applied identically to the minfi, SeSAMe strict and SeSAMe
+# native branches. ch* probes measure non-CpG (CpH) cytosines and rs* probes are
+# genotyping controls; neither is a CpG methylation measurement, so leaving them in
+# lets them be reported as "CpG candidates". Set either to false only for a deliberate
+# CpH or genotype analysis.
+probe_classes:
+  drop_non_cpg: true      # remove ch* (non-CpG) probes
+  drop_rs_control: true   # remove rs* (genotyping control) probes
+
 bacon:
   enabled: true       # Bayesian bias-and-inflation recalibration of EWAS statistics (van Iterson 2017)
   min_probes: 100     # minimum finite effect/SE pairs required to run bacon
@@ -165,7 +174,12 @@ auto_covariates:
   max_cor: 0.9
 
 tier3_meta:
-  method: auto  # auto | fixed | random
+  # random (DerSimonian-Laird) is the default: a tier3 primary table is routinely
+  # consumed as a single "study" by the cross-cohort meta-analysis, and a fixed-effect
+  # stratum SE carries no between-stratum tau2, so that cohort arrives over-weighted
+  # and pushes the pooled p-values anti-conservative. auto/fixed restore the
+  # pre-2026-07 behaviour and are recorded in the Tier3 notes when used.
+  method: random  # random | auto | fixed
   i2_threshold: 0.5
   min_total_n: 20
   min_per_group_per_stratum: 5

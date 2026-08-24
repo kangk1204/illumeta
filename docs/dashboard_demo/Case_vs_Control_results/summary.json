@@ -1,0 +1,16 @@
+{
+  "intersect_down": 1,
+  "intersect_native_down": 2,
+  "intersect_native_up": 3,
+  "intersect_up": 2,
+  "minfi_down": 3,
+  "minfi_up": 4,
+  "n_con": 6,
+  "n_test": 6,
+  "primary_branch": "Minfi",
+  "primary_lambda_guard_status": "ok",
+  "sesame_down": 3,
+  "sesame_native_down": 3,
+  "sesame_native_up": 3,
+  "sesame_up": 3
+}

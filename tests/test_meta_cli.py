@@ -163,6 +163,11 @@ class MetaCliTests(unittest.TestCase):
             self.assertIn("minfi;sesame_strict", concordant)
             report = (out_dir / "meta_analysis_report.md").read_text(encoding="utf-8")
             self.assertIn("Branches are analyzed separately", report)
+            methods = (out_dir / "meta_methods.md").read_text(encoding="utf-8")
+            self.assertIn("no Knapp-Hartung small-sample adjustment", methods)
+            self.assertIn("anti-conservative", methods)
+            self.assertIn("prioritization statistics, not confirmatory inference", methods)
+            self.assertIn("M-value direction is authoritative", methods)
 
     def test_meta_cli_requires_inputs(self):
         with tempfile.TemporaryDirectory() as tmp:

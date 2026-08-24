@@ -19,7 +19,8 @@ dependencies:
   - libxml2-devel
   - zlib
   - expat
-  - xz
+  - liblzma
+  - liblzma-devel
   - icu
   - libgit2
   - fontconfig

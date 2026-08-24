@@ -122,6 +122,16 @@ ensure_cmake_available <- function() {
 
 ensure_fortran_available <- function() {
     fc <- Sys.which("gfortran")
+    if (fc == "") {
+        r_bin <- file.path(R.home("bin"), "R")
+        configured <- tryCatch(
+            system2(r_bin, c("CMD", "config", "FC"), stdout = TRUE, stderr = TRUE),
+            error = function(e) character(0)
+        )
+        if (length(configured) > 0) {
+            fc <- Sys.which(trimws(configured[1]))
+        }
+    }
     if (fc != "") return(invisible(fc))
     sysname <- Sys.info()[["sysname"]]
     message("Warning: 'gfortran' not found in PATH. Some packages (e.g., quadprog, lme4) may fail to compile.")
@@ -457,13 +467,13 @@ check_lzma_prereqs <- function() {
         if (!file.exists(shared_path) && !file.exists(static_path)) {
             message("ERROR: liblzma (xz) library not found in ", conda_lib, " (needed for Rhtslib).")
             message("  conda env update -f environment.yml --prune")
-            message("  or: conda install -c conda-forge xz")
+            message("  or: conda install -c conda-forge liblzma-devel")
             return(invisible(FALSE))
         }
         if (!file.exists(header_path)) {
             message("ERROR: lzma.h header not found in ", conda_include, ".")
             message("  conda env update -f environment.yml --prune")
-            message("  or: conda install -c conda-forge xz")
+            message("  or: conda install -c conda-forge liblzma-devel")
             return(invisible(FALSE))
         }
     } else {
@@ -736,6 +746,8 @@ bioc_pkgs_core <- c(
     "IlluminaHumanMethylationEPICanno.ilm10b4.hg19",
     "sesameData", # Required for Sesame annotation caching
     "sva", # Added for Surrogate Variable Analysis
+    "bacon", # Bayesian inflation correction for EWAS statistics
+    "missMethyl", # Methylation-aware gene-set enrichment
     "variancePartition",
     "pvca",
     "impute"
@@ -763,7 +775,7 @@ bioc_pkgs <- bioc_pkgs_core
 if (!install_minimal) {
     bioc_pkgs <- unique(c(bioc_pkgs, bioc_pkgs_cell))
 } else {
-    message("Skipping optional cell reference packages (set ILLUMETA_INSTALL_MINIMAL=0 to install).")
+    message("Skipping optional cell reference packages (set ILLUMETA_INSTALL_MINIMAL=0 to install all references).")
 }
 
 # CRAN packages
@@ -1198,6 +1210,7 @@ required_pkgs <- c(
   "lme4", "reformulas", "illuminaio",
   # Core methylation stack
   "minfi", "sesame", "limma", "dmrff", "GEOquery",
+  "bacon", "missMethyl",
   "Biobase",
   "IlluminaHumanMethylation450kmanifest",
   "IlluminaHumanMethylationEPICmanifest",

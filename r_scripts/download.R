@@ -28,6 +28,25 @@ ts_message <- function(..., domain = NULL, appendLF = TRUE) {
 }
 message <- ts_message
 
+# Sanitize a data frame before writing an unquoted TSV: GEO metadata values can contain
+# embedded tabs, newlines, and carriage returns that would otherwise corrupt the rectangular
+# TSV (the Python reader assumes stable columns). Replace field separators/line breaks in
+# every character (and factor) column with a single space; collapse runs of whitespace.
+sanitize_tsv_frame <- function(df) {
+  for (j in seq_along(df)) {
+    col <- df[[j]]
+    if (is.factor(col)) col <- as.character(col)
+    if (is.character(col)) {
+      col <- gsub("[\t\r\n]+", " ", col)         # kill separators / line breaks
+      col <- gsub("[[:cntrl:]]", " ", col)         # any other control chars
+      col <- gsub("[ ]{2,}", " ", col)             # collapse whitespace runs
+      col <- trimws(col)
+      df[[j]] <- col
+    }
+  }
+  df
+}
+
 if (is.null(opt$gse)){
   print_help(opt_parser)
   stop("GSE ID must be supplied", call.=FALSE)
@@ -49,12 +68,19 @@ if (!dir.exists(idat_dir)) {
 
 message(paste("Fetching metadata for:", gse_id))
 
-retry_attempts <- suppressWarnings(as.integer(Sys.getenv("ILLUMETA_DOWNLOAD_RETRIES", "3")))
-if (!is.finite(retry_attempts) || retry_attempts < 1) retry_attempts <- 3
-retry_wait <- suppressWarnings(as.numeric(Sys.getenv("ILLUMETA_DOWNLOAD_WAIT", "3")))
-if (!is.finite(retry_wait) || retry_wait < 0) retry_wait <- 3
-retry_backoff <- suppressWarnings(as.numeric(Sys.getenv("ILLUMETA_DOWNLOAD_BACKOFF", "1")))
-if (!is.finite(retry_backoff) || retry_backoff < 1) retry_backoff <- 1
+# GEO fetches fail in bursts: a stalled connection or a short NCBI rate-limit takes
+# out several attempts in a row. The previous defaults (3 attempts, 3s wait,
+# backoff 1) retried three times inside ~26 seconds, which is shorter than the
+# outages actually observed and simply converted a transient hiccup into a failed
+# download. Exponential backoff over four attempts spans ~35s of waiting instead of
+# ~6s, which covers the common case without making a genuinely dead endpoint slow to
+# report. All three remain overridable for hostile or offline environments.
+retry_attempts <- suppressWarnings(as.integer(Sys.getenv("ILLUMETA_DOWNLOAD_RETRIES", "4")))
+if (!is.finite(retry_attempts) || retry_attempts < 1) retry_attempts <- 4
+retry_wait <- suppressWarnings(as.numeric(Sys.getenv("ILLUMETA_DOWNLOAD_WAIT", "5")))
+if (!is.finite(retry_wait) || retry_wait < 0) retry_wait <- 5
+retry_backoff <- suppressWarnings(as.numeric(Sys.getenv("ILLUMETA_DOWNLOAD_BACKOFF", "2")))
+if (!is.finite(retry_backoff) || retry_backoff < 1) retry_backoff <- 2
 
 retry_run <- function(fn, label = "request", attempts = retry_attempts, wait = retry_wait, backoff = retry_backoff) {
   last_err <- NULL
@@ -165,18 +191,33 @@ safe_extract_idats_from_tar <- function(tar_file, exdir) {
   if (any(invalid)) {
     stop("Unsafe RAW tar member(s) are not regular IDAT files: ", paste(head(extracted[invalid], 5), collapse = ", "))
   }
-  # Best-effort hard-link guard (defense-in-depth): a tar hard-link member named *.idat can
+  # Hard-link guard (defense-in-depth), FAIL-CLOSED: a tar hard-link member named *.idat can
   # share a host file's inode, landing a regular file inside exdir that passes the symlink,
-  # escape, and regular-file checks above. base R exposes no link count, so shell out to
-  # `stat` on our own (already path-validated) extracted files and reject any IDAT with >1
-  # hard link. Fail-open if `stat` is unavailable/incompatible (the other guards still apply).
-  hard_nlinks <- suppressWarnings(vapply(extracted, function(f) {
+  # escape, and regular-file checks above. We read the link count cross-platform, preferring
+  # base R's own file.info()$nlink (available on this platform), and falling back to GNU
+  # `stat -c %h` / BSD `stat -f %l` only if needed. If NO method yields a link count for a
+  # file, we STOP rather than proceed: an unverifiable link count is treated as unsafe.
+  get_nlink <- function(f) {
+    # 1) base R (most portable): file.info() carries an 'nlink' column on POSIX.
+    fi <- suppressWarnings(file.info(f))
+    if ("nlink" %in% colnames(fi) && !is.na(fi$nlink)) return(as.integer(fi$nlink))
+    # 2) GNU stat
     out <- tryCatch(system2("stat", c("-c", "%h", f), stdout = TRUE, stderr = FALSE),
-                    error = function(e) NA_character_)
-    if (length(out) != 1L) return(NA_integer_)
-    suppressWarnings(as.integer(out))
-  }, integer(1)))
-  hardlinked <- !is.na(hard_nlinks) & hard_nlinks > 1L
+                    error = function(e) character(0))
+    if (length(out) == 1L && !is.na(suppressWarnings(as.integer(out)))) return(as.integer(out))
+    # 3) BSD/macOS stat
+    out <- tryCatch(system2("stat", c("-f", "%l", f), stdout = TRUE, stderr = FALSE),
+                    error = function(e) character(0))
+    if (length(out) == 1L && !is.na(suppressWarnings(as.integer(out)))) return(as.integer(out))
+    return(NA_integer_)
+  }
+  hard_nlinks <- suppressWarnings(vapply(extracted, get_nlink, integer(1)))
+  unverifiable <- is.na(hard_nlinks)
+  if (any(unverifiable)) {
+    stop("Cannot verify hard-link count for RAW tar member(s); refusing to proceed (fail-closed): ",
+         paste(head(basename(extracted[unverifiable]), 5), collapse = ", "))
+  }
+  hardlinked <- hard_nlinks > 1L
   if (any(hardlinked)) {
     stop("Unsafe RAW tar hard-link member(s): ", paste(head(basename(extracted[hardlinked]), 5), collapse = ", "))
   }
@@ -449,19 +490,44 @@ if (!is.na(supp_col)) {
 # Add primary_group
 simple_meta <- data.frame(primary_group = "", simple_meta, check.names = FALSE)
 
-# Drop duplicate columns with identical values (keep the first)
+# Drop duplicate columns with identical values.
+#
+# Keeping "the first" column is wrong here. Sentrix_ID and Sentrix_Position are derived
+# from the IDAT filenames and appended LAST, so whenever GEO also exposes them as
+# characteristics fields (sentrix_id:ch1 and friends) they were always the copies that
+# got dropped -- leaving the values behind only under opaque names like
+# characteristics_ch1.7. Downstream code looks the batch factor up BY NAME
+# (select_batch_factor: c("Sentrix_ID", "Sentrix_Position")), so the effect was that
+# batch correction and the tier3 stratified path silently switched themselves off for
+# such a series, reported only as an informational log line. Observed on GSE66351,
+# whose published run used Sentrix_Position as the batch candidate.
+#
+# So: deduplicate by value, but when a set of identical columns contains a name the
+# pipeline resolves by name, keep that one and drop the others.
+CANONICAL_META_COLS <- c("primary_group", "Basename", "Sentrix_ID", "Sentrix_Position")
 encode_col <- function(x) paste0(ifelse(is.na(x), "<NA>", as.character(x)), collapse = "|")
 col_enc <- vapply(simple_meta, encode_col, character(1))
-dup_cols <- names(simple_meta)[duplicated(col_enc)]
+col_names <- names(simple_meta)
+# Rank canonical names ahead of everything else, then fall back to original order, so
+# duplicated() resolves each identical-value group in favour of the canonical member.
+pref_rank <- match(col_names, CANONICAL_META_COLS)
+pref_rank[is.na(pref_rank)] <- length(CANONICAL_META_COLS) + seq_len(sum(is.na(pref_rank)))
+pref_order <- order(pref_rank)
+dup_cols <- col_names[pref_order][duplicated(col_enc[pref_order])]
 if (length(dup_cols) > 0) {
-    keep_cols <- setdiff(names(simple_meta), dup_cols)
+    keep_cols <- col_names[!(col_names %in% dup_cols)]  # preserve original column order
     simple_meta <- simple_meta[, keep_cols, drop = FALSE]
     message("Dropped duplicate columns (identical values): ", paste(dup_cols, collapse = ", "))
+    kept_canonical <- intersect(CANONICAL_META_COLS, keep_cols)
+    if (length(kept_canonical) > 0) {
+        message("  Retained canonical column(s) over duplicate(s): ",
+                paste(kept_canonical, collapse = ", "))
+    }
 }
 
 # Save original (full) metadata snapshot
 config_orig_path <- file.path(out_dir, "configure_original.tsv")
-write.table(simple_meta, config_orig_path, sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(sanitize_tsv_frame(simple_meta), config_orig_path, sep = "\t", quote = FALSE, row.names = FALSE)
 message(paste("Original metadata saved to:", config_orig_path))
 
 # Retain all columns except degenerate ones; always keep geo_accession for ID mapping
@@ -488,7 +554,7 @@ if (nrow(dropped) > 0) {
 }
 
 config_path <- file.path(out_dir, "configure.tsv")
-write.table(filtered_meta, config_path, sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(sanitize_tsv_frame(filtered_meta), config_path, sep = "\t", quote = FALSE, row.names = FALSE)
 
 message("Metadata saved.")
 message("IMPORTANT: Fill in 'primary_group' in configure.tsv before analysis (or use illumeta.py --auto-group to populate it).")

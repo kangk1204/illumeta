@@ -121,7 +121,7 @@ def test_s2_A5_missing_se_and_t(tmp_path):
 def test_s2_se_reconstructed_from_t_statistic(tmp_path):
     """[contract] With no SE column, SE = |logFC / t| from the limma moderated t."""
     c = _cohort(tmp_path, ["CpG", "logFC", "t", "P.Value"], [["cg1", "0.6", "3.0", "0.01"]])
-    records, _w, _t = _read_branch_records([c], BRANCH, DMP, allow_missing_branches=False)
+    records, _w, _t, _dw = _read_branch_records([c], BRANCH, DMP, allow_missing_branches=False)
     assert math.isclose(records["cg1"]["ses"][0], 0.2, rel_tol=1e-9)  # |0.6 / 3.0|
 
 
@@ -129,7 +129,7 @@ def test_s2_se_reconstruction_zero_t_is_dropped_not_zero(tmp_path):
     """[contract] t == 0 must not crash and must not yield a bogus SE of 0; the
     cohort gets a non-usable (NaN) SE so it is dropped, not silently over-weighted."""
     c = _cohort(tmp_path, ["CpG", "logFC", "t", "P.Value"], [["cg1", "0.6", "0", "0.01"]])
-    records, _w, _t = _read_branch_records([c], BRANCH, DMP, allow_missing_branches=False)
+    records, _w, _t, _dw = _read_branch_records([c], BRANCH, DMP, allow_missing_branches=False)
     assert math.isnan(records["cg1"]["ses"][0])
     assert _inv_var_weight(records["cg1"]["ses"][0], True) == 0.0
 
@@ -146,14 +146,14 @@ def test_s2_A8_duplicate_cpg_rejected(tmp_path):
 
 def test_s2_A2_header_only_file_is_empty_with_warning(tmp_path):
     c = _cohort(tmp_path, ["CpG", "logFC", "SE", "P.Value"], [])
-    records, warnings, _ = _read_branch_records([c], BRANCH, DMP, allow_missing_branches=False)
+    records, warnings, _, _dw = _read_branch_records([c], BRANCH, DMP, allow_missing_branches=False)
     assert records == {}
     assert any("no CpG records loaded" in w for w in warnings)
 
 
 def test_s2_A4_nonnumeric_logfc_coerced_to_nan(tmp_path):
     c = _cohort(tmp_path, ["CpG", "logFC", "SE", "P.Value"], [["cg1", "not_a_number", "0.1", "0.01"]])
-    records, _, _ = _read_branch_records([c], BRANCH, DMP, allow_missing_branches=False)
+    records, _, _, _dw = _read_branch_records([c], BRANCH, DMP, allow_missing_branches=False)
     assert "cg1" in records
     # Non-numeric effect must be NaN (cohort silently dropped for this CpG), never a crash.
     assert math.isnan(records["cg1"]["effects"][0])
@@ -170,7 +170,7 @@ def test_s2_A7_non_utf8_bytes_do_not_crash(tmp_path):
     content = b"CpG,Gene,logFC,SE,P.Value\ncg1,G\xffENE,0.5,0.1,0.01\n"
     p.write_bytes(content)
     c = MetaCohort(cohort_id="GSEx", result_dir=tmp_path)
-    records, _, _ = _read_branch_records([c], BRANCH, DMP, allow_missing_branches=False)
+    records, _, _, _dw = _read_branch_records([c], BRANCH, DMP, allow_missing_branches=False)
     assert "cg1" in records
     assert math.isclose(records["cg1"]["effects"][0], 0.5)
 

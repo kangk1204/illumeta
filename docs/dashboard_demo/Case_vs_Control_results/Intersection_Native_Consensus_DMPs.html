@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="data:,">
+  <title>Synthetic native consensus DMPs</title>
+  <style>
+    :root { color-scheme: light; font-family: Arial, sans-serif; }
+    body { margin: 0; color: #17202a; background: #f7f9fb; }
+    main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    h1 { margin: 0 0 4px; font-size: 24px; }
+    p { color: #52606d; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0; }
+    input { min-width: 240px; padding: 8px; border: 1px solid #9aa7b2; }
+    button { border: 1px solid #9aa7b2; background: white; padding: 8px 12px; cursor: pointer; }
+    button:focus-visible, input:focus-visible { outline: 3px solid #0b6e99; outline-offset: 2px; }
+    .table-wrap { overflow-x: auto; border: 1px solid #cbd5df; background: white; }
+    table { border-collapse: collapse; width: 100%; min-width: 720px; }
+    th, td { border-bottom: 1px solid #d9e0e7; padding: 9px 10px; text-align: left; }
+    th { background: #edf2f7; }
+    th button { border: 0; background: transparent; padding: 0; font-weight: 700; }
+    tbody tr:hover { background: #eef7fb; }
+    #status { min-height: 20px; color: #243b53; font-weight: 600; }
+  </style>
+</head>
+<body data-illumeta-fixture="interactive-table">
+<main>
+  <h1>Synthetic native consensus DMPs</h1>
+  <p><strong>Synthetic interface fixture.</strong> Search, sort, and export these rows. They are not study results.</p>
+  <div class="toolbar">
+    <label for="search">Search</label>
+    <input id="search" type="search" autocomplete="off" placeholder="CpG, gene, direction">
+    <button type="button" id="downloadCsv">Export CSV</button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr id="header"></tr></thead>
+      <tbody id="body"></tbody>
+    </table>
+  </div>
+  <p id="status" aria-live="polite"></p>
+</main>
+<script>
+  const source = {"columns":["CpG","Gene","logFC","Delta_Beta","adj.P.Val","Direction"],"rows":[["cg90000001","SYNTH_A",0.82,0.12,0.0004,"Hyper"],["cg90000002","SYNTH_B",-0.75,-0.11,0.0012,"Hypo"],["cg90000003","SYNTH_C",0.61,0.08,0.0048,"Hyper"],["cg90000004","SYNTH_D",-0.58,-0.07,0.0091,"Hypo"],["cg90000005","SYNTH_E",0.54,0.06,0.018,"Hyper"]]};
+  let rows = source.rows.slice();
+  let sortIndex = -1;
+  let ascending = true;
+  const header = document.getElementById("header");
+  const body = document.getElementById("body");
+  const search = document.getElementById("search");
+  const status = document.getElementById("status");
+
+  source.columns.forEach((column, index) => {
+    const th = document.createElement("th");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `${column} (sort)`;
+    button.dataset.index = index;
+    button.addEventListener("click", () => sortRows(index));
+    th.appendChild(button);
+    header.appendChild(th);
+  });
+
+  function filteredRows() {
+    const query = search.value.trim().toLowerCase();
+    if (!query) return rows;
+    return rows.filter(row => row.some(value => String(value).toLowerCase().includes(query)));
+  }
+  function render() {
+    const visible = filteredRows();
+    body.replaceChildren();
+    for (const row of visible) {
+      const tr = document.createElement("tr");
+      for (const value of row) {
+        const td = document.createElement("td");
+        td.textContent = value;
+        tr.appendChild(td);
+      }
+      body.appendChild(tr);
+    }
+    status.textContent = `${visible.length} of ${rows.length} rows shown.`;
+  }
+  function sortRows(index) {
+    if (sortIndex === index) ascending = !ascending;
+    else {
+      sortIndex = index;
+      ascending = true;
+    }
+    rows.sort((left, right) => {
+      const a = left[index];
+      const b = right[index];
+      const cmp = typeof a === "number" && typeof b === "number"
+        ? a - b
+        : String(a).localeCompare(String(b));
+      return ascending ? cmp : -cmp;
+    });
+    render();
+  }
+  function csvCell(value) {
+    return `"${String(value).replaceAll('"', '""')}"`;
+  }
+  function downloadCsv() {
+    const csv = [source.columns, ...filteredRows()]
+      .map(row => row.map(csvCell).join(","))
+      .join("\n") + "\n";
+    const url = URL.createObjectURL(new Blob([csv], {type: "text/csv;charset=utf-8"}));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "illumeta_synthetic_dmps.csv";
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+  search.addEventListener("input", render);
+  document.getElementById("downloadCsv").addEventListener("click", downloadCsv);
+  render();
+</script>
+</body>
+</html>

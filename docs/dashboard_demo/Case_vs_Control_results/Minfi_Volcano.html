@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="data:,">
+  <title>Synthetic Minfi volcano interaction fixture</title>
+  <style>
+    :root { color-scheme: light; font-family: Arial, sans-serif; }
+    body { margin: 0; color: #17202a; background: #f7f9fb; }
+    main { max-width: 900px; margin: 0 auto; padding: 24px; }
+    h1 { margin: 0 0 4px; font-size: 24px; }
+    p { color: #52606d; }
+    .toolbar { display: flex; gap: 8px; margin: 16px 0; }
+    button { border: 1px solid #9aa7b2; background: white; padding: 8px 12px; cursor: pointer; }
+    button:focus-visible, circle:focus-visible { outline: 3px solid #0b6e99; outline-offset: 2px; }
+    .plot-wrap { position: relative; border: 1px solid #cbd5df; background: white; }
+    svg { display: block; width: 100%; height: auto; min-height: 360px; }
+    .axis { stroke: #607080; stroke-width: 1.2; }
+    .guide { stroke: #b5c0ca; stroke-dasharray: 5 5; }
+    .point { cursor: crosshair; stroke: white; stroke-width: 2; }
+    .point.hyper { fill: #b42318; }
+    .point.hypo { fill: #1261a0; }
+    #tooltip { position: absolute; display: none; pointer-events: none; padding: 7px 9px;
+      color: white; background: #17202a; font-size: 13px; border-radius: 4px; }
+    #status { min-height: 20px; color: #243b53; font-weight: 600; }
+  </style>
+</head>
+<body data-illumeta-fixture="interactive-plot">
+<main>
+  <h1>Synthetic Minfi volcano plot</h1>
+  <p><strong>Synthetic interface fixture.</strong> Hover or focus a point to inspect it. These are not study results.</p>
+  <div class="toolbar" aria-label="Plot controls">
+    <button type="button" id="zoomIn" title="Zoom in">+ Zoom</button>
+    <button type="button" id="reset" title="Reset plot view">Reset</button>
+  </div>
+  <div class="plot-wrap">
+    <svg id="plot" viewBox="0 0 720 420" role="img" aria-labelledby="plotTitle plotDesc">
+      <title id="plotTitle">Synthetic volcano plot</title>
+      <desc id="plotDesc">Five focusable CpG points plotted by log fold change and negative log ten adjusted P value.</desc>
+      <line class="axis" x1="70" y1="350" x2="690" y2="350"></line>
+      <line class="axis" x1="70" y1="30" x2="70" y2="350"></line>
+      <line class="guide" x1="380" y1="30" x2="380" y2="350"></line>
+      <text x="340" y="395">logFC</text>
+      <text transform="translate(20 250) rotate(-90)">-log10 adjusted P</text>
+    </svg>
+    <div id="tooltip" role="tooltip"></div>
+  </div>
+  <p id="status" aria-live="polite">Focus or hover a point.</p>
+</main>
+<script>
+  const points = [{"cpg":"cg90000001","gene":"SYNTH_A","logfc":0.82,"score":3.3979400086720375},{"cpg":"cg90000002","gene":"SYNTH_B","logfc":-0.75,"score":2.9208187539523753},{"cpg":"cg90000003","gene":"SYNTH_C","logfc":0.61,"score":2.318758762624413},{"cpg":"cg90000004","gene":"SYNTH_D","logfc":-0.58,"score":2.040958607678906},{"cpg":"cg90000005","gene":"SYNTH_E","logfc":0.54,"score":1.744727494896694}];
+  const svg = document.getElementById("plot");
+  const tooltip = document.getElementById("tooltip");
+  const status = document.getElementById("status");
+  const ns = "http://www.w3.org/2000/svg";
+  const x = value => 70 + ((value + 1) / 2) * 620;
+  const y = value => 350 - (value / 4) * 300;
+
+  function describe(point) {
+    return `${point.cpg} ${point.gene}: logFC ${point.logfc}, adjusted P score ${point.score.toFixed(2)}`;
+  }
+  function showPoint(point, circle) {
+    const message = describe(point);
+    const wrap = svg.parentElement.getBoundingClientRect();
+    const box = circle.getBoundingClientRect();
+    tooltip.textContent = message;
+    tooltip.style.left = `${box.left - wrap.left + 10}px`;
+    tooltip.style.top = `${box.top - wrap.top - 34}px`;
+    tooltip.style.display = "block";
+    status.textContent = message;
+  }
+  function hidePoint() {
+    tooltip.style.display = "none";
+  }
+  for (const point of points) {
+    const circle = document.createElementNS(ns, "circle");
+    circle.setAttribute("class", `point ${point.logfc >= 0 ? "hyper" : "hypo"}`);
+    circle.setAttribute("cx", x(point.logfc));
+    circle.setAttribute("cy", y(point.score));
+    circle.setAttribute("r", "9");
+    circle.setAttribute("tabindex", "0");
+    circle.setAttribute("aria-label", describe(point));
+    circle.addEventListener("pointerenter", () => showPoint(point, circle));
+    circle.addEventListener("pointerleave", hidePoint);
+    circle.addEventListener("focus", () => showPoint(point, circle));
+    circle.addEventListener("blur", hidePoint);
+    svg.appendChild(circle);
+  }
+  document.getElementById("zoomIn").addEventListener("click", () => {
+    svg.setAttribute("viewBox", "100 20 560 330");
+    status.textContent = "Plot zoomed in.";
+  });
+  document.getElementById("reset").addEventListener("click", () => {
+    svg.setAttribute("viewBox", "0 0 720 420");
+    status.textContent = "Plot view reset.";
+  });
+</script>
+</body>
+</html>

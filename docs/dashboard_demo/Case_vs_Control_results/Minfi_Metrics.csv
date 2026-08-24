@@ -1,0 +1,17 @@
+metric,value
+lambda,1.03
+batch_method_applied,SVA
+n_samples,12
+n_cpgs,8830
+n_covariates_used,2
+covariates_used,age;sex
+n_sv_used,2
+batch_sig_p_lt_0.05_before,3
+batch_sig_p_lt_0.05_after,0
+batch_min_p_before,0.0001
+batch_min_p_after,0.35
+group_min_p_before,0.01
+group_min_p_after,0.002
+perm_mean_sig,1
+perm_max_sig,2
+lambda_ratio,1.4

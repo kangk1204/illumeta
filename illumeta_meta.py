@@ -371,6 +371,80 @@ def _normal_two_sided_p(z: float) -> float:
     return math.erfc(abs(z) / math.sqrt(2.0))
 
 
+def _log_beta(a: float, b: float) -> float:
+    return math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b)
+
+
+def _betacf(a: float, b: float, x: float, max_iter: int = 400, eps: float = 3e-16) -> float:
+    """Continued fraction for the incomplete beta function, by Lentz's method.
+
+    Needed because the Knapp-Hartung statistic is referred to t(k-1) and this module
+    carries no numpy or scipy dependency. The guards against a vanishing denominator
+    are part of Lentz's method, not defensive padding: the recurrence divides by ``d``
+    every step and a zero there is a division error rather than a wrong answer.
+    """
+    tiny = 1e-300
+    qab = a + b
+    qap = a + 1.0
+    qam = a - 1.0
+    c = 1.0
+    d = 1.0 - qab * x / qap
+    if abs(d) < tiny:
+        d = tiny
+    d = 1.0 / d
+    h = d
+    for m in range(1, max_iter + 1):
+        m2 = 2 * m
+        aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+        d = 1.0 + aa * d
+        if abs(d) < tiny:
+            d = tiny
+        c = 1.0 + aa / c
+        if abs(c) < tiny:
+            c = tiny
+        d = 1.0 / d
+        h *= d * c
+        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+        d = 1.0 + aa * d
+        if abs(d) < tiny:
+            d = tiny
+        c = 1.0 + aa / c
+        if abs(c) < tiny:
+            c = tiny
+        d = 1.0 / d
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < eps:
+            break
+    return h
+
+
+def _reg_inc_beta(a: float, b: float, x: float) -> float:
+    """Regularized incomplete beta I_x(a, b)."""
+    if not (math.isfinite(a) and math.isfinite(b) and math.isfinite(x)):
+        return math.nan
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+    # The prefactor x^a (1-x)^b / B(a,b) is invariant under (a,b,x) -> (b,a,1-x), so the
+    # reflection below reuses it. Computed in logs because the tail underflows otherwise.
+    front = math.exp(a * math.log(x) + b * math.log1p(-x) - _log_beta(a, b))
+    if x < (a + 1.0) / (a + b + 2.0):
+        return front * _betacf(a, b, x) / a
+    return 1.0 - front * _betacf(b, a, 1.0 - x) / b
+
+
+def _t_two_sided_p(t: float, df: float) -> float:
+    """Two-sided P-value for a t statistic with ``df`` degrees of freedom."""
+    if math.isnan(t) or not math.isfinite(df) or df <= 0:
+        return math.nan
+    if math.isinf(t):
+        return 0.0
+    x = df / (df + t * t)
+    return min(1.0, max(0.0, _reg_inc_beta(df / 2.0, 0.5, x)))
+
+
 def _chi2_sf_even(stat: float, df: int) -> float:
     if not math.isfinite(stat) or stat < 0 or df <= 0 or df % 2 != 0:
         return math.nan
@@ -456,6 +530,8 @@ def _random_effect_meta_one(effects: list[float], ses: list[float], valid: list[
             "random_effect": math.nan,
             "random_se": math.nan,
             "random_p": math.nan,
+            "random_se_hk": math.nan,
+            "random_p_hk": math.nan,
             "Q": math.nan,
             "I2": math.nan,
             "tau2": math.nan,
@@ -479,6 +555,30 @@ def _random_effect_meta_one(effects: list[float], ses: list[float], valid: list[
     )
     random_se = math.sqrt(1.0 / sum_re_w) if sum_re_w > 0 else math.nan
     random_p = _normal_two_sided_p(random_effect / random_se)
+    # Knapp-Hartung. The pooled estimate is unchanged; only its standard error is
+    # re-estimated, from the observed dispersion of the study effects about the pooled
+    # value rather than from the weights alone, and the statistic is referred to
+    # t(k-1) instead of the normal. This matters here because k <= 5: with so few
+    # studies the normal reference treats tau2 as if it were known, which is
+    # anti-conservative. Reported alongside the normal result, never in place of it --
+    # switching the default would move every published count.
+    random_se_hk = math.nan
+    random_p_hk = math.nan
+    if k >= 2 and sum_re_w > 0 and math.isfinite(random_effect):
+        dispersion = sum(
+            w * ((e - random_effect) ** 2) for w, e, u in zip(re_weights, effects, use) if u
+        )
+        # dispersion/df is exactly the ratio of the Knapp-Hartung variance to the
+        # ordinary random-effects variance, so this guard is scale-free. Real effects
+        # never drive it to zero; a value this small means the weighted deviations
+        # cancelled to the last bits, which happens when every cohort reports the same
+        # effect. metafor returns se = 0 and P = 0 in that case. Over ~300k CpGs run
+        # unattended that would promote a floating-point residue to the most significant
+        # site in the run, so NaN is reported instead -- a refusal to answer, not a
+        # different estimator.
+        if math.isfinite(dispersion) and dispersion / df > 1e-12:
+            random_se_hk = math.sqrt(dispersion / (df * sum_re_w))
+            random_p_hk = _t_two_sided_p(random_effect / random_se_hk, df)
     i2 = max(0.0, (q_stat - df) / q_stat) * 100.0 if q_stat > 0 and k >= 2 else 0.0
     if k < 2:
         q_stat = math.nan
@@ -491,6 +591,8 @@ def _random_effect_meta_one(effects: list[float], ses: list[float], valid: list[
         "random_effect": random_effect,
         "random_se": random_se,
         "random_p": random_p,
+        "random_se_hk": random_se_hk,
+        "random_p_hk": random_p_hk,
         "Q": q_stat,
         "I2": i2,
         "tau2": tau2,
@@ -784,6 +886,7 @@ def _analyze_branch(
     allow_missing_branches: bool,
     prefer_tier3: bool = True,
     allow_missing_tier3: bool = False,
+    report_knapp_hartung: bool = False,
 ) -> tuple[list[dict[str, object]], dict[str, object], list[str]]:
     records, warnings, tables_used, delta_weights = _read_branch_records(
         cohorts, branch, filename, allow_missing_branches, prefer_tier3, allow_missing_tier3
@@ -865,6 +968,11 @@ def _analyze_branch(
             "pc_fisher_p": pc_fisher if enough else math.nan,
             "pc_directional_p": pc_directional if enough else math.nan,
         }
+        if report_knapp_hartung:
+            # Gated on `enough` exactly like random_p, so the two references are always
+            # reported over the same set of CpGs and the comparison is like-for-like.
+            row["random_se_hk"] = meta["random_se_hk"]
+            row["random_p_hk"] = meta["random_p_hk"] if enough else math.nan
         for safe_id, effect, p_val, delta in zip(cohort_column_ids, effects, p_values, deltas):
             row[f"effect_{safe_id}"] = effect
             row[f"p_{safe_id}"] = p_val
@@ -904,6 +1012,14 @@ def _analyze_branch(
             and row["pc_directional_fdr"] < thresholds.meta_fdr
             and row["direction_fraction"] >= thresholds.min_direction_fraction
         )
+
+    if report_knapp_hartung:
+        # Its own BH pass over the same CpGs, so random_fdr_hk answers "what would the
+        # candidate list be under a t reference" rather than mixing two references.
+        # core_candidate is deliberately left on random_fdr: this flag reports a
+        # sensitivity, it does not redefine what a candidate is.
+        for row, hk_adj in zip(rows, bh_fdr([row["random_p_hk"] for row in rows])):
+            row["random_fdr_hk"] = hk_adj
 
     # I^2/tau^2 need >=3 cohorts (>=2 df) to be meaningful; a 2-cohort (df=1) heterogeneity
     # estimate is degenerate, so keep it out of the summary median even when min_cohorts==2
@@ -1082,7 +1198,9 @@ def _min(values: Iterable[object]) -> float:
     return min(vals) if vals else math.nan
 
 
-def _base_fieldnames(cohort_column_ids: list[str]) -> list[str]:
+def _base_fieldnames(
+    cohort_column_ids: list[str], report_knapp_hartung: bool = False
+) -> list[str]:
     fields = [
         "CpG",
         "Gene",
@@ -1118,6 +1236,13 @@ def _base_fieldnames(cohort_column_ids: list[str]) -> list[str]:
         "core_candidate",
         "replicable_pc_candidate",
     ]
+    if report_knapp_hartung:
+        # Placed after the fixed block and before the per-cohort columns, rather than
+        # next to random_p where they belong by topic. Deleting these three columns from
+        # a flagged header reproduces the unflagged header exactly, so a reader diffing
+        # the two tables sees three insertions rather than a reordering that makes every
+        # downstream column look changed.
+        fields.extend(["random_se_hk", "random_p_hk", "random_fdr_hk"])
     for safe_id in cohort_column_ids:
         fields.extend([f"effect_{safe_id}", f"p_{safe_id}", f"delta_{safe_id}"])
     return fields
@@ -1245,6 +1370,7 @@ def run_meta_analysis(
     allow_missing_branches: bool = False,
     prefer_tier3: bool = True,
     allow_missing_tier3: bool = False,
+    report_knapp_hartung: bool = False,
 ) -> dict[str, object]:
     _validate_thresholds(thresholds)
     _validate_cohort_count(thresholds, len(cohorts))
@@ -1252,7 +1378,8 @@ def run_meta_analysis(
     with tempfile.TemporaryDirectory(prefix=".illumeta_meta_tmp_", dir=out_dir) as stage_text:
         stage_dir = Path(stage_text)
         manifest = _run_meta_analysis_to_dir(
-            cohorts, branch_files, stage_dir, thresholds, allow_missing_branches, prefer_tier3, allow_missing_tier3
+            cohorts, branch_files, stage_dir, thresholds, allow_missing_branches, prefer_tier3, allow_missing_tier3,
+            report_knapp_hartung,
         )
         _publish_meta_outputs(stage_dir, out_dir, branch_files.keys())
         return manifest
@@ -1266,17 +1393,19 @@ def _run_meta_analysis_to_dir(
     allow_missing_branches: bool = False,
     prefer_tier3: bool = True,
     allow_missing_tier3: bool = False,
+    report_knapp_hartung: bool = False,
 ) -> dict[str, object]:
     all_summaries: list[dict[str, object]] = []
     all_candidate_rows: list[dict[str, object]] = []
     warnings: list[str] = [warning for cohort in cohorts for warning in cohort.warnings]
     cohort_column_ids = _cohort_column_ids(cohorts)
-    fieldnames = _base_fieldnames(cohort_column_ids)
+    fieldnames = _base_fieldnames(cohort_column_ids, report_knapp_hartung)
 
     for branch, filename in branch_files.items():
         _log(f"Running {branch} meta-analysis from {filename}...")
         rows, summary, branch_warnings = _analyze_branch(
-            cohorts, cohort_column_ids, branch, filename, thresholds, allow_missing_branches, prefer_tier3, allow_missing_tier3
+            cohorts, cohort_column_ids, branch, filename, thresholds, allow_missing_branches, prefer_tier3, allow_missing_tier3,
+            report_knapp_hartung,
         )
         warnings.extend(branch_warnings)
         rows.sort(key=_sort_key)
@@ -1343,6 +1472,7 @@ def _run_meta_analysis_to_dir(
         ],
         "branches": branch_files,
         "tier3_primary_preferred": prefer_tier3,
+        "knapp_hartung_reported": report_knapp_hartung,
         "thresholds": thresholds.__dict__,
         "branch_summaries": all_summaries,
         "warnings": warnings,
@@ -1374,6 +1504,7 @@ def run_meta_cli(args) -> int:
     allow_missing_summary = bool(getattr(args, "allow_missing_summary", False))
     prefer_tier3 = bool(getattr(args, "tier3_primary", True))
     allow_missing_tier3 = bool(getattr(args, "allow_missing_tier3_primary", False))
+    report_knapp_hartung = bool(getattr(args, "report_knapp_hartung", False))
     global _USE_BACON
     _USE_BACON = bool(getattr(args, "use_bacon", False))
     if _USE_BACON:
@@ -1404,6 +1535,7 @@ def run_meta_cli(args) -> int:
         allow_missing_branches=args.allow_missing_branches,
         prefer_tier3=prefer_tier3,
         allow_missing_tier3=allow_missing_tier3,
+        report_knapp_hartung=report_knapp_hartung,
     )
     _log(f"Meta-analysis complete: {out_dir}")
     return 0

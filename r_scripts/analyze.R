@@ -1217,7 +1217,15 @@ drop_zero_variance_cols <- function(mat, label = "PCA") {
   list(mat = mat[, keep, drop = FALSE], dropped = dropped)
 }
 
-safe_prcomp <- function(mat, label = "PCA", center = TRUE, scale. = TRUE) {
+#' @param keep_rotation Retain the p x k loadings matrix. Defaults to FALSE because no
+#'   caller in this script reads `$rotation`, and on a full methylation matrix it is the
+#'   single largest object the PCA produces: for 304,973 probes across 808 samples it is
+#'   304973 x 808 doubles, about 2 GB, allocated and then never looked at. In
+#'   select_batch_strategy two such objects are live at once (baseline and candidate) for
+#'   every covariate set, which on the 808-sample cohort contributed to an out-of-memory
+#'   kill at 123 GB anonymous RSS. Dropping it cannot change any result: `$x`, `$sdev`,
+#'   `$center` and `$scale` are unaffected, and grep confirms `$rotation` has no reader.
+safe_prcomp <- function(mat, label = "PCA", center = TRUE, scale. = TRUE, keep_rotation = FALSE) {
   if (is.null(mat) || nrow(mat) < 2 || ncol(mat) < 2) {
     message(sprintf("  %s: not enough data for PCA; skipping.", label))
     return(NULL)
@@ -1230,7 +1238,11 @@ safe_prcomp <- function(mat, label = "PCA", center = TRUE, scale. = TRUE) {
       return(NULL)
     }
   }
-  prcomp(mat, center = center, scale. = scale.)
+  out <- prcomp(mat, center = center, scale. = scale.)
+  if (!keep_rotation) {
+    out$rotation <- NULL
+  }
+  out
 }
 
 clamp01 <- function(x) {
@@ -1836,7 +1848,16 @@ select_batch_strategy <- function(betas, targets, batch_col, batch_tier, covaria
   for (set_name in names(covariate_sets)) {
     cov_set <- covariate_sets[[set_name]]
     base_res <- eval_batch_method(M_mat, targets, group_col = group_col, batch_col = batch_col, covariates = cov_set, method = "none")
-    base_pca <- safe_prcomp(t(base_res$M_corr), label = paste("Batch eval", set_name, "baseline"), scale. = TRUE)
+    # Transpose first, then drop the corrected matrix before the PCA allocates. M_corr is
+    # a full probes-by-samples matrix (about 2 GB at 305k x 808) and nothing below this
+    # line reads it -- only the scalar diagnostics batch_var, prop_batch_sig and
+    # n_pc_batch_sig are used later -- so holding it across the method loop is dead
+    # weight at exactly the point where this stage peaks.
+    base_t <- t(base_res$M_corr)
+    base_res$M_corr <- NULL
+    base_pca <- safe_prcomp(base_t, label = paste("Batch eval", set_name, "baseline"), scale. = TRUE)
+    rm(base_t)
+    gc(verbose = FALSE)
     base_pc_r2 <- if (!is.null(base_pca)) compute_pc_batch_r2(base_pca$x, batch_vals) else NA_real_
     base_mix <- if (!is.null(base_pca)) compute_knn_mixing(base_pca$x, batch_vals) else NA_real_
     for (m in methods) {
@@ -1866,7 +1887,16 @@ select_batch_strategy <- function(betas, targets, batch_col, batch_tier, covaria
         ))
         next
       }
-      pca_after <- safe_prcomp(t(res$M_corr), label = paste("Batch eval", set_name, m), scale. = TRUE)
+      # Same treatment as the baseline: transpose, release the 2 GB corrected matrix
+      # before the PCA allocates, and release the transpose once the PCA has consumed it.
+      # Without this, `res` still holds the previous candidate's M_corr while
+      # eval_batch_method above builds the next one, so two full matrices are live across
+      # every iteration of a loop that runs once per covariate set per method.
+      res_t <- t(res$M_corr)
+      res$M_corr <- NULL
+      pca_after <- safe_prcomp(res_t, label = paste("Batch eval", set_name, m), scale. = TRUE)
+      rm(res_t)
+      gc(verbose = FALSE)
       pc_r2_after <- if (!is.null(pca_after)) compute_pc_batch_r2(pca_after$x, batch_vals) else NA_real_
       mix_after <- if (!is.null(pca_after)) compute_knn_mixing(pca_after$x, batch_vals) else NA_real_
       bio_pres <- compute_bio_preservation(base_pca, pca_after, targets, bio_vars)

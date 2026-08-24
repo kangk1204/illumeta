@@ -5574,6 +5574,8 @@ def main():
     parser_meta.set_defaults(tier3_primary=True)
     parser_meta.add_argument("--allow-missing-tier3-primary", action="store_true",
                              help="If a cohort's primary mode is tier3 but its *_Tier3_Primary_DMPs.csv is missing, fall back to the standard pooled table instead of failing (default: fail)")
+    parser_meta.add_argument("--report-knapp-hartung", action="store_true",
+                             help="Additionally report the Knapp-Hartung adjusted random-effects standard error, P-value, and FDR (random_se_hk / random_p_hk / random_fdr_hk), which refer the pooled estimate to t(k-1) instead of the normal. Recommended as a sensitivity check when few cohorts contribute, where the normal reference is anti-conservative. Does not change the pooled estimate, the core-candidate definition, or any existing column")
     parser_meta.add_argument("--use-bacon", action="store_true",
                              help="Pool the bacon-recalibrated per-cohort statistics (logFC.bacon / P.Value.bacon / t.bacon) instead of the raw limma columns, so the meta-analysis is built on empirically-null-calibrated effects (falls back to standard columns per cohort with a warning if bacon columns are absent)")
     parser_meta.add_argument("--min-cohorts", type=int, default=3,

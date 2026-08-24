@@ -403,6 +403,43 @@ It reports fixed and random effects, heterogeneity, directional consistency,
 partial-conjunction evidence, and leave-one-cohort-out stability. It does not
 treat Minfi and SeSAMe branches as independent cohorts.
 
+### Few cohorts: `--report-knapp-hartung`
+
+The random-effects P-value refers the pooled estimate to a standard normal, which
+treats the between-cohort variance as if it were known. With few cohorts it is not,
+and the normal reference is anti-conservative. `--report-knapp-hartung` adds three
+columns — `random_se_hk`, `random_p_hk`, `random_fdr_hk` — that re-estimate the
+standard error from the dispersion of the cohort effects about the pooled value and
+refer the statistic to t(k-1):
+
+```bash
+./scripts/illumeta meta --manifest cohort_manifest.tsv \
+  --output projects/meta_analysis_results --report-knapp-hartung
+```
+
+Nothing else changes. The pooled estimate, every existing column, and the
+`core_candidate` definition are untouched, so the flag is a sensitivity check rather
+than a different analysis, and the run manifest records whether it was used. Expect
+the adjusted P-values to be markedly larger when few cohorts contribute: at k = 2 the
+adjusted standard error is algebraically identical to the unadjusted one and the whole
+effect is the switch to t(1), which is Cauchy.
+
+Both references agree with `metafor::rma` (`test="z"` and `test="knha"`) to within
+5e-12 relative error; see `tests/test_meta_metafor_equivalence.py` and
+`tests/test_meta_knapp_hartung.py`, which pin metafor's outputs as frozen cases so the
+check runs without R.
+
+**Know what to expect before you switch on the FDR column.** At small k the adjustment is
+severe enough that genome-wide false-discovery correction stops being able to call
+anything. On a five-cohort array-wide comparison the smallest attainable adjusted P-value
+was 1.4e-6 (four degrees of freedom), while Benjamini-Hochberg over 328,878 probes needs
+the leading site below 1.5e-7 — a threshold a t reference on five studies cannot reach at
+any effect size. Two thirds of the nominally significant sites survived at an unadjusted
+threshold, but `random_fdr_hk` called 0 of 578 core candidates in that route. That is a
+property of the procedure, not a verdict on the data. Read `random_p_hk` as a sensitivity
+on the unadjusted scale, and treat `random_fdr_hk` as informative only when k is large
+enough for t(k-1) to reach your corrected threshold.
+
 See [FAILURE_MATRIX.md](FAILURE_MATRIX.md) for fail-closed behaviors and recovery
 guidance.
 

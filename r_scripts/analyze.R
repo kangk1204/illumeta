@@ -6147,6 +6147,33 @@ apply_batch_correction <- function(betas, method, batch_col, covariates, targets
   list(betas = betas_corr, mvals = M_corr, method = method_used)
 }
 
+moderated_se <- function(fit, coef_idx = 1) {
+  # Standard error from limma's moderated variance, not the raw residual one.
+  #
+  # eBayes shrinks each probe's residual variance toward a fitted prior and reports the
+  # result as s2.post, raising the effective degrees of freedom from the residual df of a
+  # single fit to df.total. Using fit$sigma instead throws that away and leaves an estimate
+  # carrying only the residual df -- around 10 in a twelve-sample stratum. Downstream both
+  # meta_analysis_fixed and meta_analysis_random refer beta/se to a normal via pnorm, and a
+  # t statistic on 10 df read against a normal is anti-conservative: on simulated null data
+  # at that size the nominal 5% level returns 7.9% of probes, with lambda 1.09. With s2.post
+  # the same data returns 5.2% and lambda 1.005.
+  #
+  # This was the mechanism behind the stratified route failing its external permutation
+  # null while the pooled route passed. Propagating between-stratum tau2 (the earlier fix)
+  # could not address it, because the defect is in each stratum's standard error rather
+  # than in how the strata are combined.
+  #
+  # Falls back to the raw sigma only when s2.post is unavailable, which means eBayes did
+  # not run; the caller has already skipped that case, so the fallback is a guard rather
+  # than a path.
+  if (!is.null(fit$s2.post) && any(is.finite(fit$s2.post))) {
+    return(fit$stdev.unscaled[, coef_idx] * sqrt(fit$s2.post))
+  }
+  warning("moderated variance unavailable; falling back to the unmoderated residual sigma")
+  fit$stdev.unscaled[, coef_idx] * fit$sigma
+}
+
 meta_analysis_fixed <- function(effects, ses) {
   w <- 1 / (ses ^ 2)
   w[!is.finite(w)] <- 0
@@ -6289,7 +6316,7 @@ run_stratified_meta_analysis <- function(betas, targets, batch_col, group_col, c
     if (is.null(fit2)) next
     coef_idx <- 1
     eff <- fit2$coefficients[, coef_idx]
-    se <- fit2$stdev.unscaled[, coef_idx] * fit2$sigma
+    se <- moderated_se(fit2, coef_idx)
     effects[[b]] <- eff
     ses[[b]] <- se
     out_df <- data.frame(CpG = rownames(fit2$coefficients), logFC = eff, SE = se)
@@ -9880,7 +9907,10 @@ run_pipeline <- function(betas, prefix, annotation_df, targets_override = NULL) 
     dmr_df <- data.frame(
       CpG = rownames(fit2$coefficients),
       logFC = fit2$coefficients[, 1],
-      SE = fit2$stdev.unscaled[, 1] * fit2$sigma,
+      # fit2$p.value is the moderated P-value, so the standard error beside it has to
+      # come from the same moderated variance; pairing a moderated P with a raw sigma
+      # describes two different fits in one row.
+      SE = moderated_se(fit2, 1),
       P.Value = fit2$p.value[, 1],
       stringsAsFactors = FALSE
     )

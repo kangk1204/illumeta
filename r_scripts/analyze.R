@@ -7702,9 +7702,25 @@ if (force_idat) {
 rgSet <- tryCatch(
   read.metharray.exp(targets = targets, force = force_idat),
   error = function(e) {
-    stop(paste("Failed to read IDAT files via minfi:",
-               conditionMessage(e),
-               "\nCheck that IDAT files exist and are not corrupted."))
+    msg <- conditionMessage(e)
+    # illuminaio reads IDAT string fields with readChar(), which validates UTF-8 when the
+    # session runs in a UTF-8 locale. Some deposited series carry a non-UTF-8 byte in those
+    # fields and then fail to read at all under en_US.UTF-8 while reading cleanly under C.
+    # The raw error names readChar and says nothing about locales, so it is worth translating
+    # rather than passing through: the files are not corrupt and re-downloading will not help.
+    hint <- ""
+    if (grepl("readChar|invalid UTF-8|embedded nul", msg, ignore.case = TRUE)) {
+      hint <- paste0(
+        "\nThis looks like a locale problem rather than a damaged file. The current",
+        " collation locale is '", Sys.getlocale("LC_COLLATE"), "'.",
+        "\nSome IDATs carry non-UTF-8 bytes in their string fields, which readChar()",
+        " rejects only under a UTF-8 locale.",
+        "\nRe-run with LC_ALL=C (for example: LC_ALL=C Rscript analyze.R ...).",
+        "\nThe locale of each completed run is recorded in summary.json as",
+        " r_locale_collate.")
+    }
+    stop(paste0("Failed to read IDAT files via minfi: ", msg,
+                "\nCheck that IDAT files exist and are not corrupted.", hint))
   }
 )
 array_type <- detect_array_type(rgSet)
@@ -10980,7 +10996,20 @@ tryCatch({
     probe_drop_non_cpg = probe_drop_non_cpg,
     probe_drop_rs_control = probe_drop_rs,
     crf_enabled = crf_enabled,
-    crf_sample_tier = crf_tier
+    crf_sample_tier = crf_tier,
+    # Execution environment, in the machine-readable record rather than only in
+    # sessionInfo.txt. The collation locale earns its place here: illuminaio reads IDAT
+    # string fields with readChar(), which validates UTF-8 under a UTF-8 locale, and at
+    # least one public series (GSE125895) carries a non-UTF-8 byte that makes every IDAT in
+    # it unreadable under en_US.UTF-8 while reading cleanly under C. The failure surfaces as
+    # "invalid UTF-8 input in readChar()", which names nothing about locales, so a reader
+    # following the reproduction recipe on a default desktop hits a hard stop with no way to
+    # connect it to the cause. Recording the locale that produced a run is the difference
+    # between a reproducible pipeline and one that happens to work on the author's machine.
+    r_locale_collate = Sys.getlocale("LC_COLLATE"),
+    r_locale_ctype = Sys.getlocale("LC_CTYPE"),
+    r_version = paste(R.version$major, R.version$minor, sep = "."),
+    r_platform = R.version$platform
   )
   
   write_json(summary_payload, file.path(out_dir, "summary.json"), auto_unbox = TRUE, pretty = TRUE, na = "null")

@@ -82,6 +82,13 @@ class MetaCohort:
         return float(n if n > 0 else 1)
 
 
+# RE2 lives in its own module because it is a different test, not a variant of the
+# DerSimonian-Laird pipeline: it has its own null hypothesis and its own likelihood.
+try:  # optional: absent in a trimmed deployment, and the flag then refuses cleanly
+    from illumeta_re2 import re2_one as _re2_one
+except ImportError:  # pragma: no cover - exercised only in trimmed installs
+    _re2_one = None
+
 def _log(message: str) -> None:
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}", flush=True)
 
@@ -887,6 +894,7 @@ def _analyze_branch(
     prefer_tier3: bool = True,
     allow_missing_tier3: bool = False,
     report_knapp_hartung: bool = False,
+    report_re2: bool = False,
 ) -> tuple[list[dict[str, object]], dict[str, object], list[str]]:
     records, warnings, tables_used, delta_weights = _read_branch_records(
         cohorts, branch, filename, allow_missing_branches, prefer_tier3, allow_missing_tier3
@@ -973,6 +981,13 @@ def _analyze_branch(
             # reported over the same set of CpGs and the comparison is like-for-like.
             row["random_se_hk"] = meta["random_se_hk"]
             row["random_p_hk"] = meta["random_p_hk"] if enough else math.nan
+        if report_re2:
+            # Same gate again. RE2 rejects when the mean effect is non-zero, when the
+            # studies disagree, or both, so re2_p answers a compound question and is not
+            # interchangeable with random_p even where the two happen to agree.
+            re2 = _re2_one(effects, ses, valid)
+            row["re2_stat"] = re2["re2_stat"]
+            row["re2_p"] = re2["re2_p"] if enough else math.nan
         for safe_id, effect, p_val, delta in zip(cohort_column_ids, effects, p_values, deltas):
             row[f"effect_{safe_id}"] = effect
             row[f"p_{safe_id}"] = p_val
@@ -1020,6 +1035,12 @@ def _analyze_branch(
         # sensitivity, it does not redefine what a candidate is.
         for row, hk_adj in zip(rows, bh_fdr([row["random_p_hk"] for row in rows])):
             row["random_fdr_hk"] = hk_adj
+
+    if report_re2:
+        # Its own BH pass, for the same reason: mixing references inside one FDR
+        # correction would make neither column mean what its name says.
+        for row, re2_adj in zip(rows, bh_fdr([row["re2_p"] for row in rows])):
+            row["re2_fdr"] = re2_adj
 
     # I^2/tau^2 need >=3 cohorts (>=2 df) to be meaningful; a 2-cohort (df=1) heterogeneity
     # estimate is degenerate, so keep it out of the summary median even when min_cohorts==2
@@ -1199,7 +1220,8 @@ def _min(values: Iterable[object]) -> float:
 
 
 def _base_fieldnames(
-    cohort_column_ids: list[str], report_knapp_hartung: bool = False
+    cohort_column_ids: list[str], report_knapp_hartung: bool = False,
+    report_re2: bool = False,
 ) -> list[str]:
     fields = [
         "CpG",
@@ -1243,6 +1265,10 @@ def _base_fieldnames(
         # the two tables sees three insertions rather than a reordering that makes every
         # downstream column look changed.
         fields.extend(["random_se_hk", "random_p_hk", "random_fdr_hk"])
+    if report_re2:
+        # Appended after the Knapp-Hartung block for the same reason: an unflagged
+        # header is recovered by deleting columns, never by reordering them.
+        fields.extend(["re2_stat", "re2_p", "re2_fdr"])
     for safe_id in cohort_column_ids:
         fields.extend([f"effect_{safe_id}", f"p_{safe_id}", f"delta_{safe_id}"])
     return fields
@@ -1371,6 +1397,7 @@ def run_meta_analysis(
     prefer_tier3: bool = True,
     allow_missing_tier3: bool = False,
     report_knapp_hartung: bool = False,
+    report_re2: bool = False,
 ) -> dict[str, object]:
     _validate_thresholds(thresholds)
     _validate_cohort_count(thresholds, len(cohorts))
@@ -1379,7 +1406,7 @@ def run_meta_analysis(
         stage_dir = Path(stage_text)
         manifest = _run_meta_analysis_to_dir(
             cohorts, branch_files, stage_dir, thresholds, allow_missing_branches, prefer_tier3, allow_missing_tier3,
-            report_knapp_hartung,
+            report_knapp_hartung, report_re2,
         )
         _publish_meta_outputs(stage_dir, out_dir, branch_files.keys())
         return manifest
@@ -1394,18 +1421,19 @@ def _run_meta_analysis_to_dir(
     prefer_tier3: bool = True,
     allow_missing_tier3: bool = False,
     report_knapp_hartung: bool = False,
+    report_re2: bool = False,
 ) -> dict[str, object]:
     all_summaries: list[dict[str, object]] = []
     all_candidate_rows: list[dict[str, object]] = []
     warnings: list[str] = [warning for cohort in cohorts for warning in cohort.warnings]
     cohort_column_ids = _cohort_column_ids(cohorts)
-    fieldnames = _base_fieldnames(cohort_column_ids, report_knapp_hartung)
+    fieldnames = _base_fieldnames(cohort_column_ids, report_knapp_hartung, report_re2)
 
     for branch, filename in branch_files.items():
         _log(f"Running {branch} meta-analysis from {filename}...")
         rows, summary, branch_warnings = _analyze_branch(
             cohorts, cohort_column_ids, branch, filename, thresholds, allow_missing_branches, prefer_tier3, allow_missing_tier3,
-            report_knapp_hartung,
+            report_knapp_hartung, report_re2,
         )
         warnings.extend(branch_warnings)
         rows.sort(key=_sort_key)
@@ -1473,6 +1501,7 @@ def _run_meta_analysis_to_dir(
         "branches": branch_files,
         "tier3_primary_preferred": prefer_tier3,
         "knapp_hartung_reported": report_knapp_hartung,
+        "re2_reported": report_re2,
         "thresholds": thresholds.__dict__,
         "branch_summaries": all_summaries,
         "warnings": warnings,
@@ -1505,6 +1534,12 @@ def run_meta_cli(args) -> int:
     prefer_tier3 = bool(getattr(args, "tier3_primary", True))
     allow_missing_tier3 = bool(getattr(args, "allow_missing_tier3_primary", False))
     report_knapp_hartung = bool(getattr(args, "report_knapp_hartung", False))
+    report_re2 = bool(getattr(args, "report_re2", False))
+    if report_re2 and _re2_one is None:
+        raise RuntimeError(
+            "--report-re2 needs illumeta_re2.py, which is not importable from this install. "
+            "Refusing rather than silently omitting the columns the flag promises."
+        )
     global _USE_BACON
     _USE_BACON = bool(getattr(args, "use_bacon", False))
     if _USE_BACON:
@@ -1536,6 +1571,7 @@ def run_meta_cli(args) -> int:
         prefer_tier3=prefer_tier3,
         allow_missing_tier3=allow_missing_tier3,
         report_knapp_hartung=report_knapp_hartung,
+        report_re2=report_re2,
     )
     _log(f"Meta-analysis complete: {out_dir}")
     return 0

@@ -5576,6 +5576,8 @@ def main():
                              help="If a cohort's primary mode is tier3 but its *_Tier3_Primary_DMPs.csv is missing, fall back to the standard pooled table instead of failing (default: fail)")
     parser_meta.add_argument("--report-knapp-hartung", action="store_true",
                              help="Additionally report the Knapp-Hartung adjusted random-effects standard error, P-value, and FDR (random_se_hk / random_p_hk / random_fdr_hk), which refer the pooled estimate to t(k-1) instead of the normal. Recommended as a sensitivity check when few cohorts contribute, where the normal reference is anti-conservative. Does not change the pooled estimate, the core-candidate definition, or any existing column")
+    parser_meta.add_argument("--report-re2", action="store_true",
+                             help="Additionally report the Han-Eskin RE2 test (re2_stat / re2_p / re2_fdr), whose null is that the mean effect is zero AND there is no between-study heterogeneity. Rejecting it is a weaker claim than rejecting the classical null: it can follow from a mean effect, from heterogeneity, or from both. Its P-value uses the asymptotic chi-squared mixture, which Han and Eskin note is inaccurate for few studies, so it is a diagnostic and not a calibrated alternative to random_p. Does not change the pooled estimate or the core-candidate definition")
     parser_meta.add_argument("--use-bacon", action="store_true",
                              help="Pool the bacon-recalibrated per-cohort statistics (logFC.bacon / P.Value.bacon / t.bacon) instead of the raw limma columns, so the meta-analysis is built on empirically-null-calibrated effects (falls back to standard columns per cohort with a warning if bacon columns are absent)")
     parser_meta.add_argument("--min-cohorts", type=int, default=3,
@@ -5594,6 +5596,63 @@ def main():
                              help="Directional partial-conjunction r threshold (default: 3)")
     parser_meta.add_argument("--top-n", type=int, default=1000,
                              help="Number of top rows to export per branch (default: 1000)")
+
+    # Region Command
+    parser_regions = subparsers.add_parser(
+        "regions",
+        help="Region-level cross-cohort meta-analysis, calibrated against a whole-cohort sign-flipping null",
+    )
+    parser_regions.add_argument("result_dirs", nargs="*", help="Completed IlluMeta result directories")
+    parser_regions.add_argument("-m", "--manifest", type=str,
+                                help="TSV/CSV manifest with a result_dir/path column and optional cohort metadata")
+    parser_regions.add_argument("-o", "--output", type=str, default="region_analysis_results",
+                                help="Output directory (default: region_analysis_results)")
+    parser_regions.add_argument("--project-root", type=str, default=os.getcwd(),
+                                help="Base directory for relative result paths (default: current working directory)")
+    parser_regions.add_argument("--branches", type=str, default="minfi,sesame_strict,sesame_native",
+                                help="Comma-separated branches to analyze (default: minfi,sesame_strict,sesame_native)")
+    parser_regions.add_argument("--allow-missing-branches", action="store_true",
+                                help="Skip missing branch tables instead of failing")
+    parser_regions.add_argument("--allow-missing-summary", action="store_true",
+                                help="Include cohorts whose summary.json is missing/unreadable instead of failing")
+    parser_regions.add_argument("--no-tier3-primary", dest="tier3_primary", action="store_false",
+                                help="Always read the naive-pooled tables instead of each cohort's tier3 primary table")
+    parser_regions.set_defaults(tier3_primary=True)
+    parser_regions.add_argument("--allow-missing-tier3-primary", action="store_true",
+                                help="Fall back to the pooled table when a tier3 primary table is missing")
+    parser_regions.add_argument("--max-gap", type=int, default=500,
+                                help="Maximum base pairs between consecutive CpGs in one region (default: 500)")
+    parser_regions.add_argument("--seed-p", type=float, default=0.05,
+                                help="Pooled per-CpG P-value a CpG must pass to join a region (default: 0.05)")
+    parser_regions.add_argument("--min-cpgs", type=int, default=2,
+                                help="Minimum CpGs per region (default: 2). A one-CpG region is the single-CpG analysis renamed, so 1 is not accepted")
+    parser_regions.add_argument("--min-cohorts", type=int, default=3,
+                                help="Minimum cohorts required per CpG before it can join a region (default: 3)")
+    parser_regions.add_argument("--region-fdr", type=float, default=0.05,
+                                help="Empirical FDR cutoff for reported regions (default: 0.05)")
+    parser_regions.add_argument("--min-null-patterns", type=int, default=7,
+                                help="Refuse to run when fewer whole-cohort sign patterns exist than this (default: 7, i.e. at least 4 cohorts). The region statistic assumes independence between adjacent CpGs, so without enough null replicates there is no calibrated quantity to report")
+    parser_regions.add_argument("--max-null-patterns", type=int, default=127,
+                                help="Refuse to run when more sign patterns exist than this (default: 127, i.e. at most 8 cohorts). Every pattern re-pools every CpG, so the cost doubles with each added cohort")
+
+    # Import External Command
+    parser_import = subparsers.add_parser(
+        "import-external",
+        help="Convert another tool's per-cohort EWAS tables into IlluMeta meta-analysis inputs",
+        description=(
+            "Normalise per-cohort results produced outside IlluMeta -- ChAMP, RnBeads, meffil, "
+            "a hand-run limma fit, or a published supplementary table -- into the result-directory "
+            "layout that 'illumeta.py meta' reads, so the cross-cohort layer can be used without "
+            "re-running anyone's preprocessing. Writes one directory per cohort plus a ready-to-use "
+            "meta manifest."
+        ),
+    )
+    parser_import.add_argument("-m", "--manifest", type=str, required=True,
+                               help="TSV/CSV describing the external tables. Required columns: cohort, table, n_con, n_test, effect_scale (m|beta). Optional: branch, tool, tool_version, platform, tissue, label, include, and col_* overrides naming the source header for each field (col_cpg, col_effect, col_pvalue, col_se, col_t, col_delta_beta, col_gene, col_chr, col_pos, col_region, col_island_context)")
+    parser_import.add_argument("-o", "--output", type=str, default="external_meta_inputs",
+                               help="Directory to write converted cohort inputs into (default: external_meta_inputs)")
+    parser_import.add_argument("--project-root", type=str, default=os.getcwd(),
+                               help="Base directory for relative table paths (default: current working directory)")
 
     # Demo Command
     parser_demo = subparsers.add_parser(
@@ -5635,6 +5694,53 @@ def main():
         return
     if args.command == "search":
         sys.exit(run_search(args))
+    if args.command == "import-external":
+        # Same sys.path guard as the meta command: illumeta_external.py lives beside
+        # this file and PYTHONSAFEPATH=1 suppresses the implicit script-directory entry.
+        if BASE_DIR not in sys.path:
+            sys.path.insert(0, BASE_DIR)
+        try:
+            from pathlib import Path  # not imported at module scope in this file
+            from illumeta_external import run_import_external
+        except ImportError as exc:
+            log_err(f"[!] External-import module unavailable: {exc}")
+            sys.exit(1)
+        try:
+            run_import_external(
+                Path(args.manifest).expanduser(),
+                Path(args.output).expanduser(),
+                Path(args.project_root).expanduser(),
+                log=log,
+            )
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except Exception as exc:
+            # A conversion error is a data-contract error -- a missing SE column, mixed
+            # effect scales, a path typo -- and the message is the whole value of the
+            # command. A traceback would bury it.
+            log_err(f"[!] External import failed: {exc}")
+            sys.exit(1)
+        return
+
+    if args.command == "regions":
+        if args.min_cpgs < 2:
+            log_err("[!] --min-cpgs must be at least 2; a one-CpG region is the single-CpG analysis renamed.")
+            sys.exit(2)
+        try:
+            if BASE_DIR not in sys.path:
+                sys.path.insert(0, BASE_DIR)
+            from illumeta_region import run_regions_cli
+        except ImportError as exc:
+            log_err(f"[!] Region module unavailable: {exc}")
+            sys.exit(1)
+        try:
+            sys.exit(run_regions_cli(args))
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except Exception as exc:
+            log_err(f"[!] Region analysis failed: {exc}")
+            sys.exit(1)
+
     if args.command == "meta":
         try:
             # Ensure the module's own directory is importable even when
